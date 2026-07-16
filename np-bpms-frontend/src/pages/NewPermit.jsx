@@ -21,7 +21,7 @@ const NewPermit = () => {
     Object.keys(files).forEach(key => submitData.append(key, files[key]));
 
     try {
-      const response = await fetch("http://localhost:5000/api/permits/archive", {
+      const response = await fetch("http://192.168.242.218:5000/api/permits/archive", {
         method: "POST",
         body: submitData
       });
