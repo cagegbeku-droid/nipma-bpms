@@ -48,9 +48,9 @@ const NewPermit = () => {
         
         {/* Metadata Section */}
         <div>
-          <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">1. Permit Metadata</h2>
+          <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">1. Permit Data</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Original Permit Number</label><input type="text" name="permitNumber" value={formData.permitNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md" placeholder="e.g. NPDA-2015-001"/></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Original Permit Number</label><input type="text" name="permitNumber" value={formData.permitNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md" placeholder="e.g. NiPDA/DAWH/20/001"/></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label><input type="date" name="dateIssued" value={formData.dateIssued} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
           </div>
         </div>
@@ -90,7 +90,7 @@ const NewPermit = () => {
           </div>
         </div>
 
-        <button type="submit" className="w-full bg-blue-600 text-white font-semibold py-4 rounded-md hover:bg-blue-700 transition">Securely Save to Archives</button>
+        <button type="submit" className="w-full bg-blue-600 text-white font-semibold py-4 rounded-md hover:bg-blue-700 transition">Save to Archives</button>
       </form>
     </div>
   );
