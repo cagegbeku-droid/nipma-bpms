@@ -1,13 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const path = require('path');
 const { getPermitStats, getMonthlyStats, getPermits, archivePermit } = require('../controllers/permitController');
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
-});
+// THE MAGIC UPGRADE: Hold files in invisible RAM instead of saving to the hard drive!
+const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
 const archivalUploads = upload.fields([
@@ -18,7 +15,7 @@ const archivalUploads = upload.fields([
 ]);
 
 router.get('/stats', getPermitStats);
-router.get('/monthly-stats', getMonthlyStats); // <-- New Chart Route
+router.get('/monthly-stats', getMonthlyStats); 
 router.get('/', getPermits);
 router.post('/archive', archivalUploads, archivePermit);
 

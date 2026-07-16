@@ -1,4 +1,45 @@
 const db = require('../config/db');
+const { google } = require('googleapis');
+const stream = require('stream');
+const path = require('path');
+
+// 1. AUTHENTICATE WITH GOOGLE (The Master Key)
+const KEYFILEPATH = path.join(process.cwd(), 'google-credentials.json');
+const SCOPES = ['https://www.googleapis.com/auth/drive'];
+const auth = new google.auth.GoogleAuth({
+  keyFile: KEYFILEPATH,
+  scopes: SCOPES,
+});
+const driveService = google.drive({ version: 'v3', auth });
+
+// 2. THE CLOUD UPLOADER HELPER
+const uploadToDrive = async (fileObject) => {
+  if (!fileObject) return null;
+
+  // Turn the memory buffer into a readable data stream for Google
+  const bufferStream = new stream.PassThrough();
+  bufferStream.end(fileObject.buffer);
+
+  try {
+    const response = await driveService.files.create({
+      requestBody: {
+        name: Date.now() + '_' + fileObject.originalname,
+        parents: ['14ci4aw5WbtkbVb9-Gm7OaqP1z1WHjmWm'], // Your exact NiPMA Folder ID!
+      },
+      media: {
+        mimeType: fileObject.mimetype,
+        body: bufferStream,
+      },
+      // Ask Google to return the viewable web link!
+      fields: 'id, webViewLink', 
+    });
+    
+    return response.data.webViewLink; // Returns a secure "https://drive..." URL
+  } catch (error) {
+    console.error('Error uploading to Drive:', error);
+    return null;
+  }
+};
 
 const getPermitStats = async (req, res) => {
   try {
@@ -9,10 +50,8 @@ const getPermitStats = async (req, res) => {
   }
 };
 
-// --- NEW: Analytics logic for the Dashboard Chart ---
 const getMonthlyStats = async (req, res) => {
   try {
-    // Groups permits by the month and year they were archived
     const query = `
       SELECT strftime('%m', archived_at) as month_num,
              strftime('%Y', archived_at) as year,
@@ -60,7 +99,20 @@ const archivePermit = async (req, res) => {
   try {
     const { permitNumber, dateIssued, firstName, lastName, phone, plotNumber, community, buildingType } = req.body;
     const files = req.files || {};
-    const getFilePath = (fieldName) => files[fieldName] ? files[fieldName][0].path : null;
+
+    // 3. PARALLEL CLOUD UPLOADS
+    // This array holds the 8 potential file slots
+    const fileFields = ['certificate', 'drawings', 'sitePlan', 'permitForm', 'receipts', 'jacket', 'indenture', 'geoReference'];
+    const uploadedLinks = {};
+
+    // Fire off all uploads at the exact same time
+    await Promise.all(fileFields.map(async (field) => {
+      if (files[field] && files[field][0]) {
+        uploadedLinks[field] = await uploadToDrive(files[field][0]);
+      } else {
+        uploadedLinks[field] = null;
+      }
+    }));
 
     const [appResult] = await db.query(
       `INSERT INTO applicants (first_name, last_name, phone) VALUES (?, ?, ?)`, [firstName, lastName, phone]
@@ -77,14 +129,16 @@ const archivePermit = async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         permitNumber, appResult.insertId, propResult.insertId, dateIssued,
-        getFilePath('certificate'), getFilePath('drawings'), getFilePath('sitePlan'),
-        getFilePath('permitForm'), getFilePath('receipts'), getFilePath('jacket'),
-        getFilePath('indenture'), getFilePath('geoReference')
+        // Now we save the Google Drive links into the database!
+        uploadedLinks['certificate'], uploadedLinks['drawings'], uploadedLinks['sitePlan'],
+        uploadedLinks['permitForm'], uploadedLinks['receipts'], uploadedLinks['jacket'],
+        uploadedLinks['indenture'], uploadedLinks['geoReference']
       ]
     );
 
-    res.json({ success: true, message: 'Permit successfully archived!' });
+    res.json({ success: true, message: 'Permit successfully archived to Google Drive!' });
   } catch (error) {
+    console.error('Error archiving permit:', error);
     res.status(500).json({ success: false, message: 'Failed to archive permit' });
   }
 };
