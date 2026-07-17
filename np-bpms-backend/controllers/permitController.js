@@ -3,7 +3,7 @@ const { google } = require('googleapis');
 const stream = require('stream');
 const path = require('path');
 
-// 1. AUTHENTICATE WITH GOOGLE (The Master Key)
+// 1. AUTHENTICATE WITH GOOGLE
 const KEYFILEPATH = path.join(process.cwd(), 'google-credentials.json');
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const auth = new google.auth.GoogleAuth({
@@ -12,29 +12,48 @@ const auth = new google.auth.GoogleAuth({
 });
 const driveService = google.drive({ version: 'v3', auth });
 
-// 2. THE CLOUD UPLOADER HELPER
-const uploadToDrive = async (fileObject) => {
-  if (!fileObject) return null;
+const MASTER_FOLDER_ID = '14ci4aw5WbtkbVb9-Gm7OaqP1z1WHjmWm'; // NiPMA BPMS Archives
 
-  // Turn the memory buffer into a readable data stream for Google
+// 2. NEW: THE FOLDER CREATOR
+// This robot creates a new folder inside the master folder and returns its specific ID
+const createDriveFolder = async (folderName) => {
+  try {
+    const response = await driveService.files.create({
+      requestBody: {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [MASTER_FOLDER_ID], 
+      },
+      fields: 'id',
+    });
+    return response.data.id; // Returns the ID of the brand new folder
+  } catch (error) {
+    console.error('Error creating folder:', error);
+    return null;
+  }
+};
+
+// 3. THE CLOUD UPLOADER (Updated to accept a specific folder ID)
+const uploadToDrive = async (fileObject, targetFolderId) => {
+  if (!fileObject || !targetFolderId) return null;
+
   const bufferStream = new stream.PassThrough();
   bufferStream.end(fileObject.buffer);
 
   try {
     const response = await driveService.files.create({
       requestBody: {
-        name: Date.now() + '_' + fileObject.originalname,
-        parents: ['14ci4aw5WbtkbVb9-Gm7OaqP1z1WHjmWm'], // Your exact NiPMA Folder ID!
+        name: fileObject.originalname, // Keeps the original name (e.g., "site-plan.pdf")
+        parents: [targetFolderId],     // Shoots it into the applicant's specific folder!
       },
       media: {
         mimeType: fileObject.mimetype,
         body: bufferStream,
       },
-      // Ask Google to return the viewable web link!
       fields: 'id, webViewLink', 
     });
     
-    return response.data.webViewLink; // Returns a secure "https://drive..." URL
+    return response.data.webViewLink; 
   } catch (error) {
     console.error('Error uploading to Drive:', error);
     return null;
@@ -100,15 +119,22 @@ const archivePermit = async (req, res) => {
     const { permitNumber, dateIssued, firstName, lastName, phone, plotNumber, community, buildingType } = req.body;
     const files = req.files || {};
 
-    // 3. PARALLEL CLOUD UPLOADS
-    // This array holds the 8 potential file slots
+    // 4. CREATE THE APPLICANT'S FOLDER FIRST
+    const folderName = `Permit ${permitNumber} - ${firstName} ${lastName}`;
+    const applicantFolderId = await createDriveFolder(folderName);
+
+    if (!applicantFolderId) {
+      return res.status(500).json({ success: false, message: 'Failed to create Google Drive folder' });
+    }
+
+    // 5. UPLOAD ALL FILES INTO THE NEW FOLDER
     const fileFields = ['certificate', 'drawings', 'sitePlan', 'permitForm', 'receipts', 'jacket', 'indenture', 'geoReference'];
     const uploadedLinks = {};
 
-    // Fire off all uploads at the exact same time
     await Promise.all(fileFields.map(async (field) => {
       if (files[field] && files[field][0]) {
-        uploadedLinks[field] = await uploadToDrive(files[field][0]);
+        // Pass the new specific folder ID to the uploader
+        uploadedLinks[field] = await uploadToDrive(files[field][0], applicantFolderId);
       } else {
         uploadedLinks[field] = null;
       }
@@ -129,14 +155,13 @@ const archivePermit = async (req, res) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         permitNumber, appResult.insertId, propResult.insertId, dateIssued,
-        // Now we save the Google Drive links into the database!
         uploadedLinks['certificate'], uploadedLinks['drawings'], uploadedLinks['sitePlan'],
         uploadedLinks['permitForm'], uploadedLinks['receipts'], uploadedLinks['jacket'],
         uploadedLinks['indenture'], uploadedLinks['geoReference']
       ]
     );
 
-    res.json({ success: true, message: 'Permit successfully archived to Google Drive!' });
+    res.json({ success: true, message: 'Permit and folder successfully created in Google Drive!' });
   } catch (error) {
     console.error('Error archiving permit:', error);
     res.status(500).json({ success: false, message: 'Failed to archive permit' });
