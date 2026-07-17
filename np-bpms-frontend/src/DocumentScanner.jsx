@@ -1,5 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
 import Webcam from 'react-webcam';
+import { jsPDF } from 'jspdf';
 
 const styles = {
   overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
@@ -14,20 +15,37 @@ const styles = {
 const DocumentScanner = ({ onSave, onCancel, documentTitle }) => {
   const webcamRef = useRef(null);
   const [capturedImage, setCapturedImage] = useState(null);
+  const [isConverting, setIsConverting] = useState(false);
 
   const capture = useCallback(() => {
     const imageSrc = webcamRef.current.getScreenshot();
     setCapturedImage(imageSrc);
   }, [webcamRef]);
 
-  const confirmAndSave = async () => {
-    const res = await fetch(capturedImage);
-    const blob = await res.blob();
+  const confirmAndSaveToPDF = () => {
+    setIsConverting(true);
     
-    const file = new File([blob], `${documentTitle.replace(/\s+/g, '_')}_Scan.jpg`, { 
-        type: "image/jpeg" 
+    // Create an A4 PDF
+    const pdf = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4"
+    });
+
+    const imgProps = pdf.getImageProperties(capturedImage);
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+    // Place image on the PDF
+    pdf.addImage(capturedImage, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+
+    // Convert to a File object for the backend
+    const pdfBlob = pdf.output('blob');
+    const file = new File([pdfBlob], `${documentTitle.replace(/\s+/g, '_')}_Scan.pdf`, { 
+        type: "application/pdf" 
     });
     
+    setIsConverting(false);
     onSave(file);
   };
 
@@ -54,8 +72,10 @@ const DocumentScanner = ({ onSave, onCancel, documentTitle }) => {
           <div>
             <img src={capturedImage} alt="Scanned Document" style={styles.camera} />
             <div style={styles.buttonRow}>
-              <button type="button" onClick={() => setCapturedImage(null)} style={styles.cancelBtn}>Retake</button>
-              <button type="button" onClick={confirmAndSave} style={styles.saveBtn}>✅ Save Scan</button>
+              <button type="button" onClick={() => setCapturedImage(null)} style={styles.cancelBtn} disabled={isConverting}>Retake</button>
+              <button type="button" onClick={confirmAndSaveToPDF} style={styles.saveBtn} disabled={isConverting}>
+                {isConverting ? 'Converting...' : '✅ Convert to PDF & Save'}
+              </button>
             </div>
           </div>
         )}
