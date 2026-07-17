@@ -163,7 +163,7 @@ const NewPermit = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-lg border border-gray-200">
             {renderDocumentUpload("Permit Certificate", "certificate", false)}
             {renderDocumentUpload("Architectural Drawings (Max 100)", "drawings", true)}
-            {renderDocumentUpload("Indenture", "indenture", false)}
+            {renderDocumentUpload("Indenture", "indenture", true)}
             {renderDocumentUpload("Receipts", "receipts", true)}
             {renderDocumentUpload("Geo Reference", "geoReference", false)}
           </div>
