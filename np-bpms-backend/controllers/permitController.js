@@ -47,7 +47,7 @@ const archivePermit = async (req, res) => {
         // Save the first link for single files, and join arrays with commas for multiple files
         certificate_link: certificateLinks[0] || null,
         drawings_links: drawingLinks.join(', ') || null,
-        indenture_link: indentureLinks[0] || null,
+        indenture_link: indentureLinks.join(', ') || null,
         receipts_links: receiptLinks.join(', ') || null,
         georef_link: geoRefLinks[0] || null
       }]);

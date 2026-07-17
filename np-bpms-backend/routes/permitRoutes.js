@@ -11,7 +11,7 @@ const upload = multer({ storage: storage });
 const archivalUploads = upload.fields([
   { name: 'certificate', maxCount: 1 }, 
   { name: 'drawings', maxCount: 100 },    // Now accepts up to 100 pages at once
-  { name: 'indenture', maxCount: 1 }, 
+  { name: 'indenture', maxCount: 20 },    // Now accepts up to 20 pages at once
   { name: 'receipts', maxCount: 10 }, 
   { name: 'geoReference', maxCount: 1 }
 ]);
