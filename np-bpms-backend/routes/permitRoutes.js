@@ -7,12 +7,12 @@ const { getPermitStats, getMonthlyStats, getPermits, archivePermit } = require('
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// ENTERPRISE UPGRADE: Swap sitePlan for indenture, increase array limits
+// ENTERPRISE UPGRADE: Drawings limit increased to 100 pages
 const archivalUploads = upload.fields([
   { name: 'certificate', maxCount: 1 }, 
-  { name: 'drawings', maxCount: 20 },     // Array: Up to 20 drawings
-  { name: 'indenture', maxCount: 1 },     // Replaced sitePlan
-  { name: 'receipts', maxCount: 10 },     // Array: Up to 10 receipts
+  { name: 'drawings', maxCount: 100 },    // Now accepts up to 100 pages at once
+  { name: 'indenture', maxCount: 1 }, 
+  { name: 'receipts', maxCount: 10 }, 
   { name: 'geoReference', maxCount: 1 }
 ]);
 
