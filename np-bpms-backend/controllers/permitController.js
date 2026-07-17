@@ -3,7 +3,6 @@ const { google } = require('googleapis');
 const stream = require('stream');
 const path = require('path');
 
-// 1. AUTHENTICATE WITH GOOGLE
 const KEYFILEPATH = path.join(process.cwd(), 'google-credentials.json');
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 const auth = new google.auth.GoogleAuth({
@@ -12,10 +11,8 @@ const auth = new google.auth.GoogleAuth({
 });
 const driveService = google.drive({ version: 'v3', auth });
 
-const MASTER_FOLDER_ID = '14ci4aw5WbtkbVb9-Gm7OaqP1z1WHjmWm'; // NiPMA BPMS Archives
+const MASTER_FOLDER_ID = '14ci4aw5WbtkbVb9-Gm7OaqP1z1WHjmWm';
 
-// 2. NEW: THE FOLDER CREATOR
-// This robot creates a new folder inside the master folder and returns its specific ID
 const createDriveFolder = async (folderName) => {
   try {
     const response = await driveService.files.create({
@@ -26,25 +23,22 @@ const createDriveFolder = async (folderName) => {
       },
       fields: 'id',
     });
-    return response.data.id; // Returns the ID of the brand new folder
+    return response.data.id;
   } catch (error) {
     console.error('Error creating folder:', error);
     return null;
   }
 };
 
-// 3. THE CLOUD UPLOADER (Updated to accept a specific folder ID)
 const uploadToDrive = async (fileObject, targetFolderId) => {
   if (!fileObject || !targetFolderId) return null;
-
   const bufferStream = new stream.PassThrough();
   bufferStream.end(fileObject.buffer);
-
   try {
     const response = await driveService.files.create({
       requestBody: {
-        name: fileObject.originalname, // Keeps the original name (e.g., "site-plan.pdf")
-        parents: [targetFolderId],     // Shoots it into the applicant's specific folder!
+        name: fileObject.originalname, 
+        parents: [targetFolderId],     
       },
       media: {
         mimeType: fileObject.mimetype,
@@ -52,7 +46,6 @@ const uploadToDrive = async (fileObject, targetFolderId) => {
       },
       fields: 'id, webViewLink', 
     });
-    
     return response.data.webViewLink; 
   } catch (error) {
     console.error('Error uploading to Drive:', error);
@@ -63,7 +56,7 @@ const uploadToDrive = async (fileObject, targetFolderId) => {
 const getPermitStats = async (req, res) => {
   try {
     const [rows] = await db.query(`SELECT COUNT(*) as total FROM permits`);
-    res.json({ success: true, data: { total_archived: rows[0].total } });
+    res.json({ success: true, data: { total_archived: parseInt(rows[0].total, 10) } });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
@@ -72,8 +65,8 @@ const getPermitStats = async (req, res) => {
 const getMonthlyStats = async (req, res) => {
   try {
     const query = `
-      SELECT strftime('%m', archived_at) as month_num,
-             strftime('%Y', archived_at) as year,
+      SELECT TO_CHAR(archived_at, 'MM') as month_num,
+             TO_CHAR(archived_at, 'YYYY') as year,
              COUNT(*) as count 
       FROM permits 
       GROUP BY year, month_num 
@@ -84,7 +77,7 @@ const getMonthlyStats = async (req, res) => {
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const formattedData = rows.map(r => ({
       month: monthNames[parseInt(r.month_num, 10) - 1] + ' ' + r.year,
-      Archived: r.count
+      Archived: parseInt(r.count, 10)
     }));
 
     res.json({ success: true, data: formattedData });
@@ -119,7 +112,6 @@ const archivePermit = async (req, res) => {
     const { permitNumber, dateIssued, firstName, lastName, phone, plotNumber, community, buildingType } = req.body;
     const files = req.files || {};
 
-    // 4. CREATE THE APPLICANT'S FOLDER FIRST
     const folderName = `Permit ${permitNumber} - ${firstName} ${lastName}`;
     const applicantFolderId = await createDriveFolder(folderName);
 
@@ -127,41 +119,45 @@ const archivePermit = async (req, res) => {
       return res.status(500).json({ success: false, message: 'Failed to create Google Drive folder' });
     }
 
-    // 5. UPLOAD ALL FILES INTO THE NEW FOLDER
     const fileFields = ['certificate', 'drawings', 'sitePlan', 'permitForm', 'receipts', 'jacket', 'indenture', 'geoReference'];
     const uploadedLinks = {};
 
     await Promise.all(fileFields.map(async (field) => {
       if (files[field] && files[field][0]) {
-        // Pass the new specific folder ID to the uploader
         uploadedLinks[field] = await uploadToDrive(files[field][0], applicantFolderId);
       } else {
         uploadedLinks[field] = null;
       }
     }));
 
+    // POSTGRESQL UPDATE: Changed '?' to '$1' and added 'RETURNING id'
     const [appResult] = await db.query(
-      `INSERT INTO applicants (first_name, last_name, phone) VALUES (?, ?, ?)`, [firstName, lastName, phone]
+      `INSERT INTO applicants (first_name, last_name, phone) VALUES ($1, $2, $3) RETURNING id`, 
+      [firstName, lastName, phone]
     );
+    const applicantId = appResult[0].id;
+
     const [propResult] = await db.query(
-      `INSERT INTO properties (plot_number, community, building_type) VALUES (?, ?, ?)`, [plotNumber, community, buildingType]
+      `INSERT INTO properties (plot_number, community, building_type) VALUES ($1, $2, $3) RETURNING id`, 
+      [plotNumber, community, buildingType]
     );
+    const propertyId = propResult[0].id;
 
     await db.query(
       `INSERT INTO permits (
         permit_number, applicant_id, property_id, date_issued,
         file_permit_certificate, file_architectural_drawings, file_site_plan, 
         file_permit_form, file_receipts, file_jacket, file_indenture, file_geo_reference
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
-        permitNumber, appResult.insertId, propResult.insertId, dateIssued,
+        permitNumber, applicantId, propertyId, dateIssued,
         uploadedLinks['certificate'], uploadedLinks['drawings'], uploadedLinks['sitePlan'],
         uploadedLinks['permitForm'], uploadedLinks['receipts'], uploadedLinks['jacket'],
         uploadedLinks['indenture'], uploadedLinks['geoReference']
       ]
     );
 
-    res.json({ success: true, message: 'Permit and folder successfully created in Google Drive!' });
+    res.json({ success: true, message: 'Permit successfully created in Cloud Database & Google Drive!' });
   } catch (error) {
     console.error('Error archiving permit:', error);
     res.status(500).json({ success: false, message: 'Failed to archive permit' });
