@@ -10,7 +10,7 @@ const PermitList = () => {
   useEffect(() => {
     const fetchPermits = async () => {
       try {
-        const response = await fetch("http://192.168.242.218:5000/api/permits");
+        const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits");
         const data = await response.json();
         if (data.success) {
           setPermits(data.data);
@@ -26,7 +26,7 @@ const PermitList = () => {
 
   const getFileUrl = (filePath) => {
     if (!filePath) return null;
-    return "http://192.168.242.218:5000/" + filePath.replace(/\\/g, '/');
+    return "https://nipma-bpms-backend.onrender.com/" + filePath.replace(/\\/g, '/');
   };
 
   const documentTypes = [

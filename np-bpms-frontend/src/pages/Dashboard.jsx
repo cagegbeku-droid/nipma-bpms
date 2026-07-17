@@ -12,8 +12,8 @@ const Dashboard = () => {
     const fetchDashboardData = async () => {
       try {
         const [statsRes, chartRes] = await Promise.all([
-          fetch("http://192.168.242.218:5000/api/permits/stats"),
-          fetch("http://192.168.242.218:5000/api/permits/monthly-stats")
+          fetch("https://nipma-bpms-backend.onrender.com/api/permits/stats"),
+          fetch("https://nipma-bpms-backend.onrender.com/api/permits/monthly-stats")
         ]);
         
         const statsData = await statsRes.json();
