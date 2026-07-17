@@ -1,38 +1,65 @@
+// ==========================================
+// 1. KEEP YOUR GOOGLE DRIVE & SUPABASE SETUP HERE
+// (Do not delete your require('supabase') or google auth stuff)
+// ==========================================
+
+// ==========================================
+// 2. THE FETCH FUNCTIONS (Restored)
+// ==========================================
+const getPermits = async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('permits').select('*').order('id', { ascending: false });
+    if (error) throw error;
+    res.status(200).json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch permits" });
+  }
+};
+
+const getPermitStats = async (req, res) => {
+  try {
+    const { count, error } = await supabase.from('permits').select('*', { count: 'exact', head: true });
+    if (error) throw error;
+    res.status(200).json({ success: true, total: count });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch stats" });
+  }
+};
+
+const getMonthlyStats = async (req, res) => {
+  // Placeholder for monthly stats logic
+  res.status(200).json({ success: true, data: [] });
+};
+
+// ==========================================
+// 3. YOUR UPGRADED ARCHIVE FUNCTION
+// ==========================================
 const archivePermit = async (req, res) => {
   try {
-    // 1. Extract the text data from the form
     const { permitNumber, dateIssued, firstName, lastName, phone, plotNumber, community, buildingType } = req.body;
 
-    // --- GOOGLE DRIVE LOGIC ---
-    
-    // 2. Create the master folder for this specific permit in Google Drive
     const folderName = `${permitNumber.replace(/\//g, '_')} - ${lastName}`;
-    // NOTE: Replace 'createGoogleDriveFolder' and 'uploadFileToDrive' with your exact function names
+    
+    // NOTE: Make sure these match your actual function names at the top of the file!
     const permitFolderId = await createGoogleDriveFolder(folderName); 
 
-    // 3. Helper function to upload arrays of files into that folder
     const processAndUpload = async (fileArray) => {
       if (!fileArray || fileArray.length === 0) return [];
       const uploadedLinks = [];
       
       for (const file of fileArray) {
-        // Uploads the file to Google Drive and grabs the view link
         const link = await uploadFileToDrive(file, permitFolderId);
         uploadedLinks.push(link);
       }
       return uploadedLinks;
     };
 
-    // 4. Safely loop through and upload every file, whether it's 1 or 20!
     const certificateLinks = await processAndUpload(req.files['certificate']);
     const drawingLinks = await processAndUpload(req.files['drawings']);
     const indentureLinks = await processAndUpload(req.files['indenture']);
     const receiptLinks = await processAndUpload(req.files['receipts']);
     const geoRefLinks = await processAndUpload(req.files['geoReference']);
 
-    // --- SUPABASE LOGIC ---
-
-    // 5. Save the text data AND the Google Drive links to your Supabase database
     const { data, error } = await supabase
       .from('permits')
       .insert([{
@@ -44,7 +71,6 @@ const archivePermit = async (req, res) => {
         plot_number: plotNumber,
         community: community,
         building_type: buildingType,
-        // Save the first link for single files, and join arrays with commas for multiple files
         certificate_link: certificateLinks[0] || null,
         drawings_links: drawingLinks.join(', ') || null,
         indenture_link: indentureLinks.join(', ') || null,
@@ -54,11 +80,20 @@ const archivePermit = async (req, res) => {
 
     if (error) throw error;
 
-    // 6. Tell the frontend it was a complete success!
     res.status(200).json({ success: true, message: "Archived successfully" });
 
   } catch (error) {
     console.error("Archive Error:", error);
     res.status(500).json({ success: false, message: "Failed to archive permit" });
   }
+};
+
+// ==========================================
+// 4. THE CRITICAL EXPORT BLOCK (Do not delete!)
+// ==========================================
+module.exports = {
+  archivePermit,
+  getPermits,
+  getPermitStats,
+  getMonthlyStats
 };
