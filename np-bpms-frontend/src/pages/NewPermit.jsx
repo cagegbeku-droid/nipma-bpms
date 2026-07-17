@@ -114,28 +114,12 @@ const NewPermit = () => {
               {files.sitePlan && <p className="text-sm text-green-600 mt-1 font-bold">✓ Attached: {files.sitePlan.name}</p>}
             </div>
 
-            {/* Permit Form */}
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Permit Form</label>
-              <input type="file" name="permitForm" onChange={handleFileChange} className="w-full text-sm text-gray-500 mb-2" />
-              <button type="button" onClick={() => { setCurrentScanField('permitForm'); setIsScanning(true); }} className="text-sm bg-blue-100 text-blue-700 font-semibold py-1 px-3 rounded-full hover:bg-blue-200">📷 Scan with Camera</button>
-              {files.permitForm && <p className="text-sm text-green-600 mt-1 font-bold">✓ Attached: {files.permitForm.name}</p>}
-            </div>
-
             {/* Receipts */}
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-1">Receipts</label>
               <input type="file" name="receipts" onChange={handleFileChange} className="w-full text-sm text-gray-500 mb-2" />
               <button type="button" onClick={() => { setCurrentScanField('receipts'); setIsScanning(true); }} className="text-sm bg-blue-100 text-blue-700 font-semibold py-1 px-3 rounded-full hover:bg-blue-200">📷 Scan with Camera</button>
               {files.receipts && <p className="text-sm text-green-600 mt-1 font-bold">✓ Attached: {files.receipts.name}</p>}
-            </div>
-
-            {/* Jacket */}
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1">Jacket File</label>
-              <input type="file" name="jacket" onChange={handleFileChange} className="w-full text-sm text-gray-500 mb-2" />
-              <button type="button" onClick={() => { setCurrentScanField('jacket'); setIsScanning(true); }} className="text-sm bg-blue-100 text-blue-700 font-semibold py-1 px-3 rounded-full hover:bg-blue-200">📷 Scan with Camera</button>
-              {files.jacket && <p className="text-sm text-green-600 mt-1 font-bold">✓ Attached: {files.jacket.name}</p>}
             </div>
 
             {/* Indenture */}
