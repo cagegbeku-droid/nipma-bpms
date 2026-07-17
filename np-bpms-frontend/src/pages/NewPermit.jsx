@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import DocumentScanner from './DocumentScanner';
+import DocumentScanner from '../DocumentScanner';
 
 const NewPermit = () => {
   const [formData, setFormData] = useState({
