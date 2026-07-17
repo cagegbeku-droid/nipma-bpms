@@ -6,9 +6,9 @@ const NewPermit = () => {
     permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', plotNumber: '', community: '', buildingType: 'Residential'
   });
   
-  // State for files is now an object of arrays, allowing multiple files per category
+  // CRITICAL FIX: "indenture" is perfectly initialized here as an empty array
   const [files, setFiles] = useState({
-    certificate: [], drawings: [], sitePlan: [], receipts: [], geoReference: []
+    certificate: [], drawings: [], indenture: [], receipts: [], geoReference: []
   });
   
   const [message, setMessage] = useState('');
@@ -19,18 +19,19 @@ const NewPermit = () => {
 
   const handleTextChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
-  // Handle traditional file uploads (supports multiple)
   const handleFileChange = (e) => {
     const fieldName = e.target.name;
     const newFiles = Array.from(e.target.files);
     
+    // Fallback safety check to prevent crashes
+    if (!files[fieldName]) return; 
+
     setFiles(prev => ({
       ...prev,
       [fieldName]: [...prev[fieldName], ...newFiles]
     }));
   };
 
-  // Handle saving the PDF from the scanner (stacks them if multiple are scanned)
   const handleScanSave = (file) => {
     setFiles(prev => ({
       ...prev,
@@ -40,7 +41,6 @@ const NewPermit = () => {
     setCurrentScanField(null);
   };
 
-  // Allow staff to remove a file if they made a mistake
   const removeFile = (fieldName, indexToRemove) => {
     setFiles(prev => ({
       ...prev,
@@ -55,7 +55,6 @@ const NewPermit = () => {
     const submitData = new FormData();
     Object.keys(formData).forEach(key => submitData.append(key, formData[key]));
     
-    // Append every file in every array to the FormData
     Object.keys(files).forEach(key => {
       files[key].forEach(file => {
         submitData.append(key, file);
@@ -71,7 +70,7 @@ const NewPermit = () => {
       if (data.success) {
         setMessage("Success! Record and all documents archived securely.");
         setFormData({ permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', plotNumber: '', community: '', buildingType: 'Residential' });
-        setFiles({ certificate: [], drawings: [], sitePlan: [], receipts: [], geoReference: [] });
+        setFiles({ certificate: [], drawings: [], indenture: [], receipts: [], geoReference: [] });
       } else {
         setMessage("Failed to archive record.");
       }
@@ -80,46 +79,47 @@ const NewPermit = () => {
     }
   };
 
-  // Helper function to render the Upload/Scan UI for each section
-  const renderDocumentUpload = (label, fieldName, allowMultiple = false) => (
-    <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-      <label className="block text-sm font-bold text-gray-800 mb-3">{label}</label>
-      
-      <div className="flex space-x-3 mb-3">
-        {/* Custom Upload Button hiding the default HTML input */}
-        <label className="cursor-pointer bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-200 transition text-sm flex items-center">
-          <span>📁 Upload {allowMultiple ? 'Files' : 'File'}</span>
-          <input 
-            type="file" 
-            name={fieldName} 
-            multiple={allowMultiple} 
-            onChange={handleFileChange} 
-            className="hidden" 
-          />
-        </label>
+  const renderDocumentUpload = (label, fieldName, allowMultiple = false) => {
+    // Safety check to prevent the white screen crash if a field name is mismatched
+    const currentFiles = files[fieldName] || []; 
 
-        {/* Scan Button */}
-        <button 
-          type="button" 
-          onClick={() => { setCurrentScanField(fieldName); setIsScanning(true); }} 
-          className="bg-blue-50 text-blue-700 font-semibold py-2 px-4 rounded-md hover:bg-blue-100 transition text-sm flex items-center">
-          📷 Scan {allowMultiple ? 'Page' : 'Document'}
-        </button>
-      </div>
+    return (
+      <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+        <label className="block text-sm font-bold text-gray-800 mb-3">{label}</label>
+        
+        <div className="flex space-x-3 mb-3">
+          <label className="cursor-pointer bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-200 transition text-sm flex items-center">
+            <span>📁 Upload {allowMultiple ? 'Files' : 'File'}</span>
+            <input 
+              type="file" 
+              name={fieldName} 
+              multiple={allowMultiple} 
+              onChange={handleFileChange} 
+              className="hidden" 
+            />
+          </label>
 
-      {/* List out the attached files with a delete option */}
-      {files[fieldName].length > 0 && (
-        <div className="mt-2 space-y-1">
-          {files[fieldName].map((file, index) => (
-            <div key={index} className="flex justify-between items-center bg-green-50 p-2 rounded text-sm text-green-800">
-              <span className="truncate pr-2">✓ {file.name}</span>
-              <button type="button" onClick={() => removeFile(fieldName, index)} className="text-red-500 font-bold px-2 hover:bg-red-100 rounded">X</button>
-            </div>
-          ))}
+          <button 
+            type="button" 
+            onClick={() => { setCurrentScanField(fieldName); setIsScanning(true); }} 
+            className="bg-blue-50 text-blue-700 font-semibold py-2 px-4 rounded-md hover:bg-blue-100 transition text-sm flex items-center">
+            📷 Scan {allowMultiple ? 'Page' : 'Document'}
+          </button>
         </div>
-      )}
-    </div>
-  );
+
+        {currentFiles.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {currentFiles.map((file, index) => (
+              <div key={index} className="flex justify-between items-center bg-green-50 p-2 rounded text-sm text-green-800">
+                <span className="truncate pr-2">✓ {file.name}</span>
+                <button type="button" onClick={() => removeFile(fieldName, index)} className="text-red-500 font-bold px-2 hover:bg-red-100 rounded">X</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -162,9 +162,9 @@ const NewPermit = () => {
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">3. Document Vault</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-lg border border-gray-200">
             {renderDocumentUpload("Permit Certificate", "certificate", false)}
-            {renderDocumentUpload("Architectural Drawings (Multiple Pages)", "drawings", true)}
-            {renderDocumentUpload("Indenture", false)}
-            {renderDocumentUpload("Receipts (Multiple)", "receipts", true)}
+            {renderDocumentUpload("Architectural Drawings (Max 100)", "drawings", true)}
+            {renderDocumentUpload("Indenture", "indenture", false)}
+            {renderDocumentUpload("Receipts", "receipts", true)}
             {renderDocumentUpload("Geo Reference", "geoReference", false)}
           </div>
         </div>
