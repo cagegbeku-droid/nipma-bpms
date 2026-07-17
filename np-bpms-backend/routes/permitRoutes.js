@@ -7,11 +7,13 @@ const { getPermitStats, getMonthlyStats, getPermits, archivePermit } = require('
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
+// ENTERPRISE UPGRADE: Swap sitePlan for indenture, increase array limits
 const archivalUploads = upload.fields([
-  { name: 'certificate', maxCount: 1 }, { name: 'drawings', maxCount: 1 },
-  { name: 'sitePlan', maxCount: 1 }, { name: 'permitForm', maxCount: 1 },
-  { name: 'receipts', maxCount: 1 }, { name: 'jacket', maxCount: 1 },
-  { name: 'indenture', maxCount: 1 }, { name: 'geoReference', maxCount: 1 }
+  { name: 'certificate', maxCount: 1 }, 
+  { name: 'drawings', maxCount: 20 },     // Array: Up to 20 drawings
+  { name: 'indenture', maxCount: 1 },     // Replaced sitePlan
+  { name: 'receipts', maxCount: 10 },     // Array: Up to 10 receipts
+  { name: 'geoReference', maxCount: 1 }
 ]);
 
 router.get('/stats', getPermitStats);
