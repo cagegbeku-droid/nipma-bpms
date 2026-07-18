@@ -18,14 +18,20 @@ const getPermits = async (req, res) => {
 
 const getPermitStats = async (req, res) => {
   try {
-    const { count, error } = await supabase.from('permits').select('*', { count: 'exact', head: true });
+    // Bulletproof method: Just grab the IDs and count the array
+    const { data, error } = await supabase.from('permits').select('id');
+    
     if (error) throw error;
-    res.status(200).json({ success: true, total: count });
+    
+    // Return the length of the array as the total count
+    res.status(200).json({ success: true, total: data.length });
+    
   } catch (error) {
+    // ENTERPRISE UPGRADE: This prints the exact error to your Render dashboard!
+    console.error("Critical Stats Error:", error); 
     res.status(500).json({ success: false, message: "Failed to fetch stats" });
   }
 };
-
 const getMonthlyStats = async (req, res) => {
   // Placeholder for monthly stats logic
   res.status(200).json({ success: true, data: [] });
