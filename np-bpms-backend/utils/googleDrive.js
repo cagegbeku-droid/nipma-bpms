@@ -2,16 +2,20 @@ const { google } = require('googleapis');
 const { Readable } = require('stream');
 require('dotenv').config();
 
-// 1. Authenticate with Google Service Account
-const auth = new google.auth.GoogleAuth({
-  credentials: {
-    client_email: process.env.GOOGLE_CLIENT_EMAIL,
-    private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n')
-  },
-  scopes: ['https://www.googleapis.com/auth/drive.file']
+// 1. Authenticate with Google OAuth2 (This bypasses the 0-byte quota limit!)
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  "https://developers.google.com/oauthplayground"
+);
+
+// Hand the Refresh Token to the client so it can act on your behalf
+oauth2Client.setCredentials({ 
+  refresh_token: process.env.GOOGLE_REFRESH_TOKEN 
 });
 
-const drive = google.drive({ version: 'v3', auth });
+const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
 // This is the ID of the main folder where all permits will go
 const MAIN_VAULT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
