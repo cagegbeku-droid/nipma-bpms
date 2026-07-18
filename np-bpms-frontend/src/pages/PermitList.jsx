@@ -1,121 +1,143 @@
-
-import React, { useEffect, useState } from 'react';
-import { DocumentIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import React, { useState, useEffect } from 'react';
 
 const PermitList = () => {
   const [permits, setPermits] = useState([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchPermits = async () => {
       try {
         const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits");
         const data = await response.json();
+        
         if (data.success) {
           setPermits(data.data);
+        } else {
+          setError("Failed to load records from the database.");
         }
-      } catch (error) {
-        console.error("Failed to fetch permits", error);
+      } catch (err) {
+        setError("Server connection error. Please try again later.");
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
+
     fetchPermits();
   }, []);
 
-  const getFileUrl = (filePath) => {
-    if (!filePath) return null;
-    return "https://nipma-bpms-backend.onrender.com/" + filePath.replace(/\\/g, '/');
-  };
-
-  const documentTypes = [
-    { key: 'file_permit_certificate', label: 'Certificate' },
-    { key: 'file_architectural_drawings', label: 'Drawings' },
-    { key: 'file_site_plan', label: 'Site Plan' },
-    { key: 'file_permit_form', label: 'Permit Form' },
-    { key: 'file_receipts', label: 'Receipts' },
-    { key: 'file_jacket', label: 'Jacket' },
-    { key: 'file_indenture', label: 'Indenture' },
-    { key: 'file_geo_reference', label: 'Geo-Ref' }
-  ];
-
-  // --- SEARCH FILTERING LOGIC ---
-  const filteredPermits = permits.filter((permit) => {
-    const searchLower = searchTerm.toLowerCase();
-    const fullName = permit.first_name + " " + permit.last_name;
+  const filteredPermits = permits.filter(permit => {
+    const search = searchTerm.toLowerCase();
     return (
-      permit.permit_number.toLowerCase().includes(searchLower) ||
-      fullName.toLowerCase().includes(searchLower)
+      permit.permit_number?.toLowerCase().includes(search) ||
+      permit.first_name?.toLowerCase().includes(search) ||
+      permit.last_name?.toLowerCase().includes(search) ||
+      permit.phone?.includes(search)
     );
   });
 
+  const renderLinks = (linkString, label) => {
+    if (!linkString) return null;
+    
+    const links = linkString.split(',').map(link => link.trim());
+    
+    if (links.length === 1) {
+      return (
+        <a href={links[0]} target="_blank" rel="noopener noreferrer" className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline">
+          📄 {label}
+        </a>
+      );
+    }
+
+    return (
+      <div className="mb-1">
+        <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
+        <div className="flex flex-wrap gap-2 mt-1">
+          {links.map((link, index) => (
+            <a key={index} href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 text-sm hover:underline">
+              [Part {index + 1}]
+            </a>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="p-8">
+    <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-end mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Archival Registry</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Archive Vault Records</h1>
+          <p className="text-sm text-gray-500 mt-1">Search and retrieve historical building permits.</p>
+        </div>
         
-        {/* The Search Bar */}
-        <div className="relative w-72">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <MagnifyingGlassIcon className="h-5 w-5 text-gray-400" />
-          </div>
+        <div className="w-72">
           <input 
             type="text" 
-            placeholder="Search permit # or name..." 
+            placeholder="Search permit #, name, or phone..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
           />
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+      {error && <div className="bg-red-100 text-red-700 p-4 rounded-md mb-6">{error}</div>}
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="p-4 text-sm font-semibold text-gray-600 whitespace-nowrap">Permit #</th>
-                <th className="p-4 text-sm font-semibold text-gray-600">Applicant</th>
-                <th className="p-4 text-sm font-semibold text-gray-600">Plot & Type</th>
-                <th className="p-4 text-sm font-semibold text-gray-600 whitespace-nowrap">Date Issued</th>
-                <th className="p-4 text-sm font-semibold text-gray-600">Archived Documents Vault</th>
+              <tr className="bg-gray-50 text-gray-700 text-sm border-b border-gray-200">
+                <th className="p-4 font-semibold">Permit Info</th>
+                <th className="p-4 font-semibold">Applicant</th>
+                <th className="p-4 font-semibold">Property Details</th>
+                <th className="p-4 font-semibold">Archived Documents</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {loading ? (
-                <tr><td colSpan="5" className="p-4 text-center text-gray-500">Loading records...</td></tr>
+              
+              {isLoading ? (
+                <tr><td colSpan="4" className="p-8 text-center text-gray-500">Loading secure records...</td></tr>
               ) : filteredPermits.length === 0 ? (
-                <tr><td colSpan="5" className="p-4 text-center text-gray-500">No records match your search.</td></tr>
+                <tr><td colSpan="4" className="p-8 text-center text-gray-500">No records found matching your search.</td></tr>
               ) : (
-                // Render the FILTERED permits instead of all permits!
                 filteredPermits.map((permit) => (
-                  <tr key={permit.permit_number} className="hover:bg-gray-50 transition">
-                    <td className="p-4 text-sm font-medium text-blue-600 whitespace-nowrap">{permit.permit_number}</td>
-                    <td className="p-4 text-sm text-gray-600">{permit.first_name} {permit.last_name}</td>
-                    <td className="p-4 text-sm text-gray-600">{permit.plot_number} - {permit.building_type}</td>
-                    <td className="p-4 text-sm text-gray-600 whitespace-nowrap">{permit.date_issued}</td>
-                    <td className="p-4">
-                      <div className="flex flex-wrap gap-2">
-                        {documentTypes.map(doc => permit[doc.key] ? (
-                          <a 
-                            key={doc.key}
-                            href={getFileUrl(permit[doc.key])} 
-                            target="_blank" 
-                            rel="noreferrer"
-                            className="flex items-center text-blue-700 hover:text-white bg-blue-50 hover:bg-blue-600 border border-blue-200 px-2 py-1 rounded-md text-xs font-medium transition-colors duration-150"
-                          >
-                            <DocumentIcon className="h-3 w-3 mr-1" /> {doc.label}
-                          </a>
-                        ) : null)}
-                        {!documentTypes.some(doc => permit[doc.key]) && (
-                          <span className="text-xs text-gray-400 italic">No documents attached</span>
-                        )}
-                      </div>
+                  <tr key={permit.id} className="hover:bg-gray-50 transition">
+                    
+                    <td className="p-4 align-top">
+                      <div className="font-bold text-gray-900">{permit.permit_number}</div>
+                      <div className="text-sm text-gray-500">Issued: {permit.date_issued}</div>
                     </td>
+                    
+                    <td className="p-4 align-top">
+                      <div className="font-semibold text-gray-800">{permit.first_name} {permit.last_name}</div>
+                      <div className="text-sm text-gray-600">📞 {permit.phone}</div>
+                    </td>
+                    
+                    <td className="p-4 align-top">
+                      <div className="text-sm text-gray-800"><span className="font-semibold">Plot:</span> {permit.plot_number}</div>
+                      <div className="text-sm text-gray-800"><span className="font-semibold">Loc:</span> {permit.community}</div>
+                      <div className="text-xs inline-block bg-gray-200 text-gray-700 px-2 py-1 rounded mt-1">{permit.building_type}</div>
+                    </td>
+                    
+                    <td className="p-4 align-top bg-blue-50/30">
+                      {renderLinks(permit.certificate_link, "Certificate")}
+                      {renderLinks(permit.drawings_links, "Drawing")}
+                      {renderLinks(permit.indenture_link, "Indenture")}
+                      {renderLinks(permit.receipts_links, "Receipt")}
+                      {renderLinks(permit.georef_link, "GeoRef")}
+                      
+                      {(!permit.certificate_link && !permit.drawings_links && !permit.indenture_link && !permit.receipts_links && !permit.georef_link) && (
+                        <span className="text-sm text-gray-400 italic">No files attached</span>
+                      )}
+                    </td>
+                    
                   </tr>
                 ))
               )}
+
             </tbody>
           </table>
         </div>
