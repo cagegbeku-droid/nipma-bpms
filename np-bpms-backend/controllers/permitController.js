@@ -1,92 +1,180 @@
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 
-// Keep your Google Drive imports exactly as they are in your actual project
+// Google Drive utilities
 const { createGoogleDriveFolder, uploadFileToDrive } = require('../utils/googleDrive');
 
-// Re-establish the Supabase connection
+// Initialize the Supabase connection
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// ==========================================
+// 1. RELATIONAL FETCH FUNCTIONS
+// ==========================================
+const getPermits = async (req, res) => {
+  try {
+    // Supabase JOIN syntax to pull data from all 3 tables at once
+    const { data, error } = await supabase
+      .from('permits')
+      .select(`
+        *,
+        applicants ( first_name, last_name, phone ),
+        properties ( plot_number, community, building_type )
+      `)
+      .order('id', { ascending: false });
+
+    if (error) throw error;
+
+    // Flatten data structures so your React frontend remains cleanly decoupled
+    const formattedData = data.map(permit => ({
+      id: permit.id,
+      permit_number: permit.permit_number,
+      date_issued: permit.date_issued,
+      first_name: permit.applicants?.first_name,
+      last_name: permit.applicants?.last_name,
+      phone: permit.applicants?.phone,
+      plot_number: permit.properties?.plot_number,
+      community: permit.properties?.community,
+      building_type: permit.properties?.building_type,
+      
+      // Document mapping strings
+      certificate_link: permit.file_permit_certificate,
+      drawings_links: permit.file_architectural_drawings,
+      indenture_link: permit.file_indenture,
+      receipts_links: permit.file_receipts,
+      georef_link: permit.file_geo_reference,
+      
+      // Background status tracker for frontend loading state mapping
+      upload_status: permit.upload_status || 'pending'
+    }));
+
+    res.status(200).json({ success: true, data: formattedData });
+  } catch (error) {
+    console.error("Fetch Error:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch permits" });
+  }
+};
+
+const getPermitStats = async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('permits').select('id');
+    if (error) throw error;
+    res.status(200).json({ success: true, total: data.length });
+  } catch (error) {
+    console.error("Critical Stats Error:", error); 
+    res.status(500).json({ success: false, message: "Failed to fetch stats" });
+  }
+};
+
+const getMonthlyStats = async (req, res) => {
+  res.status(200).json({ success: true, data: [] });
+};
 
 // ==========================================
-// 2. THE 3-STEP RELAY ARCHIVE FUNCTION (Optimized with Promise.all)
+// 2. BACKGROUND WORKER (Tracks Process Pipeline state)
+// ==========================================
+const processFilesInBackground = async (files, permitId, permitNumber, lastName) => {
+  try {
+    console.log(`Starting background upload pipeline for Permit ID: ${permitId}`);
+    const folderName = `${permitNumber.replace(/\//g, '_')} - ${lastName}`;
+    const permitFolderId = await createGoogleDriveFolder(folderName); 
+
+    // Concurrent runner for deep nested sub-arrays (e.g., multiple receipts)
+    const processAndUpload = async (fileArray) => {
+      if (!fileArray || fileArray.length === 0) return [];
+      const uploadTasks = fileArray.map(file => uploadFileToDrive(file, permitFolderId));
+      return await Promise.all(uploadTasks);
+    };
+
+    // Level-2 Concurrent execution: Firing all 5 document pipelines over HTTP simultaneously
+    const [
+      certificateLinks, 
+      drawingLinks, 
+      indentureLinks, 
+      receiptLinks, 
+      geoRefLinks
+    ] = await Promise.all([
+      processAndUpload(files['certificate']),
+      processAndUpload(files['drawings']),
+      processAndUpload(files['indenture']),
+      processAndUpload(files['receipts']),
+      processAndUpload(files['geoReference'])
+    ]);
+
+    // Update targets on successful resolved promises
+    const { error: updateError } = await supabase
+      .from('permits')
+      .update({
+        file_permit_certificate: certificateLinks[0] || null,
+        file_architectural_drawings: drawingLinks.join(', ') || null,
+        file_indenture: indentureLinks.join(', ') || null,
+        file_receipts: receiptLinks.join(', ') || null,
+        file_geo_reference: geoRefLinks[0] || null,
+        upload_status: 'completed' 
+      })
+      .eq('id', permitId);
+
+    if (updateError) throw updateError;
+    console.log(`Background upload execution completed successfully for Permit ID: ${permitId}`);
+
+  } catch (error) {
+    console.error(`Background Processing Failed for Permit ID: ${permitId}. Gracefully falling back.`, error);
+    
+    // Explicit mutation tracking fallback to keep state errors visible inside the app context
+    await supabase
+      .from('permits')
+      .update({ upload_status: 'failed' })
+      .eq('id', permitId);
+  }
+};
+
+// ==========================================
+// 3. THE INSTANT ARCHIVE ROUTE HANDLE
 // ==========================================
 const archivePermit = async (req, res) => {
   try {
     const { permitNumber, dateIssued, firstName, lastName, phone, plotNumber, community, buildingType } = req.body;
 
-    // --- DRIVE UPLOAD LOGIC ---
-    const folderName = `${permitNumber.replace(/\//g, '_')} - ${lastName}`;
-    const permitFolderId = await createGoogleDriveFolder(folderName); 
-
-    // Helper to process arrays of files concurrently
-    const processAndUpload = async (fileArray) => {
-      if (!fileArray || fileArray.length === 0) return [];
-      
-      // We map the files to upload tasks, then run them all at once!
-      const uploadTasks = fileArray.map(file => uploadFileToDrive(file, permitFolderId));
-      const uploadedLinks = await Promise.all(uploadTasks);
-      return uploadedLinks;
-    };
-
-    // --- PARALLEL UPLOAD BATCHING ---
-    // Instead of awaiting these one by one, we fire them all simultaneously
-    const [
-      certificateLinks,
-      drawingLinks,
-      indentureLinks,
-      receiptLinks,
-      geoRefLinks
-    ] = await Promise.all([
-      processAndUpload(req.files['certificate']),
-      processAndUpload(req.files['drawings']),
-      processAndUpload(req.files['indenture']),
-      processAndUpload(req.files['receipts']),
-      processAndUpload(req.files['geoReference'])
-    ]);
-
-    // --- STEP 1: INSERT APPLICANT ---
+    // STEP 1: Fast sequence relational insertion (Applicant entity context)
     const { data: applicantData, error: applicantError } = await supabase
       .from('applicants')
       .insert([{ first_name: firstName, last_name: lastName, phone: phone }])
-      .select() // Grabs the newly generated ID
-      .single();
-    
+      .select().single();
     if (applicantError) throw applicantError;
 
-    // --- STEP 2: INSERT PROPERTY ---
+    // STEP 2: Fast sequence relational insertion (Property entity context)
     const { data: propertyData, error: propertyError } = await supabase
       .from('properties')
       .insert([{ plot_number: plotNumber, community: community, building_type: buildingType }])
-      .select() 
-      .single();
-    
+      .select().single();
     if (propertyError) throw propertyError;
 
-    // --- STEP 3: INSERT PERMIT (Tying it all together) ---
-    const { error: permitError } = await supabase
+    // STEP 3: Shell structural creation (Omits blocking links, seeds 'pending' tracking status)
+    const { data: permitData, error: permitError } = await supabase
       .from('permits')
       .insert([{
         permit_number: permitNumber,
         applicant_id: applicantData.id,
         property_id: propertyData.id,
         date_issued: dateIssued,
-        file_permit_certificate: certificateLinks[0] || null,
-        file_architectural_drawings: drawingLinks.join(', ') || null,
-        file_indenture: indentureLinks.join(', ') || null,
-        file_receipts: receiptLinks.join(', ') || null,
-        file_geo_reference: geoRefLinks[0] || null
-      }]);
-
+        upload_status: 'pending'
+      }])
+      .select().single(); 
     if (permitError) throw permitError;
 
-    res.status(200).json({ success: true, message: "Archived successfully across all tables" });
+    // STEP 4: Immediately offload HTTP network frame back to frontend consumer context
+    res.status(200).json({ 
+      success: true, 
+      message: "Permit record instantiated. Documents are archiving securely in the background." 
+    });
+
+    // STEP 5: Fire-and-forget hook deployment. No 'await' keeps thread non-blocking.
+    processFilesInBackground(req.files, permitData.id, permitNumber, lastName);
 
   } catch (error) {
-    console.error("Archive Error:", error);
-    res.status(500).json({ success: false, message: "Failed to archive permit" });
+    console.error("Fatal routing interception on Archive execution:", error);
+    res.status(500).json({ success: false, message: "Failed to construct initial permit archive structural record" });
   }
 };
 
