@@ -19,13 +19,16 @@ const drive = google.drive({ version: 'v3', auth: oauth2Client });
 // This is the ID of the main folder where all permits will go
 const MAIN_VAULT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
-// 2. Create a Subfolder for a specific permit
-const createGoogleDriveFolder = async (folderName) => {
+// 2. Create a Subfolder (either in the Main Vault, or inside another folder)
+const createGoogleDriveFolder = async (folderName, parentId = null) => {
   try {
+    // NEW: If a parentId is provided, nest it there. Otherwise, default to the Main Vault.
+    const targetParentId = parentId || MAIN_VAULT_FOLDER_ID;
+
     const fileMetadata = {
       name: folderName,
       mimeType: 'application/vnd.google-apps.folder',
-      parents: [MAIN_VAULT_FOLDER_ID]
+      parents: [targetParentId]
     };
 
     const folder = await drive.files.create({

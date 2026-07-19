@@ -72,22 +72,30 @@ const getMonthlyStats = async (req, res) => {
 };
 
 // ==========================================
-// 2. BACKGROUND WORKER (Tracks Process Pipeline state)
+// 2. BACKGROUND WORKER (Nested Folder Architecture)
 // ==========================================
 const processFilesInBackground = async (files, permitId, permitNumber, lastName) => {
   try {
     console.log(`Starting background upload pipeline for Permit ID: ${permitId}`);
-    const folderName = `${permitNumber.replace(/\//g, '_')} - ${lastName}`;
-    const permitFolderId = await createGoogleDriveFolder(folderName); 
+    
+    // 1. Create the Main Applicant Folder in the root vault
+    const mainFolderName = `${permitNumber.replace(/\//g, '_')} - ${lastName}`;
+    const mainFolderId = await createGoogleDriveFolder(mainFolderName); 
 
-    // Concurrent runner for deep nested sub-arrays (e.g., multiple receipts)
-    const processAndUpload = async (fileArray) => {
+    // 2. New Helper: Creates a subfolder and uploads files into it
+    const processAndUpload = async (fileArray, subFolderName) => {
+      // If the user didn't upload files for this category, skip it. No empty folders!
       if (!fileArray || fileArray.length === 0) return [];
-      const uploadTasks = fileArray.map(file => uploadFileToDrive(file, permitFolderId));
+      
+      // Create the specific subfolder INSIDE the main folder
+      const subFolderId = await createGoogleDriveFolder(subFolderName, mainFolderId);
+
+      // Upload the files to the new subfolder
+      const uploadTasks = fileArray.map(file => uploadFileToDrive(file, subFolderId));
       return await Promise.all(uploadTasks);
     };
 
-    // Level-2 Concurrent execution: Firing all 5 document pipelines over HTTP simultaneously
+    // 3. Fire all document pipelines simultaneously with custom folder names
     const [
       certificateLinks, 
       drawingLinks, 
@@ -95,14 +103,14 @@ const processFilesInBackground = async (files, permitId, permitNumber, lastName)
       receiptLinks, 
       geoRefLinks
     ] = await Promise.all([
-      processAndUpload(files['certificate']),
-      processAndUpload(files['drawings']),
-      processAndUpload(files['indenture']),
-      processAndUpload(files['receipts']),
-      processAndUpload(files['geoReference'])
+      processAndUpload(files['certificate'], '1. Permit Certificate'),
+      processAndUpload(files['drawings'], '2. Architectural Drawings'),
+      processAndUpload(files['indenture'], '3. Indenture Documents'),
+      processAndUpload(files['receipts'], '4. Receipts'),
+      processAndUpload(files['geoReference'], '5. Geo-Reference Data')
     ]);
 
-    // Update targets on successful resolved promises
+    // 4. Update the database with the links
     const { error: updateError } = await supabase
       .from('permits')
       .update({
