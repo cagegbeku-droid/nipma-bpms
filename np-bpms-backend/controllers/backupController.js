@@ -29,7 +29,14 @@ const triggerBackup = async (req, res) => {
     // 2. Save locally as a temporary file
     const dateString = new Date().toISOString().split('T')[0];
     const fileName = `NP_BPMS_DB_Backup_${dateString}.json`;
-    const filePath = path.join(__dirname, '..', 'uploads', fileName);
+    
+    // --> NEW: Create the uploads folder if Render forgot it
+    const uploadDir = path.join(__dirname, '..', 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    const filePath = path.join(uploadDir, fileName);
     fs.writeFileSync(filePath, JSON.stringify(backupData, null, 2));
 
     // 3. Upload to Drive
