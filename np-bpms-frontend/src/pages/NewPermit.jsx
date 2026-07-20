@@ -132,7 +132,7 @@ const NewPermit = () => {
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">1. Permit Data</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Permit Number</label><input type="text" name="permitNumber" value={formData.permitNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md" placeholder="e.g. NiPDA/DAWH/20/001"/></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Original Permit Number</label><input type="text" name="permitNumber" value={formData.permitNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md" placeholder="e.g. NiPDA/DAWH/20/001"/></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label><input type="date" name="dateIssued" value={formData.dateIssued} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
           </div>
         </div>
@@ -144,8 +144,8 @@ const NewPermit = () => {
             <div><label className="block text-sm font-medium text-gray-700 mb-1">First Name</label><input type="text" name="firstName" value={formData.firstName} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label><input type="text" name="lastName" value={formData.lastName} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="text" name="phone" value={formData.phone} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Address</label><input type="text" name="address" value={formData.address} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Location</label><input type="text" name="location" value={formData.location} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Plot Number</label><input type="text" name="plotNumber" value={formData.plotNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Community</label><input type="text" name="community" value={formData.community} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Building Type</label>
               <select name="buildingType" value={formData.buildingType} onChange={handleTextChange} className="w-full p-2 border rounded-md bg-white">
                 <option value="Residential">Residential</option>
