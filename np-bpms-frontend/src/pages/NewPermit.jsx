@@ -152,6 +152,10 @@ const NewPermit = () => {
                 <option value="Commercial">Commercial</option>
                 <option value="Industrial">Industrial</option>
                 <option value="Mixed-Use">Mixed-Use</option>
+                <option value="Warehouse">Warehouse</option>
+                <option value="Worship-Center">Worship-Center</option>
+                <option value="Educational-Facility">Educational-Facility</option>
+                <option value="Health-Facility">Health-Facility</option>
               </select>
             </div>
           </div>
