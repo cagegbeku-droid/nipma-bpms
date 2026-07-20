@@ -139,5 +139,29 @@ const archivePermit = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to construct initial permit archive structural record" });
   }
 };
+// ... existing code above ...
+
+// ==========================================
+// 4. DELETE PERMIT ROUTE
+// ==========================================
+const deletePermit = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Deletes the record from Supabase. 
+    // (The files remain in Google Drive as a tamper-proof backup)
+    const { error } = await supabase.from('permits').delete().eq('id', id);
+    
+    if (error) throw error;
+    
+    res.status(200).json({ success: true, message: "Permit record deleted successfully." });
+  } catch (error) {
+    console.error("Delete Error:", error);
+    res.status(500).json({ success: false, message: "Failed to delete permit record." });
+  }
+};
+
+// UPDATE YOUR EXPORTS TO INCLUDE deletePermit:
+module.exports = { archivePermit, getPermits, getPermitStats, getMonthlyStats, deletePermit };
 
 module.exports = { archivePermit, getPermits, getPermitStats, getMonthlyStats };
