@@ -1,19 +1,18 @@
 import React, { useState } from 'react';
-import DocumentScanner from '../DocumentScanner';
+import DocumentScanner from '../DocumentScanner'; // Assuming this path is correct for your setup
 
 const NewPermit = () => {
+  // Updated state for new text fields
   const [formData, setFormData] = useState({
-    permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', plotNumber: '', community: '', buildingType: 'Residential'
+    permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', address: '', location: ''
   });
   
-  // CRITICAL FIX: "indenture" is perfectly initialized here as an empty array
+  // Updated state replacing indenture with permitForm
   const [files, setFiles] = useState({
-    certificate: [], drawings: [], indenture: [], receipts: [], geoReference: []
+    certificate: [], drawings: [], permitForm: [], receipts: [], geoReference: []
   });
   
   const [message, setMessage] = useState('');
-  
-  // Scanner State
   const [isScanning, setIsScanning] = useState(false);
   const [currentScanField, setCurrentScanField] = useState(null);
 
@@ -22,10 +21,7 @@ const NewPermit = () => {
   const handleFileChange = (e) => {
     const fieldName = e.target.name;
     const newFiles = Array.from(e.target.files);
-    
-    // Fallback safety check to prevent crashes
     if (!files[fieldName]) return; 
-
     setFiles(prev => ({
       ...prev,
       [fieldName]: [...prev[fieldName], ...newFiles]
@@ -69,8 +65,8 @@ const NewPermit = () => {
       const data = await response.json();
       if (data.success) {
         setMessage("Success! Record and all documents archived securely.");
-        setFormData({ permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', plotNumber: '', community: '', buildingType: 'Residential' });
-        setFiles({ certificate: [], drawings: [], indenture: [], receipts: [], geoReference: [] });
+        setFormData({ permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', address: '', location: '' });
+        setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [], geoReference: [] });
       } else {
         setMessage("Failed to archive record.");
       }
@@ -80,9 +76,7 @@ const NewPermit = () => {
   };
 
   const renderDocumentUpload = (label, fieldName, allowMultiple = false) => {
-    // Safety check to prevent the white screen crash if a field name is mismatched
     const currentFiles = files[fieldName] || []; 
-
     return (
       <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
         <label className="block text-sm font-bold text-gray-800 mb-3">{label}</label>
@@ -137,27 +131,17 @@ const NewPermit = () => {
           </div>
         </div>
 
-        {/* Applicant Section */}
+        {/* Applicant Section - Updated with Address and Location */}
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">2. Applicant & Property</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div><label className="block text-sm font-medium text-gray-700 mb-1">First Name</label><input type="text" name="firstName" value={formData.firstName} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label><input type="text" name="lastName" value={formData.lastName} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="text" name="phone" value={formData.phone} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Plot Number</label><input type="text" name="plotNumber" value={formData.plotNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Community</label><input type="text" name="community" value={formData.community} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Building Type</label>
-              <select name="buildingType" value={formData.buildingType} onChange={handleTextChange} className="w-full p-2 border rounded-md bg-white">
-                <option value="Residential">Residential</option>
-                <option value="Commercial">Commercial</option>
-                <option value="Industrial">Industrial</option>
-                <option value="Mixed-Use">Mixed-Use</option>
-                <option value="Warehouse">Warehouse</option>
-                <option value="Worship-Center">Worship-Center</option>
-                <option value="Educational-Facility">Educational-Facility</option>
-                <option value="Health-Facility">Health-Facility</option>
-              </select>
-            </div>
+            
+            {/* New Address & Location Fields */}
+            <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Address</label><input type="text" name="address" value={formData.address} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Location</label><input type="text" name="location" value={formData.location} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
           </div>
         </div>
 
@@ -167,7 +151,8 @@ const NewPermit = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-lg border border-gray-200">
             {renderDocumentUpload("Permit Certificate", "certificate", false)}
             {renderDocumentUpload("Architectural Drawings (Max 100)", "drawings", true)}
-            {renderDocumentUpload("Indenture", "indenture", true)}
+            {/* Updated Field */}
+            {renderDocumentUpload("Permit Form", "permitForm", true)}
             {renderDocumentUpload("Receipts", "receipts", true)}
             {renderDocumentUpload("Geo Reference", "geoReference", false)}
           </div>
@@ -178,7 +163,6 @@ const NewPermit = () => {
         </button>
       </form>
 
-      {/* Render the Scanner UI when active */}
       {isScanning && (
         <DocumentScanner 
           documentTitle={currentScanField} 

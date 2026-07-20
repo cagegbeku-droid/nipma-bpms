@@ -5,8 +5,6 @@ const PermitList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
-  
-  // NEW: State to track which permit's files are currently being viewed
   const [selectedPermit, setSelectedPermit] = useState(null);
 
   useEffect(() => {
@@ -40,7 +38,6 @@ const PermitList = () => {
     );
   });
 
-  // Your existing brilliant helper function for rendering links
   const renderLinks = (linkString, label) => {
     if (!linkString) return null;
     
@@ -89,7 +86,6 @@ const PermitList = () => {
 
       {error && <div className="bg-red-100 text-red-700 p-4 rounded-md mb-6">{error}</div>}
 
-      {/* THE MAIN TABLE */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -121,13 +117,12 @@ const PermitList = () => {
                       <div className="text-sm text-gray-600">📞 {permit.phone}</div>
                     </td>
                     
+                    {/* Cleaned up Property Details Column */}
                     <td className="p-4 align-middle">
-                      <div className="text-sm text-gray-800"><span className="font-semibold">Plot:</span> {permit.plot_number}</div>
-                      <div className="text-sm text-gray-800"><span className="font-semibold">Loc:</span> {permit.community}</div>
-                      <div className="text-xs inline-block bg-gray-200 text-gray-700 px-2 py-1 rounded mt-1">{permit.building_type}</div>
+                      <div className="text-sm text-gray-800"><span className="font-semibold text-gray-500">Address:</span> {permit.address || 'N/A'}</div>
+                      <div className="text-sm text-gray-800 mt-0.5"><span className="font-semibold text-gray-500">Location:</span> {permit.location || 'N/A'}</div>
                     </td>
                     
-                    {/* NEW BUTTON COLUMN */}
                     <td className="p-4 align-middle text-center">
                       <button 
                         onClick={() => setSelectedPermit(permit)}
@@ -146,57 +141,46 @@ const PermitList = () => {
         </div>
       </div>
 
-      {/* THE MODAL POPUP */}
       {selectedPermit && (
         <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
             
-            {/* Modal Header */}
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">Archived Documents</h3>
                 <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold">{selectedPermit.permit_number}</span></p>
               </div>
-              <button 
-                onClick={() => setSelectedPermit(null)} 
-                className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition"
-              >
-                {/* A clean "X" SVG icon */}
+              <button onClick={() => setSelectedPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
               </button>
             </div>
 
-            {/* Modal Body (Scrollable if lots of files) */}
             <div className="p-6 overflow-y-auto bg-gray-50">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 
-                {/* Certificate */}
                 <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
                   <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Certificate</h4>
                   {renderLinks(selectedPermit.certificate_link, "Certificate") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
                 </div>
 
-                {/* Drawings */}
                 <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
                   <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Architectural Drawings</h4>
                   {renderLinks(selectedPermit.drawings_links, "Drawing") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
                 </div>
 
-                {/* Indenture */}
+                {/* Updated to Permit Form */}
                 <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                  <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Indenture Documents</h4>
-                  {renderLinks(selectedPermit.indenture_link, "Indenture") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+                  <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Permit Form</h4>
+                  {renderLinks(selectedPermit.permit_form_link, "Form") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
                 </div>
 
-                {/* Receipts */}
                 <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
                   <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Receipts</h4>
                   {renderLinks(selectedPermit.receipts_links, "Receipt") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
                 </div>
 
-                {/* Geo-Reference (Spans full width if it's large) */}
                 <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm md:col-span-2">
                   <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Geo-Reference Data</h4>
                   {renderLinks(selectedPermit.georef_link, "GeoRef Data") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
@@ -205,12 +189,8 @@ const PermitList = () => {
               </div>
             </div>
             
-            {/* Modal Footer */}
             <div className="px-6 py-4 border-t border-gray-200 bg-white flex justify-end">
-              <button 
-                onClick={() => setSelectedPermit(null)}
-                className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-5 py-2 rounded-md font-medium transition"
-              >
+              <button onClick={() => setSelectedPermit(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-800 px-5 py-2 rounded-md font-medium transition">
                 Close Vault
               </button>
             </div>
