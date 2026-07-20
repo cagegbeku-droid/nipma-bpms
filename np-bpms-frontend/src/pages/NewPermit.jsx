@@ -1,15 +1,13 @@
 import React, { useState } from 'react';
-import DocumentScanner from '../DocumentScanner'; // Assuming this path is correct for your setup
+import DocumentScanner from '../DocumentScanner';
 
 const NewPermit = () => {
-  // Updated state for new text fields
   const [formData, setFormData] = useState({
     permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', address: '', location: ''
   });
   
-  // Updated state replacing indenture with permitForm
   const [files, setFiles] = useState({
-    certificate: [], drawings: [], permitForm: [], receipts: [], geoReference: []
+    certificate: [], drawings: [], permitForm: [], receipts: []
   });
   
   const [message, setMessage] = useState('');
@@ -66,7 +64,7 @@ const NewPermit = () => {
       if (data.success) {
         setMessage("Success! Record and all documents archived securely.");
         setFormData({ permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', address: '', location: '' });
-        setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [], geoReference: [] });
+        setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
       } else {
         setMessage("Failed to archive record.");
       }
@@ -84,13 +82,7 @@ const NewPermit = () => {
         <div className="flex space-x-3 mb-3">
           <label className="cursor-pointer bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-200 transition text-sm flex items-center">
             <span>📁 Upload {allowMultiple ? 'Files' : 'File'}</span>
-            <input 
-              type="file" 
-              name={fieldName} 
-              multiple={allowMultiple} 
-              onChange={handleFileChange} 
-              className="hidden" 
-            />
+            <input type="file" name={fieldName} multiple={allowMultiple} onChange={handleFileChange} className="hidden" />
           </label>
 
           <button 
@@ -122,7 +114,6 @@ const NewPermit = () => {
       
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-6 space-y-8">
         
-        {/* Metadata Section */}
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">1. Permit Data</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -131,30 +122,27 @@ const NewPermit = () => {
           </div>
         </div>
 
-        {/* Applicant Section - Updated with Address and Location */}
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">2. Applicant & Property</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div><label className="block text-sm font-medium text-gray-700 mb-1">First Name</label><input type="text" name="firstName" value={formData.firstName} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label><input type="text" name="lastName" value={formData.lastName} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="text" name="phone" value={formData.phone} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
             
-            {/* New Address & Location Fields */}
+            {/* Phone is no longer required! */}
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone (Optional)</label><input type="text" name="phone" value={formData.phone} onChange={handleTextChange} className="w-full p-2 border rounded-md" placeholder="Optional" /></div>
+            
             <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Address</label><input type="text" name="address" value={formData.address} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Location</label><input type="text" name="location" value={formData.location} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
           </div>
         </div>
 
-        {/* Document Vault Section */}
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">3. Document Vault</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-lg border border-gray-200">
             {renderDocumentUpload("Permit Certificate", "certificate", false)}
-            {renderDocumentUpload("Architectural Drawings", "drawings", true)}
-            {/* Updated Field */}
+            {renderDocumentUpload("Architectural Drawings (Max 100)", "drawings", true)}
             {renderDocumentUpload("Permit Form", "permitForm", true)}
             {renderDocumentUpload("Receipts", "receipts", true)}
-            {renderDocumentUpload("Geo Reference", "geoReference", false)}
           </div>
         </div>
 
@@ -164,11 +152,7 @@ const NewPermit = () => {
       </form>
 
       {isScanning && (
-        <DocumentScanner 
-          documentTitle={currentScanField} 
-          onCancel={() => setIsScanning(false)} 
-          onSave={handleScanSave} 
-        />
+        <DocumentScanner documentTitle={currentScanField} onCancel={() => setIsScanning(false)} onSave={handleScanSave} />
       )}
     </div>
   );

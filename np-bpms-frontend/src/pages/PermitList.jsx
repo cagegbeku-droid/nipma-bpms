@@ -181,10 +181,6 @@ const PermitList = () => {
                   {renderLinks(selectedPermit.receipts_links, "Receipt") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
                 </div>
 
-                <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm md:col-span-2">
-                  <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Geo-Reference Data</h4>
-                  {renderLinks(selectedPermit.georef_link, "GeoRef Data") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
-                </div>
 
               </div>
             </div>
