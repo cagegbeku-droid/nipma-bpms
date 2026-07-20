@@ -6,15 +6,14 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// ==========================================
+// 1. GET PERMITS
+// ==========================================
 const getPermits = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('permits')
-      .select(`
-        *,
-        applicants ( first_name, last_name, phone ),
-        properties ( address, location )
-      `)
+      .select(`*, applicants ( first_name, last_name, phone ), properties ( address, location )`)
       .order('id', { ascending: false });
 
     if (error) throw error;
@@ -56,6 +55,9 @@ const getMonthlyStats = async (req, res) => {
   res.status(200).json({ success: true, data: [] });
 };
 
+// ==========================================
+// 2. BACKGROUND WORKER
+// ==========================================
 const processFilesInBackground = async (files, permitId, permitNumber, lastName) => {
   try {
     const mainFolderName = `${permitNumber.replace(/\//g, '_')} - ${lastName}`;
@@ -68,44 +70,38 @@ const processFilesInBackground = async (files, permitId, permitNumber, lastName)
       return await Promise.all(uploadTasks);
     };
 
-    // Reduced to 4 folders instead of 5
-    const [
-      certificateLinks, 
-      drawingLinks, 
-      permitFormLinks, 
-      receiptLinks
-    ] = await Promise.all([
+    const [certificateLinks, drawingLinks, permitFormLinks, receiptLinks] = await Promise.all([
       processAndUpload(files['certificate'], '1. Permit Certificate'),
       processAndUpload(files['drawings'], '2. Architectural Drawings'),
       processAndUpload(files['permitForm'], '3. Permit Form'),
       processAndUpload(files['receipts'], '4. Receipts')
     ]);
 
-    const { error: updateError } = await supabase
-      .from('permits')
-      .update({
-        file_permit_certificate: certificateLinks[0] || null,
-        file_architectural_drawings: drawingLinks.join(', ') || null,
-        file_permit_form: permitFormLinks.join(', ') || null,
-        file_receipts: receiptLinks.join(', ') || null,
-        upload_status: 'completed' 
-      })
-      .eq('id', permitId);
+    const { error: updateError } = await supabase.from('permits').update({
+      file_permit_certificate: certificateLinks[0] || null,
+      file_architectural_drawings: drawingLinks.join(', ') || null,
+      file_permit_form: permitFormLinks.join(', ') || null,
+      file_receipts: receiptLinks.join(', ') || null,
+      upload_status: 'completed' 
+    }).eq('id', permitId);
 
     if (updateError) throw updateError;
   } catch (error) {
-    console.error(`Background Processing Failed for Permit ID: ${permitId}.`, error);
+    console.error(`Background Processing Failed:`, error);
     await supabase.from('permits').update({ upload_status: 'failed' }).eq('id', permitId);
   }
 };
 
+// ==========================================
+// 3. ARCHIVE ROUTE
+// ==========================================
 const archivePermit = async (req, res) => {
   try {
     const { permitNumber, dateIssued, firstName, lastName, phone, address, location } = req.body;
 
     const { data: applicantData, error: applicantError } = await supabase
       .from('applicants')
-      .insert([{ first_name: firstName, last_name: lastName, phone: phone || null }]) // Phone now handles null properly
+      .insert([{ first_name: firstName, last_name: lastName, phone: phone || null }])
       .select().single();
     if (applicantError) throw applicantError;
 
@@ -127,19 +123,13 @@ const archivePermit = async (req, res) => {
       .select().single(); 
     if (permitError) throw permitError;
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Permit record instantiated. Documents are archiving securely in the background." 
-    });
+    res.status(200).json({ success: true, message: "Permit record instantiated." });
 
     processFilesInBackground(req.files, permitData.id, permitNumber, lastName);
-
   } catch (error) {
-    console.error("Archive Error:", error);
-    res.status(500).json({ success: false, message: "Failed to construct initial permit archive structural record" });
+    res.status(500).json({ success: false, message: "Failed to archive record" });
   }
 };
-// ... existing code above ...
 
 // ==========================================
 // 4. DELETE PERMIT ROUTE
@@ -147,21 +137,67 @@ const archivePermit = async (req, res) => {
 const deletePermit = async (req, res) => {
   try {
     const { id } = req.params;
-    
-    // Deletes the record from Supabase. 
-    // (The files remain in Google Drive as a tamper-proof backup)
     const { error } = await supabase.from('permits').delete().eq('id', id);
-    
     if (error) throw error;
-    
     res.status(200).json({ success: true, message: "Permit record deleted successfully." });
   } catch (error) {
-    console.error("Delete Error:", error);
     res.status(500).json({ success: false, message: "Failed to delete permit record." });
   }
 };
 
-// UPDATE YOUR EXPORTS TO INCLUDE deletePermit:
-module.exports = { archivePermit, getPermits, getPermitStats, getMonthlyStats, deletePermit };
+// ==========================================
+// 5. UPDATE PERMIT ROUTE
+// ==========================================
+const updatePermit = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { permit_number, date_issued, first_name, last_name, phone, address, location } = req.body;
 
-module.exports = { archivePermit, getPermits, getPermitStats, getMonthlyStats };
+    const { data: permitData, error: fetchError } = await supabase
+      .from('permits').select('applicant_id, property_id').eq('id', id).single();
+    if (fetchError) throw fetchError;
+
+    await Promise.all([
+      supabase.from('permits').update({ permit_number, date_issued }).eq('id', id),
+      supabase.from('applicants').update({ first_name, last_name, phone: phone || null }).eq('id', permitData.applicant_id),
+      supabase.from('properties').update({ address, location }).eq('id', permitData.property_id)
+    ]);
+
+    res.status(200).json({ success: true, message: "Permit updated successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to update record" });
+  }
+};
+
+// ==========================================
+// 6. REMOVE SPECIFIC FILE ROUTE
+// ==========================================
+const removePermitFile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { column_name, file_url } = req.body;
+
+    const { data: permit, error: fetchError } = await supabase
+      .from('permits').select(column_name).eq('id', id).single();
+    if (fetchError) throw fetchError;
+
+    const currentLinks = permit[column_name] || '';
+    const linksArray = currentLinks
+      .split(',')
+      .map(l => l.trim())
+      .filter(l => l !== '' && l !== file_url.trim());
+      
+    const newLinksString = linksArray.length > 0 ? linksArray.join(', ') : null;
+
+    const { error: updateError } = await supabase
+      .from('permits').update({ [column_name]: newLinksString }).eq('id', id);
+    if (updateError) throw updateError;
+
+    res.status(200).json({ success: true, new_links: newLinksString });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to remove file" });
+  }
+};
+
+// EXPORT EVERY SINGLE FUNCTION
+module.exports = { archivePermit, getPermits, getPermitStats, getMonthlyStats, deletePermit, updatePermit, removePermitFile };
