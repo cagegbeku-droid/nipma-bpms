@@ -23,12 +23,30 @@ const archivalUploads = upload.fields([
   { name: 'receipts', maxCount: 10 }
 ]);
 
+// --- ADMIN SECURITY MIDDLEWARE ---
+const requireAdmin = (req, res, next) => {
+  const apiKey = req.headers['x-admin-key'];
+  // This must match the password you set in your React frontend!
+  if (apiKey === 'supersecret123') {
+    next(); // Passcode correct, allow the action
+  } else {
+    res.status(403).json({ success: false, message: "Forbidden: Admin access required." });
+  }
+};
+
+// ==========================================
+// PUBLIC ROUTES (Viewers can access without password)
+// ==========================================
 router.get('/stats', getPermitStats);
 router.get('/monthly-stats', getMonthlyStats); 
 router.get('/', getPermits);
-router.post('/archive', archivalUploads, archivePermit);
-router.delete('/:id', deletePermit);
-router.put('/:id', updatePermit);
-router.put('/:id/remove-file', removePermitFile);
+
+// ==========================================
+// PROTECTED ROUTES (Requires Admin Passcode)
+// ==========================================
+router.post('/archive', archivalUploads, requireAdmin, archivePermit);
+router.delete('/:id', requireAdmin, deletePermit);
+router.put('/:id', requireAdmin, updatePermit);
+router.put('/:id/remove-file', requireAdmin, removePermitFile);
 
 module.exports = router;
