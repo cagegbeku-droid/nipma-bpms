@@ -1,5 +1,4 @@
 import { test, expect } from '@playwright/test';
-import path from 'path';
 
 test('Should successfully fill and submit a new permit form', async ({ page }) => {
   // 1. Navigate to your local React app (make sure your npm start is running!)
@@ -18,8 +17,7 @@ test('Should successfully fill and submit a new permit form', async ({ page }) =
 
   // 3. The robot uploads a file 
   // (Create a tiny blank text file named 'test-cert.pdf' in your tests folder for this to work)
-  const testFilePath = path.join(__dirname, 'test-cert.pdf');
-  await page.setInputFiles('input[name="certificate"]', testFilePath);
+  await page.setInputFiles('input[name="certificate"]', 'tests/test-cert.pdf');
 
   // 4. Click the submit button
   await page.click('button:has-text("Save to Secure Archives")');
