@@ -4,7 +4,7 @@ import path from 'path';
 test('Should successfully fill and submit a new permit form', async ({ page }) => {
   // 1. Navigate to your local React app (make sure your npm start is running!)
   // Adjust the port (3000, 5173, etc.) to match whatever your local React server uses.
-  await page.goto('http://localhost:5173/new-permit'); 
+  await page.goto('http://localhost:5173/permits/new'); 
 
   // 2. The robot fills out the text data
   // We use the exact 'name' attributes you assigned in your NewPermit.jsx file
