@@ -25,12 +25,12 @@ const Sidebar = () => {
     window.location.reload(); 
   };
 
-  // --- THE STEALTH CORNER TRIGGER ---
+  // --- ADMIN LOGIN TRIGGER ---
   const handleStealthUnlock = () => {
-    const pass = prompt("Enter passcode:");
+    const pass = prompt("Enter Admin Passcode:");
     if (pass === 'supersecret123') {
       localStorage.setItem('x-admin-key', pass);
-      window.location.reload(); // Unlocks instantly!
+      window.location.reload(); // Unlocks instantly across the live app!
     } else if (pass !== null) {
       alert("Incorrect passcode.");
     }
@@ -80,18 +80,16 @@ const Sidebar = () => {
         {isAdmin ? (
           <button
             onClick={handleLogout}
-            className="text-red-400 hover:text-red-300 font-medium transition"
+            className="text-red-400 hover:text-red-300 font-medium transition flex items-center space-x-1 bg-red-950/40 px-2 py-1 rounded border border-red-900/50"
           >
-            Lock System 🔒
+            <span>Lock System</span> <span>🔒</span>
           </button>
         ) : (
-          /* A near-invisible dot in the bottom right corner. Only you know it's there! */
           <button
             onClick={handleStealthUnlock}
-            className="text-gray-800 hover:text-gray-600 select-none cursor-default px-1"
-            title=""
+            className="text-gray-400 hover:text-white font-medium transition flex items-center space-x-1 bg-gray-800 px-2 py-1 rounded border border-gray-700"
           >
-            •
+            <span>Admin</span> <span>🔒</span>
           </button>
         )}
       </div>
