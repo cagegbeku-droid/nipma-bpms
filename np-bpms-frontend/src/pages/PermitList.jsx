@@ -1,39 +1,21 @@
 import React, { useState, useEffect } from 'react';
 
 const PermitList = () => {
+  // --- INVISIBLE ADMIN CHECK ---
+  // Silently checks the browser memory to see if you logged in via the /new-permit page
+  const adminKey = localStorage.getItem('x-admin-key');
+  const isAdmin = adminKey === 'supersecret123';
+
   const [permits, setPermits] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   
   // Modal States
-  const [selectedPermit, setSelectedPermit] = useState(null);
-  const [editingPermit, setEditingPermit] = useState(null);
-  const [editFormData, setEditFormData] = useState({});
-  const [isSaving, setIsSaving] = useState(false);
-
-  // --- ADMIN SECURITY STATES ---
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminKey, setAdminKey] = useState('');
-
-  const handleAdminUnlock = () => {
-    // If already admin, clicking it again locks it
-    if (isAdmin) {
-      setIsAdmin(false);
-      setAdminKey('');
-      return;
-    }
-    
-    // Prompt for password
-    const password = prompt("Enter Admin Passcode:");
-    if (password === "supersecret123") {
-      setIsAdmin(true);
-      setAdminKey(password);
-      alert("Admin Mode Unlocked: You can now Edit and Delete records.");
-    } else if (password !== null) {
-      alert("Incorrect passcode. Access Denied.");
-    }
-  };
+  const [selectedPermit, setSelectedPermit] = useState(null); // For Viewing Files
+  const [editingPermit, setEditingPermit] = useState(null);   // For Editing Data
+  const [editFormData, setEditFormData] = useState({});       // Holds the form input
+  const [isSaving, setIsSaving] = useState(false);            // Loading state for save button
 
   useEffect(() => {
     const fetchPermits = async () => {
@@ -61,7 +43,7 @@ const PermitList = () => {
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${id}`, {
         method: "DELETE",
         headers: {
-          'x-admin-key': adminKey // Sends the secret key to the backend
+          'x-admin-key': adminKey || '' // Silently attach the key to bypass the backend lock
         }
       });
       const data = await response.json();
@@ -69,13 +51,14 @@ const PermitList = () => {
       if (data.success) {
         setPermits(permits.filter(permit => permit.id !== id));
       } else {
-        alert("Failed to delete record. Check admin permissions.");
+        alert("Failed to delete record. Access Denied.");
       }
     } catch (err) {
       alert("Server connection error.");
     }
   };
 
+  // --- EDIT FUNCTIONS ---
   const handleEditClick = (permit) => {
     setEditFormData({
       permit_number: permit.permit_number,
@@ -102,7 +85,7 @@ const PermitList = () => {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
-          'x-admin-key': adminKey // Sends the secret key to the backend
+          'x-admin-key': adminKey || '' // Silently attach the key to bypass the backend lock
         },
         body: JSON.stringify(editFormData)
       });
@@ -112,7 +95,7 @@ const PermitList = () => {
         setPermits(permits.map(p => p.id === editingPermit.id ? { ...p, ...editFormData } : p));
         setEditingPermit(null);
       } else {
-        alert("Failed to update record. Check admin permissions.");
+        alert("Failed to update record. Access Denied.");
       }
     } catch (err) {
       alert("Server connection error.");
@@ -120,6 +103,7 @@ const PermitList = () => {
       setIsSaving(false);
     }
   };
+  // -------------------------
 
   const filteredPermits = permits.filter(permit => {
     const search = searchTerm.toLowerCase();
@@ -159,22 +143,13 @@ const PermitList = () => {
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-end mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-            Archive Vault Records
-            {/* The Secret Admin Toggle Button */}
-            <button 
-              onClick={handleAdminUnlock} 
-              className={`ml-4 text-xs px-2 py-1 rounded border transition ${isAdmin ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-400 border-gray-200 hover:text-blue-500'}`}
-              title="Toggle Admin Mode"
-            >
-              {isAdmin ? '🔓 Admin Mode' : '🔒 Viewer Mode'}
-            </button>
-          </h1>
+          {/* Clean title with no lock button! */}
+          <h1 className="text-2xl font-bold text-gray-900">Archive Vault Records</h1>
           <p className="text-sm text-gray-500 mt-1">Search, update, and retrieve historical building permits.</p>
         </div>
         
         <div className="flex items-center space-x-4">
-          {/* Only Admins can see the Add New button */}
+          {/* The magic button: Only renders if you are logged in */}
           {isAdmin && (
             <a href="/new-permit" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium">
               + Add New Permit
@@ -232,7 +207,7 @@ const PermitList = () => {
                           👁️ View
                         </button>
                         
-                        {/* Only Admins can Edit and Delete */}
+                        {/* The magic buttons: Only render if you are logged in */}
                         {isAdmin && (
                           <>
                             <button onClick={() => handleEditClick(permit)} className="bg-gray-50 text-gray-700 hover:bg-gray-700 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Edit Details">
