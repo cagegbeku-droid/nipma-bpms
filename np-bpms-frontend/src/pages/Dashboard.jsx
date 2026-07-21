@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 const Dashboard = () => {
+  // --- INVISIBLE ADMIN CHECK ---
+  const isAdmin = localStorage.getItem('x-admin-key') === 'supersecret123';
+
   const [totalPermits, setTotalPermits] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -86,16 +89,20 @@ const Dashboard = () => {
       <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         
-        <Link to="/permits/new" className="group flex items-center p-6 bg-blue-600 rounded-xl shadow-sm hover:bg-blue-700 transition">
-          <div className="bg-blue-500 text-white p-4 rounded-full mr-4 group-hover:scale-110 transition-transform">
-            ➕
-          </div>
-          <div>
-            <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
-            <p className="text-blue-100 text-sm">Scan and digitize a historical physical file</p>
-          </div>
-        </Link>
+        {/* --- SECRET UPLOAD ACTION: ONLY VISIBLE TO YOU --- */}
+        {isAdmin && (
+          <Link to="/permits/new" className="group flex items-center p-6 bg-blue-600 rounded-xl shadow-sm hover:bg-blue-700 transition">
+            <div className="bg-blue-500 text-white p-4 rounded-full mr-4 group-hover:scale-110 transition-transform">
+              ➕
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
+              <p className="text-blue-100 text-sm">Scan and digitize a historical physical file</p>
+            </div>
+          </Link>
+        )}
 
+        {/* PUBLIC SEARCH ACTION: VISIBLE TO EVERYONE */}
         <Link to="/permits/historical" className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-blue-400 hover:shadow-md transition">
           <div className="bg-gray-100 text-blue-600 p-4 rounded-full mr-4 group-hover:bg-blue-50 transition-colors">
             🔍

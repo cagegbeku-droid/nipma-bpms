@@ -1,7 +1,6 @@
-
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { HomeIcon, ArrowUpTrayIcon, ArchiveBoxIcon } from '@heroicons/react/24/outline'; 
+import { HomeIcon, ArrowUpTrayIcon, ArchiveBoxIcon, LockClosedIcon } from '@heroicons/react/24/outline'; 
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
@@ -10,6 +9,22 @@ const navigation = [
 ];
 
 const Sidebar = () => {
+  // --- INVISIBLE ADMIN CHECK ---
+  const isAdmin = localStorage.getItem('x-admin-key') === 'supersecret123';
+
+  // Automatically hide the "Upload Archive" link from the public
+  const filteredNavigation = navigation.filter((item) => {
+    if (!isAdmin && item.name === 'Upload Archive') {
+      return false; // Hide it!
+    }
+    return true; // Show everything else
+  });
+
+  const handleLogout = () => {
+    localStorage.removeItem('x-admin-key');
+    window.location.reload(); // Refresh the page to lock the doors
+  };
+
   return (
     <div className="flex flex-col w-full md:w-64 bg-gray-900 text-white shrink-0 md:min-h-screen">
       
@@ -27,9 +42,9 @@ const Sidebar = () => {
         </p>
       </div>
 
-      <div className="overflow-x-auto md:overflow-y-auto py-2 md:py-4 flex-1">
+      <div className="overflow-x-auto md:overflow-y-auto py-2 md:py-4 flex-1 flex flex-col justify-between">
         <nav className="flex md:flex-col space-x-2 md:space-x-0 md:space-y-1 px-2">
-          {navigation.map((item) => (
+          {filteredNavigation.map((item) => (
             <NavLink
               key={item.name}
               to={item.href}
@@ -43,6 +58,19 @@ const Sidebar = () => {
             </NavLink>
           ))}
         </nav>
+
+        {/* --- SECRET ADMIN LOGOUT BUTTON --- */}
+        {isAdmin && (
+          <div className="px-2 mt-4 md:mt-auto border-t border-gray-800 pt-4 hidden md:block">
+            <button
+              onClick={handleLogout}
+              className="group flex w-full items-center px-3 py-2 text-sm font-medium rounded-md transition-colors whitespace-nowrap text-red-400 hover:bg-red-500 hover:text-white"
+            >
+              <LockClosedIcon className="mr-2 md:mr-3 h-5 w-5 flex-shrink-0" aria-hidden="true" />
+              Lock System
+            </button>
+          </div>
+        )}
       </div>
 
     </div>
