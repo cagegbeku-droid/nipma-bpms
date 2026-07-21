@@ -6,8 +6,14 @@ const db = require('./config/db');
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// --- UPDATED CORS MIDDLEWARE ---
+// This explicitly allows the browser to send your secret admin key
+app.use(cors({
+  origin: '*', // Allows your frontend to connect from anywhere (Vercel, Netlify, localhost)
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'] // <-- Magic fix right here
+}));
+
 app.use(express.json());
 
 // Static Folder for Uploads
