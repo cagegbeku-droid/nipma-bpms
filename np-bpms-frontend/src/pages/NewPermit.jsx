@@ -58,6 +58,9 @@ const NewPermit = () => {
     try {
       const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive", {
         method: "POST",
+        headers: {
+          'x-admin-key': 'supersecret123' // The security key to bypass your backend lock!
+        },
         body: submitData
       });
       const data = await response.json();
@@ -66,7 +69,7 @@ const NewPermit = () => {
         setFormData({ permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
       } else {
-        setMessage("Failed to archive record.");
+        setMessage("Failed to archive record. Check admin permissions.");
       }
     } catch (error) {
       setMessage("Server connection error.");

@@ -7,10 +7,33 @@ const PermitList = () => {
   const [error, setError] = useState('');
   
   // Modal States
-  const [selectedPermit, setSelectedPermit] = useState(null); // For Viewing Files
-  const [editingPermit, setEditingPermit] = useState(null);   // For Editing Data
-  const [editFormData, setEditFormData] = useState({});       // Holds the form input
-  const [isSaving, setIsSaving] = useState(false);            // Loading state for save button
+  const [selectedPermit, setSelectedPermit] = useState(null);
+  const [editingPermit, setEditingPermit] = useState(null);
+  const [editFormData, setEditFormData] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  // --- ADMIN SECURITY STATES ---
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminKey, setAdminKey] = useState('');
+
+  const handleAdminUnlock = () => {
+    // If already admin, clicking it again locks it
+    if (isAdmin) {
+      setIsAdmin(false);
+      setAdminKey('');
+      return;
+    }
+    
+    // Prompt for password
+    const password = prompt("Enter Admin Passcode:");
+    if (password === "supersecret123") {
+      setIsAdmin(true);
+      setAdminKey(password);
+      alert("Admin Mode Unlocked: You can now Edit and Delete records.");
+    } else if (password !== null) {
+      alert("Incorrect passcode. Access Denied.");
+    }
+  };
 
   useEffect(() => {
     const fetchPermits = async () => {
@@ -36,23 +59,24 @@ const PermitList = () => {
 
     try {
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${id}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: {
+          'x-admin-key': adminKey // Sends the secret key to the backend
+        }
       });
       const data = await response.json();
       
       if (data.success) {
         setPermits(permits.filter(permit => permit.id !== id));
       } else {
-        alert("Failed to delete record.");
+        alert("Failed to delete record. Check admin permissions.");
       }
     } catch (err) {
       alert("Server connection error.");
     }
   };
 
-  // --- NEW EDIT FUNCTIONS ---
   const handleEditClick = (permit) => {
-    // Pre-fill the form with the current permit data
     setEditFormData({
       permit_number: permit.permit_number,
       date_issued: permit.date_issued,
@@ -76,17 +100,19 @@ const PermitList = () => {
     try {
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${editingPermit.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-admin-key': adminKey // Sends the secret key to the backend
+        },
         body: JSON.stringify(editFormData)
       });
       const data = await response.json();
       
       if (data.success) {
-        // Instantly update the UI without reloading the page
         setPermits(permits.map(p => p.id === editingPermit.id ? { ...p, ...editFormData } : p));
         setEditingPermit(null);
       } else {
-        alert("Failed to update record.");
+        alert("Failed to update record. Check admin permissions.");
       }
     } catch (err) {
       alert("Server connection error.");
@@ -94,7 +120,6 @@ const PermitList = () => {
       setIsSaving(false);
     }
   };
-  // -------------------------
 
   const filteredPermits = permits.filter(permit => {
     const search = searchTerm.toLowerCase();
@@ -134,18 +159,36 @@ const PermitList = () => {
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-end mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Archive Vault Records</h1>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center">
+            Archive Vault Records
+            {/* The Secret Admin Toggle Button */}
+            <button 
+              onClick={handleAdminUnlock} 
+              className={`ml-4 text-xs px-2 py-1 rounded border transition ${isAdmin ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-400 border-gray-200 hover:text-blue-500'}`}
+              title="Toggle Admin Mode"
+            >
+              {isAdmin ? '🔓 Admin Mode' : '🔒 Viewer Mode'}
+            </button>
+          </h1>
           <p className="text-sm text-gray-500 mt-1">Search, update, and retrieve historical building permits.</p>
         </div>
         
-        <div className="w-72">
-          <input 
-            type="text" 
-            placeholder="Search permit #, name, or phone..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
-          />
+        <div className="flex items-center space-x-4">
+          {/* Only Admins can see the Add New button */}
+          {isAdmin && (
+            <a href="/new-permit" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium">
+              + Add New Permit
+            </a>
+          )}
+          <div className="w-72">
+            <input 
+              type="text" 
+              placeholder="Search permit #, name, or phone..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
         </div>
       </div>
 
@@ -184,15 +227,22 @@ const PermitList = () => {
                     </td>
                     <td className="p-4 align-middle text-center">
                       <div className="flex items-center justify-center space-x-2">
+                        {/* Everyone can View */}
                         <button onClick={() => setSelectedPermit(permit)} className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="View Documents">
                           👁️ View
                         </button>
-                        <button onClick={() => handleEditClick(permit)} className="bg-gray-50 text-gray-700 hover:bg-gray-700 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Edit Details">
-                          ✏️ Edit
-                        </button>
-                        <button onClick={() => handleDelete(permit.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Delete Record">
-                          🗑️ Delete
-                        </button>
+                        
+                        {/* Only Admins can Edit and Delete */}
+                        {isAdmin && (
+                          <>
+                            <button onClick={() => handleEditClick(permit)} className="bg-gray-50 text-gray-700 hover:bg-gray-700 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Edit Details">
+                              ✏️ Edit
+                            </button>
+                            <button onClick={() => handleDelete(permit.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Delete Record">
+                              🗑️ Delete
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
