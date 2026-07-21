@@ -44,7 +44,9 @@ router.get('/', getPermits);
 // ==========================================
 // PROTECTED ROUTES (Requires Admin Passcode)
 // ==========================================
-router.post('/archive', archivalUploads, requireAdmin, archivePermit);
+// ENGINEER TWEAK: requireAdmin now runs BEFORE archivalUploads.
+// This blocks unauthorized users instantly before parsing their files.
+router.post('/archive', requireAdmin, archivalUploads, archivePermit);
 router.delete('/:id', requireAdmin, deletePermit);
 router.put('/:id', requireAdmin, updatePermit);
 router.put('/:id/remove-file', requireAdmin, removePermitFile);
