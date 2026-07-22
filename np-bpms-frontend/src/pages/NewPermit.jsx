@@ -31,8 +31,9 @@ const NewPermit = () => {
   const [formData, setFormData] = useState({
     permitNumber: '', 
     dateIssued: '', 
-    purpose: '', // Building purpose (e.g., Residential, Commercial, Church)
-    applicantName: '', // Flexible field for individuals, multiple names, or organizations
+    purpose: 'RESIDENTIAL', 
+    customPurpose: '',
+    applicantName: '', 
     phone: '', 
     address: '', 
     location: ''
@@ -73,8 +74,15 @@ const NewPermit = () => {
     e.preventDefault();
     setMessage("Uploading files to Archive Vault...");
     
+    // Determine the final purpose value (if OTHER, use customPurpose)
+    const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
+
     const submitData = new FormData();
-    Object.keys(formData).forEach(key => submitData.append(key, formData[key]));
+    Object.keys(formData).forEach(key => {
+      if (key !== 'customPurpose') {
+        submitData.append(key, key === 'purpose' ? finalPurposeValue : formData[key]);
+      }
+    });
     
     Object.keys(files).forEach(key => {
       files[key].forEach(file => submitData.append(key, file));
@@ -91,7 +99,7 @@ const NewPermit = () => {
       const data = await response.json();
       if (data.success) {
         setMessage("Success! Record and all documents archived securely.");
-        setFormData({ permitNumber: '', dateIssued: '', purpose: '', applicantName: '', phone: '', address: '', location: '' });
+        setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
       } else {
         setMessage("Failed to archive record.");
@@ -168,8 +176,37 @@ const NewPermit = () => {
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Building Purpose / Use</label>
-              <input type="text" name="purpose" value={formData.purpose} onChange={handleTextChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., RESIDENTIAL, COMMERCIAL, CHURCH, SCHOOL" />
+              <select 
+                name="purpose" 
+                value={formData.purpose} 
+                onChange={handleTextChange} 
+                required 
+                className="w-full p-2 border rounded-md bg-white uppercase"
+              >
+                <option value="RESIDENTIAL">RESIDENTIAL</option>
+                <option value="COMMERCIAL">COMMERCIAL</option>
+                <option value="INSTITUTION">INSTITUTION</option>
+                <option value="ORGANIZATION">ORGANIZATION</option>
+                <option value="MIXED USE">MIXED USE</option>
+                <option value="FENCE WALL">FENCE WALL</option>
+                <option value="OTHER">OTHER</option>
+              </select>
             </div>
+
+            {formData.purpose === 'OTHER' && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Specify Other Purpose</label>
+                <input 
+                  type="text" 
+                  name="customPurpose" 
+                  value={formData.customPurpose} 
+                  onChange={handleTextChange} 
+                  required 
+                  className="w-full p-2 border rounded-md uppercase" 
+                  placeholder="E.G., INDUSTRIAL WAREHOUSE" 
+                />
+              </div>
+            )}
           </div>
         </div>
 
