@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 
 const PermitList = () => {
   // --- INVISIBLE ADMIN CHECK ---
-  // Silently checks the browser memory to see if you logged in via the /new-permit page
   const adminKey = localStorage.getItem('x-admin-key');
   const isAdmin = adminKey === 'supersecret123';
 
@@ -43,7 +42,7 @@ const PermitList = () => {
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${id}`, {
         method: "DELETE",
         headers: {
-          'x-admin-key': adminKey || '' // Silently attach the key to bypass the backend lock
+          'x-admin-key': adminKey || ''
         }
       });
       const data = await response.json();
@@ -60,39 +59,60 @@ const PermitList = () => {
 
   // --- EDIT FUNCTIONS ---
   const handleEditClick = (permit) => {
+    const standardPurposes = ['RESIDENTIAL', 'COMMERCIAL', 'INSTITUTION', 'ORGANIZATION', 'MIXED USE', 'FENCE WALL'];
+    const currentPurpose = permit.purpose ? permit.purpose.toUpperCase() : 'RESIDENTIAL';
+    const isStandard = standardPurposes.includes(currentPurpose);
+
     setEditFormData({
-      permit_number: permit.permit_number,
-      date_issued: permit.date_issued,
-      first_name: permit.first_name,
-      last_name: permit.last_name,
+      permit_number: permit.permit_number || '',
+      date_issued: permit.date_issued || '',
+      purpose: isStandard ? currentPurpose : 'OTHER',
+      custom_purpose: isStandard ? '' : currentPurpose,
+      applicant_name: permit.applicant_name || '',
       phone: permit.phone || '',
-      address: permit.address,
-      location: permit.location
+      address: permit.address || '',
+      location: permit.location || ''
     });
     setEditingPermit(permit);
   };
 
   const handleEditChange = (e) => {
-    setEditFormData({ ...editFormData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setEditFormData({ 
+      ...editFormData, 
+      [name]: name === 'date_issued' || name === 'phone' ? value : value.toUpperCase() 
+    });
   };
 
   const submitEdit = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     
+    // Resolve final purpose value
+    const finalPurpose = editFormData.purpose === 'OTHER' ? editFormData.custom_purpose : editFormData.purpose;
+    const payload = {
+      permit_number: editFormData.permit_number,
+      date_issued: editFormData.date_issued,
+      purpose: finalPurpose,
+      applicant_name: editFormData.applicant_name,
+      phone: editFormData.phone,
+      address: editFormData.address,
+      location: editFormData.location
+    };
+    
     try {
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${editingPermit.id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
-          'x-admin-key': adminKey || '' // Silently attach the key to bypass the backend lock
+          'x-admin-key': adminKey || ''
         },
-        body: JSON.stringify(editFormData)
+        body: JSON.stringify(payload)
       });
       const data = await response.json();
       
       if (data.success) {
-        setPermits(permits.map(p => p.id === editingPermit.id ? { ...p, ...editFormData } : p));
+        setPermits(permits.map(p => p.id === editingPermit.id ? { ...p, ...payload } : p));
         setEditingPermit(null);
       } else {
         alert("Failed to update record. Access Denied.");
@@ -109,8 +129,9 @@ const PermitList = () => {
     const search = searchTerm.toLowerCase();
     return (
       permit.permit_number?.toLowerCase().includes(search) ||
-      permit.first_name?.toLowerCase().includes(search) ||
-      permit.last_name?.toLowerCase().includes(search) ||
+      permit.applicant_name?.toLowerCase().includes(search) ||
+      permit.purpose?.toLowerCase().includes(search) ||
+      permit.location?.toLowerCase().includes(search) ||
       permit.phone?.includes(search)
     );
   });
@@ -143,22 +164,20 @@ const PermitList = () => {
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex justify-between items-end mb-6">
         <div>
-          {/* Clean title with no lock button! */}
           <h1 className="text-2xl font-bold text-gray-900">Archive Vault Records</h1>
           <p className="text-sm text-gray-500 mt-1">Search, update, and retrieve historical building permits.</p>
         </div>
         
         <div className="flex items-center space-x-4">
-          {/* The magic button: Only renders if you are logged in */}
           {isAdmin && (
             <a href="/new-permit" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium">
               + Add New Permit
             </a>
           )}
-          <div className="w-72">
+          <div className="w-80">
             <input 
               type="text" 
-              placeholder="Search permit #, name, or phone..." 
+              placeholder="Search permit #, name, purpose, location..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
@@ -175,7 +194,7 @@ const PermitList = () => {
             <thead>
               <tr className="bg-gray-50 text-gray-700 text-sm border-b border-gray-200">
                 <th className="p-4 font-semibold">Permit Info</th>
-                <th className="p-4 font-semibold">Applicant</th>
+                <th className="p-4 font-semibold">Applicant / Entity</th>
                 <th className="p-4 font-semibold">Property Details</th>
                 <th className="p-4 font-semibold text-center">Action</th>
               </tr>
@@ -190,24 +209,23 @@ const PermitList = () => {
                   <tr key={permit.id} className="hover:bg-gray-50 transition">
                     <td className="p-4 align-middle">
                       <div className="font-bold text-gray-900">{permit.permit_number}</div>
-                      <div className="text-sm text-gray-500">Issued: {permit.date_issued}</div>
+                      <div className="text-xs text-blue-600 font-semibold uppercase mt-0.5">{permit.purpose || 'RESIDENTIAL'}</div>
+                      <div className="text-xs text-gray-500 mt-0.5">Issued: {permit.date_issued}</div>
                     </td>
                     <td className="p-4 align-middle">
-                      <div className="font-semibold text-gray-800">{permit.first_name} {permit.last_name}</div>
-                      <div className="text-sm text-gray-600">📞 {permit.phone || 'N/A'}</div>
+                      <div className="font-semibold text-gray-800 uppercase">{permit.applicant_name}</div>
+                      <div className="text-sm text-gray-600 mt-0.5">📞 {permit.phone || 'N/A'}</div>
                     </td>
                     <td className="p-4 align-middle">
-                      <div className="text-sm text-gray-800"><span className="font-semibold text-gray-500">Address:</span> {permit.address || 'N/A'}</div>
-                      <div className="text-sm text-gray-800 mt-0.5"><span className="font-semibold text-gray-500">Location:</span> {permit.location || 'N/A'}</div>
+                      <div className="text-sm text-gray-800 uppercase"><span className="font-semibold text-gray-500">Address:</span> {permit.address || 'N/A'}</div>
+                      <div className="text-sm text-gray-800 uppercase mt-0.5"><span className="font-semibold text-gray-500">Location:</span> {permit.location || 'N/A'}</div>
                     </td>
                     <td className="p-4 align-middle text-center">
                       <div className="flex items-center justify-center space-x-2">
-                        {/* Everyone can View */}
                         <button onClick={() => setSelectedPermit(permit)} className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="View Documents">
                           👁️ View
                         </button>
                         
-                        {/* The magic buttons: Only render if you are logged in */}
                         {isAdmin && (
                           <>
                             <button onClick={() => handleEditClick(permit)} className="bg-gray-50 text-gray-700 hover:bg-gray-700 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Edit Details">
@@ -228,20 +246,40 @@ const PermitList = () => {
         </div>
       </div>
 
-      {/* --- MODAL 1: VIEW FILES --- */}
+      {/* --- MODAL 1: VIEW FILES & DETAILS --- */}
       {selectedPermit && (
         <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
               <div>
-                <h3 className="text-xl font-bold text-gray-900">Archived Documents</h3>
+                <h3 className="text-xl font-bold text-gray-900">Archived Documents & Details</h3>
                 <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold">{selectedPermit.permit_number}</span></p>
               </div>
               <button onClick={() => setSelectedPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition">
                 ✕
               </button>
             </div>
-            <div className="p-6 overflow-y-auto bg-gray-50">
+            
+            <div className="p-6 overflow-y-auto bg-gray-50 space-y-6">
+              <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="block font-semibold text-gray-400 text-xs">PURPOSE / USE</span>
+                  <p className="text-gray-800 font-bold uppercase">{selectedPermit.purpose}</p>
+                </div>
+                <div>
+                  <span className="block font-semibold text-gray-400 text-xs">APPLICANT / ORGANIZATION</span>
+                  <p className="text-gray-800 font-bold uppercase">{selectedPermit.applicant_name}</p>
+                </div>
+                <div>
+                  <span className="block font-semibold text-gray-400 text-xs">LOCATION</span>
+                  <p className="text-gray-800 font-semibold uppercase">{selectedPermit.location}</p>
+                </div>
+                <div>
+                  <span className="block font-semibold text-gray-400 text-xs">PHONE</span>
+                  <p className="text-gray-800 font-semibold">{selectedPermit.phone || 'N/A'}</p>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
                   <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Certificate</h4>
@@ -277,18 +315,51 @@ const PermitList = () => {
             </div>
             
             <form onSubmit={submitEdit} className="p-6 overflow-y-auto bg-white space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Permit Number</label><input type="text" name="permit_number" value={editFormData.permit_number} onChange={handleEditChange} required className="w-full p-2 border rounded-md" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label><input type="date" name="date_issued" value={editFormData.date_issued} onChange={handleEditChange} required className="w-full p-2 border rounded-md" /></div>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">First Name</label><input type="text" name="first_name" value={editFormData.first_name} onChange={handleEditChange} required className="w-full p-2 border rounded-md" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label><input type="text" name="last_name" value={editFormData.last_name} onChange={handleEditChange} required className="w-full p-2 border rounded-md" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone</label><input type="text" name="phone" value={editFormData.phone} onChange={handleEditChange} className="w-full p-2 border rounded-md" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Address</label><input type="text" name="address" value={editFormData.address} onChange={handleEditChange} required className="w-full p-2 border rounded-md" /></div>
-                <div><label className="block text-sm font-medium text-gray-700 mb-1">Location</label><input type="text" name="location" value={editFormData.location} onChange={handleEditChange} required className="w-full p-2 border rounded-md" /></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Permit Number</label>
+                  <input type="text" name="permit_number" value={editFormData.permit_number} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label>
+                  <input type="date" name="date_issued" value={editFormData.date_issued} onChange={handleEditChange} required className="w-full p-2 border rounded-md" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Building Purpose / Use</label>
+                  <select name="purpose" value={editFormData.purpose} onChange={handleEditChange} required className="w-full p-2 border rounded-md bg-white uppercase">
+                    <option value="RESIDENTIAL">RESIDENTIAL</option>
+                    <option value="COMMERCIAL">COMMERCIAL</option>
+                    <option value="INSTITUTION">INSTITUTION</option>
+                    <option value="ORGANIZATION">ORGANIZATION</option>
+                    <option value="MIXED USE">MIXED USE</option>
+                    <option value="FENCE WALL">FENCE WALL</option>
+                    <option value="OTHER">OTHER</option>
+                  </select>
+                </div>
+
+                {editFormData.purpose === 'OTHER' && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Specify Other Purpose</label>
+                    <input type="text" name="custom_purpose" value={editFormData.custom_purpose} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., INDUSTRIAL WAREHOUSE" />
+                  </div>
+                )}
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Applicant / Organization Name</label>
+                  <input type="text" name="applicant_name" value={editFormData.applicant_name} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                  <input type="text" name="phone" value={editFormData.phone} onChange={handleEditChange} className="w-full p-2 border rounded-md" placeholder="Optional" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                  <input type="text" name="location" value={editFormData.location} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                  <input type="text" name="address" value={editFormData.address} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" />
+                </div>
               </div>
 
               <div className="pt-4 border-t border-gray-100 flex justify-end space-x-3 mt-6">
