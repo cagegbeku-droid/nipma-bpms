@@ -280,7 +280,7 @@ const NewPermit = () => {
             {renderDocumentUpload("Permit Certificate", "certificate", false)}
             {renderDocumentUpload("Architectural Drawings", "drawings", true)}
             {renderDocumentUpload("Permit Form", "permitForm", true)}
-            {renderDocumentUpload("Receipts", "receipts", true)}
+            {renderDocumentUpload("Receipts / Bill", "receipts", true)}
           </div>
         </div>
 
