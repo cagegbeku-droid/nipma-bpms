@@ -6,7 +6,6 @@ const NewPermit = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    // Check if you already logged in recently
     if (localStorage.getItem('x-admin-key') === 'supersecret123') {
       setIsAuthenticated(true);
     }
@@ -16,7 +15,7 @@ const NewPermit = () => {
     e.preventDefault();
     const pass = e.target.password.value;
     if (pass === 'supersecret123') {
-      localStorage.setItem('x-admin-key', pass); // Save to browser memory
+      localStorage.setItem('x-admin-key', pass);
       setIsAuthenticated(true);
     } else {
       alert('Access Denied. Incorrect Passcode.');
@@ -30,7 +29,12 @@ const NewPermit = () => {
   // ---------------------------------
 
   const [formData, setFormData] = useState({
-    permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', address: '', location: ''
+    permitNumber: '', 
+    dateIssued: '', 
+    applicantName: '', // Flexible field for individuals, multiple names, or organizations
+    phone: '', 
+    address: '', 
+    location: ''
   });
   
   const [files, setFiles] = useState({ certificate: [], drawings: [], permitForm: [], receipts: [] });
@@ -38,7 +42,14 @@ const NewPermit = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [currentScanField, setCurrentScanField] = useState(null);
 
-  const handleTextChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
+  // Automatically transform text input values to uppercase
+  const handleTextChange = (e) => {
+    const { name, value } = e.target;
+    setFormData({ 
+      ...formData, 
+      [name]: name === 'dateIssued' || name === 'phone' ? value : value.toUpperCase() 
+    });
+  };
 
   const handleFileChange = (e) => {
     const fieldName = e.target.name;
@@ -72,14 +83,14 @@ const NewPermit = () => {
       const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive", {
         method: "POST",
         headers: {
-          'x-admin-key': localStorage.getItem('x-admin-key') // Grab the key from memory
+          'x-admin-key': localStorage.getItem('x-admin-key')
         },
         body: submitData
       });
       const data = await response.json();
       if (data.success) {
         setMessage("Success! Record and all documents archived securely.");
-        setFormData({ permitNumber: '', dateIssued: '', firstName: '', lastName: '', phone: '', address: '', location: '' });
+        setFormData({ permitNumber: '', dateIssued: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
       } else {
         setMessage("Failed to archive record.");
@@ -146,20 +157,33 @@ const NewPermit = () => {
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">1. Permit Data</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Original Permit Number</label><input type="text" name="permitNumber" value={formData.permitNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md" placeholder="e.g. NiPDA/DAWH/20/001"/></div>
+            <div><label className="block text-sm font-medium text-gray-700 mb-1">Original Permit Number</label><input type="text" name="permitNumber" value={formData.permitNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., NiPDA/DAWH/20/001"/></div>
             <div><label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label><input type="date" name="dateIssued" value={formData.dateIssued} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
           </div>
         </div>
+
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">2. Applicant & Property</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">First Name</label><input type="text" name="firstName" value={formData.firstName} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label><input type="text" name="lastName" value={formData.lastName} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Phone (Optional)</label><input type="text" name="phone" value={formData.phone} onChange={handleTextChange} className="w-full p-2 border rounded-md" placeholder="Optional" /></div>
-            <div className="md:col-span-2"><label className="block text-sm font-medium text-gray-700 mb-1">Address</label><input type="text" name="address" value={formData.address} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Location</label><input type="text" name="location" value={formData.location} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Applicant / Organization Name</label>
+              <input type="text" name="applicantName" value={formData.applicantName} onChange={handleTextChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., JOHN & MARY DOE / ST. PETER'S METHODIST CHURCH" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Phone (Optional)</label>
+              <input type="text" name="phone" value={formData.phone} onChange={handleTextChange} className="w-full p-2 border rounded-md" placeholder="Optional" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Location / Community</label>
+              <input type="text" name="location" value={formData.location} onChange={handleTextChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., PRAMPRAM" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Address / Plot Description</label>
+              <input type="text" name="address" value={formData.address} onChange={handleTextChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., PLOT 12, BLOCK B" />
+            </div>
           </div>
         </div>
+
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">3. Document Vault</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-lg border border-gray-200">
@@ -169,6 +193,7 @@ const NewPermit = () => {
             {renderDocumentUpload("Receipts", "receipts", true)}
           </div>
         </div>
+
         <button type="submit" className="w-full bg-blue-600 text-white font-semibold py-4 rounded-md hover:bg-blue-700 transition shadow-md">
           Save to Secure Archives
         </button>
