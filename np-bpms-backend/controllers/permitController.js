@@ -13,7 +13,7 @@ const getPermits = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from('permits')
-      .select(`*, applicants ( first_name, last_name, phone ), properties ( address, location )`)
+      .select('*')
       .order('id', { ascending: false });
 
     if (error) throw error;
@@ -22,15 +22,15 @@ const getPermits = async (req, res) => {
       id: permit.id,
       permit_number: permit.permit_number,
       date_issued: permit.date_issued,
-      first_name: permit.applicants?.first_name,
-      last_name: permit.applicants?.last_name,
-      phone: permit.applicants?.phone,
-      address: permit.properties?.address,
-      location: permit.properties?.location,
-      certificate_link: permit.file_permit_certificate,
-      drawings_links: permit.file_architectural_drawings,
-      permit_form_link: permit.file_permit_form,
-      receipts_links: permit.file_receipts,
+      purpose: permit.purpose || 'RESIDENTIAL',
+      applicant_name: permit.applicant_name,
+      phone: permit.phone,
+      address: permit.address,
+      location: permit.location,
+      certificate_link: permit.certificate_link,
+      drawings_links: permit.drawings_links,
+      permit_form_link: permit.permit_form_link,
+      receipts_links: permit.receipts_links,
       upload_status: permit.upload_status || 'pending'
     }));
 
@@ -58,9 +58,10 @@ const getMonthlyStats = async (req, res) => {
 // ==========================================
 // 2. BACKGROUND WORKER
 // ==========================================
-const processFilesInBackground = async (files, permitId, permitNumber, lastName) => {
+const processFilesInBackground = async (files, permitId, permitNumber, applicantName) => {
   try {
-    const mainFolderName = `${permitNumber.replace(/\//g, '_')} - ${lastName}`;
+    const safeName = (applicantName || 'APPLICANT').replace(/[^a-zA-Z0-9]/g, '_');
+    const mainFolderName = `${permitNumber.replace(/\//g, '_')} - ${safeName}`;
     const mainFolderId = await createGoogleDriveFolder(mainFolderName); 
 
     const processAndUpload = async (fileArray, subFolderName) => {
@@ -78,10 +79,10 @@ const processFilesInBackground = async (files, permitId, permitNumber, lastName)
     ]);
 
     const { error: updateError } = await supabase.from('permits').update({
-      file_permit_certificate: certificateLinks[0] || null,
-      file_architectural_drawings: drawingLinks.join(', ') || null,
-      file_permit_form: permitFormLinks.join(', ') || null,
-      file_receipts: receiptLinks.join(', ') || null,
+      certificate_link: certificateLinks[0] || null,
+      drawings_links: drawingLinks.join(', ') || null,
+      permit_form_link: permitFormLinks.join(', ') || null,
+      receipts_links: receiptLinks.join(', ') || null,
       upload_status: 'completed' 
     }).eq('id', permitId);
 
@@ -97,36 +98,29 @@ const processFilesInBackground = async (files, permitId, permitNumber, lastName)
 // ==========================================
 const archivePermit = async (req, res) => {
   try {
-    const { permitNumber, dateIssued, firstName, lastName, phone, address, location } = req.body;
-
-    const { data: applicantData, error: applicantError } = await supabase
-      .from('applicants')
-      .insert([{ first_name: firstName, last_name: lastName, phone: phone || null }])
-      .select().single();
-    if (applicantError) throw applicantError;
-
-    const { data: propertyData, error: propertyError } = await supabase
-      .from('properties')
-      .insert([{ address: address, location: location }])
-      .select().single();
-    if (propertyError) throw propertyError;
+    const { permitNumber, dateIssued, purpose, applicantName, phone, address, location } = req.body;
 
     const { data: permitData, error: permitError } = await supabase
       .from('permits')
       .insert([{
         permit_number: permitNumber,
-        applicant_id: applicantData.id,
-        property_id: propertyData.id,
         date_issued: dateIssued,
+        purpose: purpose || 'RESIDENTIAL',
+        applicant_name: applicantName,
+        phone: phone || null,
+        address: address,
+        location: location,
         upload_status: 'pending'
       }])
       .select().single(); 
+
     if (permitError) throw permitError;
 
     res.status(200).json({ success: true, message: "Permit record instantiated." });
 
-    processFilesInBackground(req.files, permitData.id, permitNumber, lastName);
+    processFilesInBackground(req.files, permitData.id, permitNumber, applicantName);
   } catch (error) {
+    console.error("Archive Error:", error);
     res.status(500).json({ success: false, message: "Failed to archive record" });
   }
 };
@@ -151,20 +145,26 @@ const deletePermit = async (req, res) => {
 const updatePermit = async (req, res) => {
   try {
     const { id } = req.params;
-    const { permit_number, date_issued, first_name, last_name, phone, address, location } = req.body;
+    const { permit_number, date_issued, purpose, applicant_name, phone, address, location } = req.body;
 
-    const { data: permitData, error: fetchError } = await supabase
-      .from('permits').select('applicant_id, property_id').eq('id', id).single();
-    if (fetchError) throw fetchError;
+    const { error: updateError } = await supabase
+      .from('permits')
+      .update({
+        permit_number,
+        date_issued,
+        purpose,
+        applicant_name,
+        phone: phone || null,
+        address,
+        location
+      })
+      .eq('id', id);
 
-    await Promise.all([
-      supabase.from('permits').update({ permit_number, date_issued }).eq('id', id),
-      supabase.from('applicants').update({ first_name, last_name, phone: phone || null }).eq('id', permitData.applicant_id),
-      supabase.from('properties').update({ address, location }).eq('id', permitData.property_id)
-    ]);
+    if (updateError) throw updateError;
 
     res.status(200).json({ success: true, message: "Permit updated successfully" });
   } catch (error) {
+    console.error("Update Error:", error);
     res.status(500).json({ success: false, message: "Failed to update record" });
   }
 };
