@@ -44,14 +44,24 @@ const NewPermit = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [currentScanField, setCurrentScanField] = useState(null);
 
-  // --- AUTO-FORMATTER HELPER FOR PERMIT NUMBER ---
+  // --- UPGRADED AUTO-FORMATTER HELPER FOR PERMIT NUMBER ---
   const formatPermitNumberInput = (value) => {
     const cleanVal = (value || '').trim().toUpperCase();
-    const shorthandMatch = cleanVal.match(/^([A-Z]{3,4})(\d{2})(\d{1,4})$/);
-    if (shorthandMatch) {
-      const [, location, year, serial] = shorthandMatch;
+    
+    // If it already starts with NIPDA/, keep it as is
+    if (cleanVal.startsWith('NIPDA/')) {
+      return cleanVal;
+    }
+
+    // Flexible regex supporting letters, hyphens, slashes, a 2-digit year, and serial numbers
+    // Matches patterns like: PRAM2517, LAK2630, or LAK-NIN2630
+    const match = cleanVal.match(/^([A-Z\-\/]+?)(\d{2})(\d{1,4})$/);
+    if (match) {
+      let [, location, year, serial] = match;
+      location = location.replace(/[\/\-]+$/, '');
       return `NIPDA/${location}/${year}/${serial}`;
     }
+
     return cleanVal;
   };
 
@@ -173,7 +183,7 @@ const NewPermit = () => {
         </div>
       </div>
     );
-  }
+  };
 
   // --- NORMAL RENDER ---
   return (
@@ -199,7 +209,7 @@ const NewPermit = () => {
                 onBlur={handlePermitNumberBlur}
                 required 
                 className="w-full p-2 border rounded-md uppercase" 
-                placeholder="E.G., PRAM2517 or NIPDA/PRAM/25/17"
+                placeholder="E.G., LAK-NIN2630 or NIPDA/LAK-NIN/26/30"
               />
             </div>
             <div>
