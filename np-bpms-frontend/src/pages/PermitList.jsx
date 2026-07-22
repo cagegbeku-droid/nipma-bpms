@@ -55,13 +55,23 @@ const PermitList = () => {
     }
   };
 
+  // --- AUTO-FORMATTER HELPER FOR PERMIT NUMBER ---
+  const formatPermitNumberInput = (value) => {
+    const cleanVal = (value || '').trim().toUpperCase();
+    const shorthandMatch = cleanVal.match(/^([A-Z]{3,4})(\d{2})(\d{1,4})$/);
+    if (shorthandMatch) {
+      const [, location, year, serial] = shorthandMatch;
+      return `NIPDA/${location}/${year}/${serial}`;
+    }
+    return cleanVal;
+  };
+
   // --- EDIT FUNCTIONS ---
   const handleEditClick = (permit) => {
     const standardPurposes = ['RESIDENTIAL', 'COMMERCIAL', 'INSTITUTION', 'ORGANIZATION', 'MIXED USE', 'FENCE WALL'];
     const currentPurpose = permit.purpose ? permit.purpose.toUpperCase() : 'RESIDENTIAL';
     const isStandard = standardPurposes.includes(currentPurpose);
 
-    // Helper to get name
     const applicantNameVal = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`.trim();
 
     setEditFormData({
@@ -85,13 +95,18 @@ const PermitList = () => {
     });
   };
 
+  const handlePermitNumberBlur = () => {
+    const formatted = formatPermitNumberInput(editFormData.permit_number);
+    setEditFormData(prev => ({ ...prev, permit_number: formatted }));
+  };
+
   const submitEdit = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     
     const finalPurpose = editFormData.purpose === 'OTHER' ? editFormData.custom_purpose : editFormData.purpose;
     const payload = {
-      permit_number: editFormData.permit_number,
+      permit_number: formatPermitNumberInput(editFormData.permit_number),
       date_issued: editFormData.date_issued,
       purpose: finalPurpose,
       applicant_name: editFormData.applicant_name,
@@ -124,7 +139,7 @@ const PermitList = () => {
     }
   };
 
-  // --- SEARCH FILTER (Searches Permit #, Name, Purpose, Location, Phone) ---
+  // --- SEARCH FILTER ---
   const filteredPermits = permits.filter(permit => {
     const search = searchTerm.toLowerCase();
     const applicantName = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`;
@@ -329,7 +344,16 @@ const PermitList = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Permit Number</label>
-                  <input type="text" name="permit_number" value={editFormData.permit_number} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" />
+                  <input 
+                    type="text" 
+                    name="permit_number" 
+                    value={editFormData.permit_number} 
+                    onChange={handleEditChange} 
+                    onBlur={handlePermitNumberBlur}
+                    required 
+                    className="w-full p-2 border rounded-md uppercase" 
+                    placeholder="E.G., PRAM2517"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label>

@@ -44,6 +44,17 @@ const NewPermit = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [currentScanField, setCurrentScanField] = useState(null);
 
+  // --- AUTO-FORMATTER HELPER FOR PERMIT NUMBER ---
+  const formatPermitNumberInput = (value) => {
+    const cleanVal = (value || '').trim().toUpperCase();
+    const shorthandMatch = cleanVal.match(/^([A-Z]{3,4})(\d{2})(\d{1,4})$/);
+    if (shorthandMatch) {
+      const [, location, year, serial] = shorthandMatch;
+      return `NIPDA/${location}/${year}/${serial}`;
+    }
+    return cleanVal;
+  };
+
   // Automatically transform text input values to uppercase
   const handleTextChange = (e) => {
     const { name, value } = e.target;
@@ -51,6 +62,11 @@ const NewPermit = () => {
       ...formData, 
       [name]: name === 'dateIssued' || name === 'phone' ? value : value.toUpperCase() 
     });
+  };
+
+  const handlePermitNumberBlur = () => {
+    const formatted = formatPermitNumberInput(formData.permitNumber);
+    setFormData(prev => ({ ...prev, permitNumber: formatted }));
   };
 
   const handleFileChange = (e) => {
@@ -74,13 +90,20 @@ const NewPermit = () => {
     e.preventDefault();
     setMessage("Uploading files to Archive Vault...");
     
+    // Ensure permit number is formatted properly before submission
+    const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
+    
     // Determine the final purpose value (if OTHER, use customPurpose)
     const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
 
     const submitData = new FormData();
     Object.keys(formData).forEach(key => {
       if (key !== 'customPurpose') {
-        submitData.append(key, key === 'purpose' ? finalPurposeValue : formData[key]);
+        if (key === 'permitNumber') {
+          submitData.append(key, formattedPermitNumber);
+        } else {
+          submitData.append(key, key === 'purpose' ? finalPurposeValue : formData[key]);
+        }
       }
     });
     
@@ -168,7 +191,16 @@ const NewPermit = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Original Permit Number</label>
-              <input type="text" name="permitNumber" value={formData.permitNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., NiPDA/DAWH/20/001"/>
+              <input 
+                type="text" 
+                name="permitNumber" 
+                value={formData.permitNumber} 
+                onChange={handleTextChange} 
+                onBlur={handlePermitNumberBlur}
+                required 
+                className="w-full p-2 border rounded-md uppercase" 
+                placeholder="E.G., PRAM2517 or NIPDA/PRAM/25/17"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label>
