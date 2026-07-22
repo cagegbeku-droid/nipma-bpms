@@ -31,6 +31,7 @@ const NewPermit = () => {
   const [formData, setFormData] = useState({
     permitNumber: '', 
     dateIssued: '', 
+    purpose: '', // Building purpose (e.g., Residential, Commercial, Church)
     applicantName: '', // Flexible field for individuals, multiple names, or organizations
     phone: '', 
     address: '', 
@@ -90,7 +91,7 @@ const NewPermit = () => {
       const data = await response.json();
       if (data.success) {
         setMessage("Success! Record and all documents archived securely.");
-        setFormData({ permitNumber: '', dateIssued: '', applicantName: '', phone: '', address: '', location: '' });
+        setFormData({ permitNumber: '', dateIssued: '', purpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
       } else {
         setMessage("Failed to archive record.");
@@ -157,8 +158,18 @@ const NewPermit = () => {
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">1. Permit Data</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Original Permit Number</label><input type="text" name="permitNumber" value={formData.permitNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., NiPDA/DAWH/20/001"/></div>
-            <div><label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label><input type="date" name="dateIssued" value={formData.dateIssued} onChange={handleTextChange} required className="w-full p-2 border rounded-md" /></div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Original Permit Number</label>
+              <input type="text" name="permitNumber" value={formData.permitNumber} onChange={handleTextChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., NiPDA/DAWH/20/001"/>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label>
+              <input type="date" name="dateIssued" value={formData.dateIssued} onChange={handleTextChange} required className="w-full p-2 border rounded-md" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Building Purpose / Use</label>
+              <input type="text" name="purpose" value={formData.purpose} onChange={handleTextChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., RESIDENTIAL, COMMERCIAL, CHURCH, SCHOOL" />
+            </div>
           </div>
         </div>
 
