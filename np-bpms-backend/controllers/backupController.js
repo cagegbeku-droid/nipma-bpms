@@ -48,11 +48,8 @@ const triggerBackup = async (req, res) => {
     filePath = path.join(uploadDir, fileName);
     fs.writeFileSync(filePath, JSON.stringify(backupData, null, 2));
 
-    // 3. Upload directly to your main 5TB Google Drive Folder ID
-    const targetFolderId = process.env.GOOGLE_FOLDER_ID;
-    if (!targetFolderId) {
-      throw new Error("GOOGLE_FOLDER_ID is missing from environment variables!");
-    }
+    // 3. Upload directly with hardcoded fallback folder ID
+    const targetFolderId = process.env.GOOGLE_FOLDER_ID || '1e_fwJ6-Ix12HdhaxQTMuNQPAmaojezBi';
 
     const mockFile = {
       path: filePath,
