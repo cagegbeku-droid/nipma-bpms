@@ -11,10 +11,10 @@ const PermitList = () => {
   const [error, setError] = useState('');
   
   // Modal States
-  const [selectedPermit, setSelectedPermit] = useState(null); // For Viewing Files
-  const [editingPermit, setEditingPermit] = useState(null);   // For Editing Data
-  const [editFormData, setEditFormData] = useState({});       // Holds the form input
-  const [isSaving, setIsSaving] = useState(false);            // Loading state for save button
+  const [selectedPermit, setSelectedPermit] = useState(null); 
+  const [editingPermit, setEditingPermit] = useState(null);   
+  const [editFormData, setEditFormData] = useState({});       
+  const [isSaving, setIsSaving] = useState(false);            
 
   useEffect(() => {
     const fetchPermits = async () => {
@@ -41,9 +41,7 @@ const PermitList = () => {
     try {
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${id}`, {
         method: "DELETE",
-        headers: {
-          'x-admin-key': adminKey || ''
-        }
+        headers: { 'x-admin-key': adminKey || '' }
       });
       const data = await response.json();
       
@@ -63,12 +61,15 @@ const PermitList = () => {
     const currentPurpose = permit.purpose ? permit.purpose.toUpperCase() : 'RESIDENTIAL';
     const isStandard = standardPurposes.includes(currentPurpose);
 
+    // Helper to get name
+    const applicantNameVal = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`.trim();
+
     setEditFormData({
       permit_number: permit.permit_number || '',
       date_issued: permit.date_issued || '',
       purpose: isStandard ? currentPurpose : 'OTHER',
       custom_purpose: isStandard ? '' : currentPurpose,
-      applicant_name: permit.applicant_name || '',
+      applicant_name: applicantNameVal.toUpperCase(),
       phone: permit.phone || '',
       address: permit.address || '',
       location: permit.location || ''
@@ -88,7 +89,6 @@ const PermitList = () => {
     e.preventDefault();
     setIsSaving(true);
     
-    // Resolve final purpose value
     const finalPurpose = editFormData.purpose === 'OTHER' ? editFormData.custom_purpose : editFormData.purpose;
     const payload = {
       permit_number: editFormData.permit_number,
@@ -123,13 +123,14 @@ const PermitList = () => {
       setIsSaving(false);
     }
   };
-  // -------------------------
 
+  // --- SEARCH FILTER (Searches Permit #, Name, Purpose, Location, Phone) ---
   const filteredPermits = permits.filter(permit => {
     const search = searchTerm.toLowerCase();
+    const applicantName = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`;
     return (
       permit.permit_number?.toLowerCase().includes(search) ||
-      permit.applicant_name?.toLowerCase().includes(search) ||
+      applicantName.toLowerCase().includes(search) ||
       permit.purpose?.toLowerCase().includes(search) ||
       permit.location?.toLowerCase().includes(search) ||
       permit.phone?.includes(search)
@@ -205,41 +206,46 @@ const PermitList = () => {
               ) : filteredPermits.length === 0 ? (
                 <tr><td colSpan="4" className="p-8 text-center text-gray-500">No records found matching your search.</td></tr>
               ) : (
-                filteredPermits.map((permit) => (
-                  <tr key={permit.id} className="hover:bg-gray-50 transition">
-                    <td className="p-4 align-middle">
-                      <div className="font-bold text-gray-900">{permit.permit_number}</div>
-                      <div className="text-xs text-blue-600 font-semibold uppercase mt-0.5">{permit.purpose || 'RESIDENTIAL'}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">Issued: {permit.date_issued}</div>
-                    </td>
-                    <td className="p-4 align-middle">
-                      <div className="font-semibold text-gray-800 uppercase">{permit.applicant_name}</div>
-                      <div className="text-sm text-gray-600 mt-0.5">📞 {permit.phone || 'N/A'}</div>
-                    </td>
-                    <td className="p-4 align-middle">
-                      <div className="text-sm text-gray-800 uppercase"><span className="font-semibold text-gray-500">Address:</span> {permit.address || 'N/A'}</div>
-                      <div className="text-sm text-gray-800 uppercase mt-0.5"><span className="font-semibold text-gray-500">Location:</span> {permit.location || 'N/A'}</div>
-                    </td>
-                    <td className="p-4 align-middle text-center">
-                      <div className="flex items-center justify-center space-x-2">
-                        <button onClick={() => setSelectedPermit(permit)} className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="View Documents">
-                          👁️ View
-                        </button>
-                        
-                        {isAdmin && (
-                          <>
-                            <button onClick={() => handleEditClick(permit)} className="bg-gray-50 text-gray-700 hover:bg-gray-700 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Edit Details">
-                              ✏️ Edit
-                            </button>
-                            <button onClick={() => handleDelete(permit.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Delete Record">
-                              🗑️ Delete
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                filteredPermits.map((permit) => {
+                  const displayName = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`.trim();
+                  const displayPurpose = permit.purpose || 'RESIDENTIAL';
+
+                  return (
+                    <tr key={permit.id} className="hover:bg-gray-50 transition">
+                      <td className="p-4 align-middle">
+                        <div className="font-bold text-gray-900">{permit.permit_number}</div>
+                        <div className="text-xs text-blue-600 font-semibold uppercase mt-0.5">{displayPurpose}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">Issued: {permit.date_issued}</div>
+                      </td>
+                      <td className="p-4 align-middle">
+                        <div className="font-semibold text-gray-800 uppercase">{displayName}</div>
+                        <div className="text-sm text-gray-600 mt-0.5">📞 {permit.phone || 'N/A'}</div>
+                      </td>
+                      <td className="p-4 align-middle">
+                        <div className="text-sm text-gray-800 uppercase"><span className="font-semibold text-gray-500">Address:</span> {permit.address || 'N/A'}</div>
+                        <div className="text-sm text-gray-800 uppercase mt-0.5"><span className="font-semibold text-gray-500">Location:</span> {permit.location || 'N/A'}</div>
+                      </td>
+                      <td className="p-4 align-middle text-center">
+                        <div className="flex items-center justify-center space-x-2">
+                          <button onClick={() => setSelectedPermit(permit)} className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="View Documents">
+                            👁️ View
+                          </button>
+                          
+                          {isAdmin && (
+                            <>
+                              <button onClick={() => handleEditClick(permit)} className="bg-gray-50 text-gray-700 hover:bg-gray-700 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Edit Details">
+                                ✏️ Edit
+                              </button>
+                              <button onClick={() => handleDelete(permit.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Delete Record">
+                                🗑️ Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -247,61 +253,66 @@ const PermitList = () => {
       </div>
 
       {/* --- MODAL 1: VIEW FILES & DETAILS --- */}
-      {selectedPermit && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">Archived Documents & Details</h3>
-                <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold">{selectedPermit.permit_number}</span></p>
-              </div>
-              <button onClick={() => setSelectedPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition">
-                ✕
-              </button>
-            </div>
-            
-            <div className="p-6 overflow-y-auto bg-gray-50 space-y-6">
-              <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="block font-semibold text-gray-400 text-xs">PURPOSE / USE</span>
-                  <p className="text-gray-800 font-bold uppercase">{selectedPermit.purpose}</p>
-                </div>
-                <div>
-                  <span className="block font-semibold text-gray-400 text-xs">APPLICANT / ORGANIZATION</span>
-                  <p className="text-gray-800 font-bold uppercase">{selectedPermit.applicant_name}</p>
-                </div>
-                <div>
-                  <span className="block font-semibold text-gray-400 text-xs">LOCATION</span>
-                  <p className="text-gray-800 font-semibold uppercase">{selectedPermit.location}</p>
-                </div>
-                <div>
-                  <span className="block font-semibold text-gray-400 text-xs">PHONE</span>
-                  <p className="text-gray-800 font-semibold">{selectedPermit.phone || 'N/A'}</p>
-                </div>
-              </div>
+      {selectedPermit && (() => {
+        const modalName = selectedPermit.applicant_name || `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim();
+        const modalPurpose = selectedPermit.purpose || 'RESIDENTIAL';
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                  <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Certificate</h4>
-                  {renderLinks(selectedPermit.certificate_link, "Certificate") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Archived Documents & Details</h3>
+                  <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold">{selectedPermit.permit_number}</span></p>
                 </div>
-                <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                  <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Architectural Drawings</h4>
-                  {renderLinks(selectedPermit.drawings_links, "Drawing") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+                <button onClick={() => setSelectedPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition">
+                  ✕
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto bg-gray-50 space-y-6">
+                <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="block font-semibold text-gray-400 text-xs">PURPOSE / USE</span>
+                    <p className="text-gray-800 font-bold uppercase">{modalPurpose}</p>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-gray-400 text-xs">APPLICANT / ORGANIZATION</span>
+                    <p className="text-gray-800 font-bold uppercase">{modalName}</p>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-gray-400 text-xs">LOCATION</span>
+                    <p className="text-gray-800 font-semibold uppercase">{selectedPermit.location || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-gray-400 text-xs">PHONE</span>
+                    <p className="text-gray-800 font-semibold">{selectedPermit.phone || 'N/A'}</p>
+                  </div>
                 </div>
-                <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                  <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Permit Form</h4>
-                  {renderLinks(selectedPermit.permit_form_link, "Form") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
-                </div>
-                <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                  <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Receipts</h4>
-                  {renderLinks(selectedPermit.receipts_links, "Receipt") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                    <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Certificate</h4>
+                    {renderLinks(selectedPermit.certificate_link, "Certificate") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+                  </div>
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                    <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Architectural Drawings</h4>
+                    {renderLinks(selectedPermit.drawings_links, "Drawing") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+                  </div>
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                    <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Permit Form</h4>
+                    {renderLinks(selectedPermit.permit_form_link, "Form") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+                  </div>
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                    <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Receipts</h4>
+                    {renderLinks(selectedPermit.receipts_links, "Receipt") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* --- MODAL 2: EDIT DATA --- */}
       {editingPermit && (
