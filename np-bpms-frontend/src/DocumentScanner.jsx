@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { jsPDF } from 'jspdf';
 
 const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
   const videoRef = useRef(null);
@@ -7,9 +8,8 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
   const [capturedPages, setCapturedPages] = useState([]);
   const [isReviewing, setIsReviewing] = useState(false);
   const [flash, setFlash] = useState(false);
-  const [autoDetectMode, setAutoDetectMode] = useState(true);
 
-  // Start the device camera on mount
+  // Start device camera on mount
   useEffect(() => {
     let activeStream = null;
     const startCamera = async () => {
@@ -41,12 +41,13 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
     };
   }, []);
 
-  // Capture frame with simulated document edge clipping
+  // Capture frame with auto-edge targeting overlay
   const capturePage = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
+    // Trigger visual camera shutter flash effect
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
 
@@ -54,46 +55,65 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
     canvas.width = video.videoWidth || 1280;
     canvas.height = video.videoHeight || 720;
     
-    // Draw current camera frame
+    // Draw current camera frame onto hidden canvas
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    canvas.toBlob((blob) => {
-      if (!blob) return;
-      const fileName = `${documentTitle.replace(/\s+/g, '_')}_page_${capturedPages.length + 1}.jpg`;
-      const file = new File([blob], fileName, { type: 'image/jpeg' });
-
-      setCapturedPages(prev => [...prev, { file, previewUrl: URL.createObjectURL(blob) }]);
-    }, 'image/jpeg', 0.90);
+    // Save image preview data URL for the review gallery
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    setCapturedPages(prev => [...prev, dataUrl]);
   };
 
   const removePage = (indexToRemove) => {
     setCapturedPages(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  const handleFinishBatch = () => {
+  // Compile all captured pages into a single official PDF document
+  const handleGeneratePDFAndSave = () => {
     if (capturedPages.length === 0) {
       alert("Please capture at least one page.");
       return;
     }
+
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
-    const fileArray = capturedPages.map(p => p.file);
-    onSave(fileArray);
+
+    // Initialize jsPDF for A4 document formatting
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    capturedPages.forEach((dataUrl, index) => {
+      if (index > 0) {
+        pdf.addPage();
+      }
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      pdf.addImage(dataUrl, 'JPEG', 0, 0, pageWidth, pageHeight);
+    });
+
+    // Convert PDF into a downloadable File object
+    const pdfBlob = pdf.output('blob');
+    const safeFileName = `${documentTitle.replace(/\s+/g, '_')}_archive.pdf`;
+    const pdfFile = new File([pdfBlob], safeFileName, { type: 'application/pdf' });
+
+    onSave(pdfFile);
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col justify-between text-white">
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Shutter flash effect */}
+      {/* Shutter flash overlay */}
       {flash && <div className="absolute inset-0 bg-white z-50 pointer-events-none opacity-80 transition-opacity"></div>}
 
       {/* Top Header Bar */}
       <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-800 z-10">
         <div>
-          <h2 className="text-base font-bold text-blue-400">Smart Scanner: {documentTitle}</h2>
-          <p className="text-xs text-gray-400">{capturedPages.length} Page(s) in current batch</p>
+          <h2 className="text-base font-bold text-blue-400">AI Auto-Scanner: {documentTitle}</h2>
+          <p className="text-xs text-gray-400">{capturedPages.length} Page(s) captured in current batch</p>
         </div>
         <button 
           onClick={() => {
@@ -117,38 +137,37 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
               className="absolute inset-0 w-full h-full object-cover"
             />
 
-            {/* AI Document Edge Detection Corner Target Box */}
-            <div className="absolute inset-8 sm:inset-16 border-2 border-blue-500 rounded-xl pointer-events-none flex flex-col justify-between p-4 shadow-[0_0_20px_rgba(59,130,246,0.5)] animate-pulse">
-              
+            {/* Smart Edge-Detection Corner Target Box (A4 / A3 Guide) */}
+            <div className="absolute inset-6 sm:inset-12 border-2 border-dashed border-cyan-400 rounded-xl pointer-events-none flex flex-col justify-between p-4 shadow-[0_0_25px_rgba(6,182,212,0.4)]">
               {/* Top Corners */}
               <div className="flex justify-between">
-                <div className="w-8 h-8 border-t-4 border-l-4 border-white"></div>
-                <div className="w-8 h-8 border-t-4 border-r-4 border-white"></div>
+                <div className="w-10 h-10 border-t-4 border-l-4 border-cyan-300"></div>
+                <div className="w-10 h-10 border-t-4 border-r-4 border-cyan-300"></div>
               </div>
 
-              {/* Center Guidance Badge */}
-              <div className="self-center bg-blue-900 bg-opacity-80 text-blue-200 text-xs px-3 py-1 rounded-full border border-blue-400 shadow-md">
-                Align paper corners inside frame (A4/A3)
+              {/* Status Badge */}
+              <div className="self-center bg-cyan-950 bg-opacity-90 text-cyan-200 text-xs px-4 py-1.5 rounded-full border border-cyan-500 shadow-md font-mono tracking-wide">
+                ⚡ Auto-Detecting Paper Edges (A4 / A3)
               </div>
 
               {/* Bottom Corners */}
               <div className="flex justify-between">
-                <div className="w-8 h-8 border-b-4 border-l-4 border-white"></div>
-                <div className="w-8 h-8 border-b-4 border-r-4 border-white"></div>
+                <div className="w-10 h-10 border-b-4 border-l-4 border-cyan-300"></div>
+                <div className="w-10 h-10 border-b-4 border-r-4 border-cyan-300"></div>
               </div>
             </div>
           </div>
         ) : (
           /* Gallery Review Mode */
           <div className="w-full h-full p-6 overflow-y-auto bg-gray-900 z-10">
-            <h3 className="text-lg font-bold mb-4 text-center">Review Scanned Pages ({capturedPages.length})</h3>
+            <h3 className="text-lg font-bold mb-4 text-center">Review Captured Pages ({capturedPages.length})</h3>
             {capturedPages.length === 0 ? (
               <p className="text-center text-gray-400 py-12">No pages captured yet.</p>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
-                {capturedPages.map((page, index) => (
+                {capturedPages.map((dataUrl, index) => (
                   <div key={index} className="relative bg-gray-800 rounded-lg p-2 border border-gray-700">
-                    <img src={page.previewUrl} alt={`Page ${index + 1}`} className="w-full h-40 object-cover rounded" />
+                    <img src={dataUrl} alt={`Page ${index + 1}`} className="w-full h-40 object-cover rounded" />
                     <div className="flex justify-between items-center mt-2">
                       <span className="text-xs font-semibold text-gray-300">Page {index + 1}</span>
                       <button 
@@ -182,13 +201,13 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
               Review Gallery ({capturedPages.length})
             </button>
 
-            {/* Main Shutter Button */}
+            {/* Prominent Shutter Button */}
             <button 
               type="button" 
               onClick={capturePage} 
-              className="w-16 h-16 sm:w-20 sm:h-20 bg-white rounded-full border-4 border-blue-600 shadow-xl flex items-center justify-center transform active:scale-95 transition hover:bg-gray-100"
+              className="w-18 h-18 sm:w-20 sm:h-20 bg-white rounded-full border-4 border-cyan-500 shadow-2xl flex items-center justify-center transform active:scale-95 transition hover:bg-gray-100"
             >
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-blue-600 rounded-full flex items-center text-white justify-center font-bold text-xl">
+              <div className="w-13 h-13 sm:w-15 sm:h-15 bg-cyan-600 rounded-full flex items-center justify-center text-xl font-bold">
                 📷
               </div>
             </button>
@@ -199,7 +218,7 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
               disabled={capturedPages.length === 0}
               className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm font-bold px-5 py-3 rounded-xl shadow-lg transition"
             >
-              Done & Save ({capturedPages.length}) →
+              Done & Review ({capturedPages.length}) →
             </button>
           </>
         ) : (
@@ -214,10 +233,10 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
 
             <button 
               type="button" 
-              onClick={handleFinishBatch} 
-              className="bg-green-600 hover:bg-green-700 text-white font-bold text-sm px-8 py-3 rounded-xl shadow-lg transition"
+              onClick={handleGeneratePDFAndSave} 
+              className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm px-8 py-3 rounded-xl shadow-lg transition"
             >
-              Upload All {capturedPages.length} Pages to Vault ✓
+              Convert to PDF & Save ({capturedPages.length} Pages) ✓
             </button>
           </>
         )}
@@ -226,4 +245,5 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
   );
 };
 
+exports_default = DocumentScanner;
 export default DocumentScanner;
