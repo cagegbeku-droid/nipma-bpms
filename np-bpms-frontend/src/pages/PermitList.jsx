@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 
 const PermitList = () => {
   // --- INVISIBLE ADMIN CHECK ---
@@ -185,10 +186,11 @@ const PermitList = () => {
         </div>
         
         <div className="flex items-center space-x-4">
+          {/* ONLY SHOWN TO ADMINS VIA ROUTER LINK */}
           {isAdmin && (
-            <a href="/new-permit" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium">
+            <Link to="/permits/new" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium">
               + Add New Permit
-            </a>
+            </Link>
           )}
           <div className="w-80">
             <input 
