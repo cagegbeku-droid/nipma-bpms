@@ -245,5 +245,4 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
   );
 };
 
-exports_default = DocumentScanner;
 export default DocumentScanner;
