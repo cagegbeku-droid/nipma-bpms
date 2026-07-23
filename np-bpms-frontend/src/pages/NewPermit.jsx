@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import DocumentScanner from '../DocumentScanner';
 
 const NewPermit = () => {
   // --- SECRET ADMIN LOGIN STATE ---
@@ -41,31 +40,22 @@ const NewPermit = () => {
   
   const [files, setFiles] = useState({ certificate: [], drawings: [], permitForm: [], receipts: [] });
   const [message, setMessage] = useState('');
-  const [isScanning, setIsScanning] = useState(false);
-  const [currentScanField, setCurrentScanField] = useState(null);
 
-  // --- UPGRADED AUTO-FORMATTER HELPER FOR PERMIT NUMBER ---
+  // --- AUTO-FORMATTER HELPER FOR PERMIT NUMBER ---
   const formatPermitNumberInput = (value) => {
     const cleanVal = (value || '').trim().toUpperCase();
-    
-    // If it already starts with NIPDA/, keep it as is
     if (cleanVal.startsWith('NIPDA/')) {
       return cleanVal;
     }
-
-    // Flexible regex supporting letters, hyphens, slashes, a 2-digit year, and serial numbers
-    // Matches patterns like: PRAM2517, LAK2630, or LAK-NIN2630
     const match = cleanVal.match(/^([A-Z\-\/]+?)(\d{2})(\d{1,4})$/);
     if (match) {
       let [, location, year, serial] = match;
       location = location.replace(/[\/\-]+$/, '');
       return `NIPDA/${location}/${year}/${serial}`;
     }
-
     return cleanVal;
   };
 
-  // Automatically transform text input values to uppercase
   const handleTextChange = (e) => {
     const { name, value } = e.target;
     setFormData({ 
@@ -86,17 +76,6 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: [...prev[fieldName], ...newFiles] }));
   };
 
-  // --- UPDATED BATCH SCAN SAVE HANDLER FOR PDF FILES ---
-  const handleScanSave = (pdfFile) => {
-    const filesToAdd = Array.isArray(pdfFile) ? pdfFile : [pdfFile];
-    setFiles(prev => ({ 
-      ...prev, 
-      [currentScanField]: [...(prev[currentScanField] || []), ...filesToAdd] 
-    }));
-    setIsScanning(false);
-    setCurrentScanField(null);
-  };
-
   const removeFile = (fieldName, indexToRemove) => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
@@ -105,10 +84,7 @@ const NewPermit = () => {
     e.preventDefault();
     setMessage("Uploading files to Archive Vault...");
     
-    // Ensure permit number is formatted properly before submission
     const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
-    
-    // Determine the final purpose value (if OTHER, use customPurpose)
     const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
 
     const submitData = new FormData();
@@ -147,26 +123,37 @@ const NewPermit = () => {
     }
   };
 
-  const renderDocumentUpload = (label, fieldName, allowMultiple = false) => {
+  const renderDocumentUpload = (label, fieldName, allowMultiple = true) => {
     const currentFiles = files[fieldName] || []; 
     return (
-      <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-        <label className="block text-sm font-bold text-gray-800 mb-3">{label}</label>
-        <div className="flex space-x-3 mb-3">
-          <label className="cursor-pointer bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-200 transition text-sm flex items-center">
-            <span>📁 Upload {allowMultiple ? 'Files' : 'File'}</span>
-            <input type="file" name={fieldName} multiple={allowMultiple} onChange={handleFileChange} className="hidden" />
-          </label>
-          <button type="button" onClick={() => { setCurrentScanField(fieldName); setIsScanning(true); }} className="bg-blue-50 text-blue-700 font-semibold py-2 px-4 rounded-md hover:bg-blue-100 transition text-sm flex items-center">
-            📷 Auto-Scan {allowMultiple ? 'Pages' : 'Document'}
-          </button>
-        </div>
+      <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+        <label className="block text-sm font-bold text-gray-800 mb-2">{label}</label>
+        <p className="text-xs text-gray-500 mb-3">Upload scanned PDFs or images (multi-page supported)</p>
+        
+        <label className="cursor-pointer bg-blue-50 text-blue-700 font-semibold py-2.5 px-4 rounded-md hover:bg-blue-100 transition text-sm flex items-center justify-center border border-blue-200">
+          <span>📁 Browse & Select {allowMultiple ? 'Documents' : 'Document'}</span>
+          <input 
+            type="file" 
+            name={fieldName} 
+            multiple={allowMultiple} 
+            accept=".pdf,image/*" 
+            onChange={handleFileChange} 
+            className="hidden" 
+          />
+        </label>
+
         {currentFiles.length > 0 && (
-          <div className="mt-2 space-y-1">
+          <div className="mt-3 space-y-2">
             {currentFiles.map((file, index) => (
-              <div key={index} className="flex justify-between items-center bg-green-50 p-2 rounded text-sm text-green-800">
-                <span className="truncate pr-2">✓ {file.name}</span>
-                <button type="button" onClick={() => removeFile(fieldName, index)} className="text-red-500 font-bold px-2 hover:bg-red-100 rounded">X</button>
+              <div key={index} className="flex justify-between items-center bg-gray-50 p-2.5 rounded border border-gray-200 text-sm">
+                <span className="truncate pr-2 font-medium text-gray-700">📄 {file.name}</span>
+                <button 
+                  type="button" 
+                  onClick={() => removeFile(fieldName, index)} 
+                  className="text-red-500 font-bold px-2 py-1 hover:bg-red-50 rounded text-xs"
+                >
+                  Remove
+                </button>
               </div>
             ))}
           </div>
@@ -175,7 +162,7 @@ const NewPermit = () => {
     );
   };
 
-  // --- IF NOT LOGGED IN, SHOW THIS SCREEN INSTEAD ---
+  // --- IF NOT LOGGED IN ---
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -188,7 +175,7 @@ const NewPermit = () => {
         </div>
       </div>
     );
-  };
+  }
 
   // --- NORMAL RENDER ---
   return (
@@ -293,10 +280,6 @@ const NewPermit = () => {
           Save to Secure Archives
         </button>
       </form>
-
-      {isScanning && (
-        <DocumentScanner documentTitle={currentScanField} onCancel={() => setIsScanning(false)} onSave={handleScanSave} />
-      )}
     </div>
   );
 };
