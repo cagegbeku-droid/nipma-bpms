@@ -7,6 +7,7 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
   const [capturedPages, setCapturedPages] = useState([]);
   const [isReviewing, setIsReviewing] = useState(false);
   const [flash, setFlash] = useState(false);
+  const [autoDetectMode, setAutoDetectMode] = useState(true);
 
   // Start the device camera on mount
   useEffect(() => {
@@ -14,7 +15,11 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
     const startCamera = async () => {
       try {
         activeStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+          video: { 
+            facingMode: 'environment', 
+            width: { ideal: 1920 }, 
+            height: { ideal: 1080 } 
+          },
           audio: false
         });
         setStream(activeStream);
@@ -29,7 +34,6 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
 
     startCamera();
 
-    // Cleanup: turn off camera when component unmounts
     return () => {
       if (activeStream) {
         activeStream.getTracks().forEach(track => track.stop());
@@ -37,13 +41,12 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
     };
   }, []);
 
-  // Capture current frame from video feed
+  // Capture frame with simulated document edge clipping
   const capturePage = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
-    // Trigger visual shutter flash effect
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
 
@@ -51,100 +54,100 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
     canvas.width = video.videoWidth || 1280;
     canvas.height = video.videoHeight || 720;
     
-    // Draw current video frame onto canvas
+    // Draw current camera frame
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Convert canvas to a Blob / File object
     canvas.toBlob((blob) => {
       if (!blob) return;
       const fileName = `${documentTitle.replace(/\s+/g, '_')}_page_${capturedPages.length + 1}.jpg`;
       const file = new File([blob], fileName, { type: 'image/jpeg' });
 
       setCapturedPages(prev => [...prev, { file, previewUrl: URL.createObjectURL(blob) }]);
-    }, 'image/jpeg', 0.85);
+    }, 'image/jpeg', 0.90);
   };
 
-  // Remove a specific captured page from the batch
   const removePage = (indexToRemove) => {
     setCapturedPages(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  // Finish scanning and hand all pages back to NewPermit.jsx
   const handleFinishBatch = () => {
     if (capturedPages.length === 0) {
       alert("Please capture at least one page.");
       return;
     }
-    // Stop camera stream before closing scanner
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
-    // Extract just the raw File objects to pass up
     const fileArray = capturedPages.map(p => p.file);
     onSave(fileArray);
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black bg-opacity-95 flex flex-col justify-between text-white">
-      {/* Hidden canvas used for image processing */}
+    <div className="fixed inset-0 z-50 bg-black flex flex-col justify-between text-white">
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Shutter flash overlay */}
-      {flash && <div className="absolute inset-0 bg-white z-50 pointer-events-none opacity-75 transition-opacity"></div>}
+      {/* Shutter flash effect */}
+      {flash && <div className="absolute inset-0 bg-white z-50 pointer-events-none opacity-80 transition-opacity"></div>}
 
-      {/* Top Header */}
-      <div className="flex justify-between items-center p-4 bg-gray-900 bg-opacity-80 border-b border-gray-800">
+      {/* Top Header Bar */}
+      <div className="flex justify-between items-center p-4 bg-gray-900 border-b border-gray-800 z-10">
         <div>
-          <h2 className="text-lg font-bold">Scanning: {documentTitle}</h2>
-          <p className="text-xs text-blue-400">{capturedPages.length} Page(s) Captured in Batch</p>
+          <h2 className="text-base font-bold text-blue-400">Smart Scanner: {documentTitle}</h2>
+          <p className="text-xs text-gray-400">{capturedPages.length} Page(s) in current batch</p>
         </div>
         <button 
           onClick={() => {
             if (stream) stream.getTracks().forEach(track => track.stop());
             onCancel();
           }} 
-          className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-4 py-2 rounded-lg text-sm font-semibold transition"
+          className="bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg text-xs font-semibold transition"
         >
           Cancel
         </button>
       </div>
 
       {/* Main View Area */}
-      <div className="flex-1 relative flex items-center justify-center overflow-hidden">
+      <div className="flex-1 relative flex items-center justify-center overflow-hidden bg-black">
         {!isReviewing ? (
-          /* Live Camera Viewfinder with Framing Guide */
           <div className="relative w-full h-full flex items-center justify-center">
             <video 
               ref={videoRef} 
               autoPlay 
               playsInline 
-              className="absolute inset-0 w-full h-full object-contain bg-black"
+              className="absolute inset-0 w-full h-full object-cover"
             />
-            {/* Document Edge-Detection Alignment Guide Box */}
-            <div className="absolute border-2 border-dashed border-blue-400 rounded-lg w-[85%] h-[80%] pointer-events-none flex flex-col justify-between p-4 opacity-75">
-              <div className="flex justify-between text-blue-300 text-xs font-mono">
-                <span>[ CORNER A ]</span>
-                <span>[ CORNER B ]</span>
+
+            {/* AI Document Edge Detection Corner Target Box */}
+            <div className="absolute inset-8 sm:inset-16 border-2 border-blue-500 rounded-xl pointer-events-none flex flex-col justify-between p-4 shadow-[0_0_20px_rgba(59,130,246,0.5)] animate-pulse">
+              
+              {/* Top Corners */}
+              <div className="flex justify-between">
+                <div className="w-8 h-8 border-t-4 border-l-4 border-white"></div>
+                <div className="w-8 h-8 border-t-4 border-r-4 border-white"></div>
               </div>
-              <div className="text-center text-blue-200 text-xs bg-black bg-opacity-40 py-1 rounded">
-                Align paper within borders & snap pages sequentially
+
+              {/* Center Guidance Badge */}
+              <div className="self-center bg-blue-900 bg-opacity-80 text-blue-200 text-xs px-3 py-1 rounded-full border border-blue-400 shadow-md">
+                Align paper corners inside frame (A4/A3)
               </div>
-              <div className="flex justify-between text-blue-300 text-xs font-mono">
-                <span>[ CORNER C ]</span>
-                <span>[ CORNER D ]</span>
+
+              {/* Bottom Corners */}
+              <div className="flex justify-between">
+                <div className="w-8 h-8 border-b-4 border-l-4 border-white"></div>
+                <div className="w-8 h-8 border-b-4 border-r-4 border-white"></div>
               </div>
             </div>
           </div>
         ) : (
-          /* Gallery Review Grid View */
-          <div className="w-full h-full p-6 overflow-y-auto bg-gray-900">
-            <h3 className="text-xl font-bold mb-4 text-center">Review Scanned Pages ({capturedPages.length})</h3>
+          /* Gallery Review Mode */
+          <div className="w-full h-full p-6 overflow-y-auto bg-gray-900 z-10">
+            <h3 className="text-lg font-bold mb-4 text-center">Review Scanned Pages ({capturedPages.length})</h3>
             {capturedPages.length === 0 ? (
-              <p className="text-center text-gray-400 py-12">No pages captured yet. Go back and snap some pages!</p>
+              <p className="text-center text-gray-400 py-12">No pages captured yet.</p>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
                 {capturedPages.map((page, index) => (
-                  <div key={index} className="relative bg-gray-800 rounded-lg p-2 border border-gray-700 group">
+                  <div key={index} className="relative bg-gray-800 rounded-lg p-2 border border-gray-700">
                     <img src={page.previewUrl} alt={`Page ${index + 1}`} className="w-full h-40 object-cover rounded" />
                     <div className="flex justify-between items-center mt-2">
                       <span className="text-xs font-semibold text-gray-300">Page {index + 1}</span>
@@ -165,44 +168,46 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
       </div>
 
       {/* Bottom Control Bar */}
-      <div className="p-6 bg-gray-900 bg-opacity-90 border-t border-gray-800 flex flex-col sm:flex-row justify-between items-center gap-4">
+      <div className="p-4 sm:p-6 bg-gray-900 border-t border-gray-800 flex justify-between items-center z-10">
         {!isReviewing ? (
           <>
-            <div className="flex items-center space-x-2">
-              <span className="bg-blue-600 text-white text-xs font-bold px-3 py-1.5 rounded-full">
-                {capturedPages.length} Pages ready
-              </span>
-            </div>
+            <button 
+              type="button" 
+              onClick={() => setIsReviewing(true)}
+              disabled={capturedPages.length === 0}
+              className={`text-xs sm:text-sm font-semibold px-4 py-3 rounded-xl transition ${
+                capturedPages.length > 0 ? 'bg-gray-800 hover:bg-gray-700 text-white border border-gray-700' : 'opacity-40 text-gray-500 bg-gray-900'
+              }`}
+            >
+              Review Gallery ({capturedPages.length})
+            </button>
 
-            <div className="flex space-x-3">
-              <button 
-                type="button" 
-                onClick={capturePage} 
-                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform active:scale-95 transition flex items-center space-x-2 text-lg"
-              >
-                <span>📸 Snap Page</span>
-              </button>
+            {/* Main Shutter Button */}
+            <button 
+              type="button" 
+              onClick={capturePage} 
+              className="w-16 h-16 sm:w-20 sm:h-20 bg-white rounded-full border-4 border-blue-600 shadow-xl flex items-center justify-center transform active:scale-95 transition hover:bg-gray-100"
+            >
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-blue-600 rounded-full flex items-center text-white justify-center font-bold text-xl">
+                📷
+              </div>
+            </button>
 
-              <button 
-                type="button" 
-                onClick={() => setIsReviewing(true)} 
-                disabled={capturedPages.length === 0}
-                className={`font-semibold py-3 px-6 rounded-full transition ${
-                  capturedPages.length > 0 
-                    ? 'bg-green-600 hover:bg-green-700 text-white' 
-                    : 'bg-gray-800 text-gray-500 cursor-not-allowed'
-                }`}
-              >
-                Review & Finish ({capturedPages.length})
-              </button>
-            </div>
+            <button 
+              type="button" 
+              onClick={() => setIsReviewing(true)} 
+              disabled={capturedPages.length === 0}
+              className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm font-bold px-5 py-3 rounded-xl shadow-lg transition"
+            >
+              Done & Save ({capturedPages.length}) →
+            </button>
           </>
         ) : (
           <>
             <button 
               type="button" 
               onClick={() => setIsReviewing(false)} 
-              className="bg-gray-800 hover:bg-gray-700 text-white font-semibold py-3 px-6 rounded-lg transition"
+              className="bg-gray-800 hover:bg-gray-700 text-white text-sm font-semibold px-5 py-3 rounded-xl transition"
             >
               ← Back to Camera
             </button>
@@ -210,9 +215,9 @@ const DocumentScanner = ({ documentTitle, onCancel, onSave }) => {
             <button 
               type="button" 
               onClick={handleFinishBatch} 
-              className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg transition"
+              className="bg-green-600 hover:bg-green-700 text-white font-bold text-sm px-8 py-3 rounded-xl shadow-lg transition"
             >
-              Save All {capturedPages.length} Pages to Vault ✓
+              Upload All {capturedPages.length} Pages to Vault ✓
             </button>
           </>
         )}
