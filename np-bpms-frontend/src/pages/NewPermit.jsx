@@ -86,8 +86,13 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: [...prev[fieldName], ...newFiles] }));
   };
 
-  const handleScanSave = (file) => {
-    setFiles(prev => ({ ...prev, [currentScanField]: [...prev[currentScanField], file] }));
+  // --- UPDATED BATCH SCAN SAVE HANDLER ---
+  const handleScanSave = (scannedFiles) => {
+    const filesToAdd = Array.isArray(scannedFiles) ? scannedFiles : [scannedFiles];
+    setFiles(prev => ({ 
+      ...prev, 
+      [currentScanField]: [...(prev[currentScanField] || []), ...filesToAdd] 
+    }));
     setIsScanning(false);
     setCurrentScanField(null);
   };
@@ -153,7 +158,7 @@ const NewPermit = () => {
             <input type="file" name={fieldName} multiple={allowMultiple} onChange={handleFileChange} className="hidden" />
           </label>
           <button type="button" onClick={() => { setCurrentScanField(fieldName); setIsScanning(true); }} className="bg-blue-50 text-blue-700 font-semibold py-2 px-4 rounded-md hover:bg-blue-100 transition text-sm flex items-center">
-            📷 Scan {allowMultiple ? 'Page' : 'Document'}
+            📷 Scan {allowMultiple ? 'Pages' : 'Document'}
           </button>
         </div>
         {currentFiles.length > 0 && (
