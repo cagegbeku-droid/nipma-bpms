@@ -51,7 +51,7 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. DIRECT GOOGLE DRIVE UPLOAD SESSION ROUTE (WITH CORS ORIGIN BINDING)
+// 1. DIRECT GOOGLE DRIVE UPLOAD SESSION ROUTE
 // ==========================================
 router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
   try {
@@ -85,10 +85,8 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
       throw new Error("Could not retrieve access token from Google OAuth2 client.");
     }
 
-    // Capture the exact browser origin to prevent CORS blocks on direct client uploads
     const clientOrigin = req.headers.origin || req.headers.referer || '*';
 
-    // Request Resumable Session with explicit Origin header
     const googleRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
       method: 'POST',
       headers: {
@@ -126,7 +124,7 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 2. METADATA SAVER ROUTE
+// 2. METADATA SAVER ROUTE (RETURNS EXACT SQL ERROR IF FAIL)
 // ==========================================
 router.post('/archive-metadata', requireAuth, async (req, res) => {
   try {
@@ -162,7 +160,11 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
     res.json({ success: true, data: rows[0] });
   } catch (err) {
     console.error("Database metadata insert error:", err);
-    res.status(500).json({ success: false, message: "Failed to save record to database." });
+    // Returns exact SQL error message to frontend for instant debugging
+    res.status(500).json({ 
+      success: false, 
+      message: `Database Insert Error: ${err.message}` 
+    });
   }
 });
 
