@@ -102,7 +102,7 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  // --- TWO-STEP WORKFLOW: SINGLE MASTER FOLDER CREATION THEN PARALLEL UPLOADS ---
+  // --- DYNAMIC SUBFOLDERS BASED ON SELECTED FILES ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -117,8 +117,15 @@ const NewPermit = () => {
 
       const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
 
-      // STEP 1: Create Single Master Folder & Subfolders ONCE
-      setMessage("Creating master permit folder in Google Drive...");
+      // 1. Detect which document categories actually have attached files
+      const activeCategories = [];
+      if (files.certificate.length > 0) activeCategories.push('certificate');
+      if (files.drawings.length > 0) activeCategories.push('drawings');
+      if (files.permitForm.length > 0) activeCategories.push('permitForm');
+      if (files.receipts.length > 0) activeCategories.push('receipts');
+
+      // STEP 1: Create Master Folder & ONLY necessary subfolders
+      setMessage("Creating Google Drive permit folder...");
       const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
         method: "POST",
         headers: {
@@ -127,7 +134,8 @@ const NewPermit = () => {
         },
         body: JSON.stringify({
           permitNumber: formattedPermitNumber,
-          applicantName: formData.applicantName
+          applicantName: formData.applicantName,
+          categories: activeCategories // <--- ONLY PASS CATEGORIES WITH FILES
         })
       });
 
@@ -195,19 +203,24 @@ const NewPermit = () => {
         });
       };
 
-      // STEP 2: Parallel direct uploads straight into target subfolders
-      setMessage("Uploading documents to subfolders...");
+      // STEP 2: Parallel direct uploads into only the created subfolders
+      setMessage("Uploading documents to Google Drive subfolders...");
 
-      const certPromise = files.certificate.length > 0 
+      const certPromise = (files.certificate.length > 0 && subfolders.certificate) 
         ? uploadFileDirectToDrive(files.certificate[0], subfolders.certificate) 
         : Promise.resolve('');
 
-      const formPromise = files.permitForm.length > 0 
+      const formPromise = (files.permitForm.length > 0 && subfolders.permitForm) 
         ? uploadFileDirectToDrive(files.permitForm[0], subfolders.permitForm) 
         : Promise.resolve('');
 
-      const drawingsPromises = files.drawings.map(file => uploadFileDirectToDrive(file, subfolders.drawings));
-      const receiptsPromises = files.receipts.map(file => uploadFileDirectToDrive(file, subfolders.receipts));
+      const drawingsPromises = (files.drawings.length > 0 && subfolders.drawings) 
+        ? files.drawings.map(file => uploadFileDirectToDrive(file, subfolders.drawings)) 
+        : [];
+
+      const receiptsPromises = (files.receipts.length > 0 && subfolders.receipts) 
+        ? files.receipts.map(file => uploadFileDirectToDrive(file, subfolders.receipts)) 
+        : [];
 
       const [certificateLink, permitFormLink, drawingsLinks, receiptsLinks] = await Promise.all([
         certPromise,
@@ -216,7 +229,7 @@ const NewPermit = () => {
         Promise.all(receiptsPromises)
       ]);
 
-      // STEP 3: Save metadata to PostgreSQL database
+      // STEP 3: Save metadata to Supabase database
       setMessage("Saving permit record metadata...");
       const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
 
@@ -246,7 +259,7 @@ const NewPermit = () => {
       const metaData = await metaRes.json();
 
       if (metaRes.ok && metaData.success) {
-        setMessage("Success! Single master folder created and documents archived with status Synced.");
+        setMessage("Success! Permit folder created with active subfolders and documents archived cleanly.");
         setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
         setDuplicateWarning('');
@@ -349,7 +362,7 @@ const NewPermit = () => {
       {isSubmitting && (
         <div className="mb-6 bg-white p-4 rounded-xl border border-blue-200 shadow-sm space-y-2">
           <div className="flex justify-between text-xs font-bold text-blue-800">
-            <span>Creating Folders & Archiving Files...</span>
+            <span>Creating Active Folders & Archiving Files...</span>
             <span>{uploadProgress}%</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
