@@ -12,10 +12,12 @@ const NewPermit = () => {
     }
   }, []);
 
+  // --- CLEAN LOGOUT & REDIRECT TO PUBLIC DASHBOARD ---
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    setCurrentUser(null);
+    localStorage.removeItem('token_expiry');
+    window.location.href = '/';
   };
 
   const [formData, setFormData] = useState({
@@ -140,8 +142,8 @@ const NewPermit = () => {
     xhr.onload = () => {
       setIsSubmitting(false);
       if (xhr.status === 401 || xhr.status === 403) {
-        handleLogout();
         alert("Your session has expired. Please log in again to continue archiving.");
+        handleLogout();
         return;
       }
 

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 
 const SessionTimer = () => {
-  const navigate = useNavigate();
   const location = useLocation();
 
   const token = localStorage.getItem('token');
@@ -32,13 +31,13 @@ const SessionTimer = () => {
       const diff = expiryTime - now;
 
       if (diff <= 0) {
-        // --- SESSION EXPIRED: AUTO LOGOUT ---
+        // --- SESSION EXPIRED: CLEAR KEYS & REDIRECT TO PUBLIC DASHBOARD ---
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         localStorage.removeItem('token_expiry');
         setTimeLeft(null);
         alert("Your 12-hour officer session has expired. Please log in again.");
-        navigate('/vault-admin');
+        window.location.href = '/';
       } else {
         // Format remaining milliseconds to HH:MM:SS
         const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -54,7 +53,7 @@ const SessionTimer = () => {
     const interval = setInterval(updateCountdown, 1000);
 
     return () => clearInterval(interval);
-  }, [isLoggedIn, location, navigate]);
+  }, [isLoggedIn, location]);
 
   if (!isLoggedIn || !timeLeft) return null;
 
