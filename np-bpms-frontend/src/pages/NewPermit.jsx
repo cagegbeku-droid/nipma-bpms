@@ -101,12 +101,12 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  // --- DIRECT-TO-GOOGLE DRIVE UPLOAD HANDLER ---
+  // --- PARALLEL DIRECT-TO-GOOGLE DRIVE UPLOAD HANDLER ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setUploadProgress(0);
-    setMessage("Initializing Google Drive Direct Upload...");
+    setMessage("Uploading all documents directly to Google Drive in parallel...");
 
     try {
       const token = localStorage.getItem('token');
@@ -115,9 +115,8 @@ const NewPermit = () => {
         return;
       }
 
-      // Upload binary payload directly to Google Drive
+      // Helper function: Direct Upload with XHR Progress
       const uploadFileDirectToDrive = async (file) => {
-        // 1. Get upload session URL from backend
         const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
           method: "POST",
           headers: {
@@ -142,7 +141,6 @@ const NewPermit = () => {
           throw new Error(sessionData.message || "Failed to create Google Drive session.");
         }
 
-        // 2. Direct upload via XHR with progress tracking
         return new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open("PUT", sessionData.uploadUrl, true);
@@ -168,43 +166,34 @@ const NewPermit = () => {
             }
           };
 
-          xhr.onerror = () => reject(new Error("Network connection error during Google Drive upload. Disable ad-blockers if active."));
+          xhr.onerror = () => reject(new Error("Network connection error during Google Drive upload."));
           xhr.send(file);
         });
       };
 
-      const uploadedUrls = {
-        certificateLink: '',
-        drawingsLinks: [],
-        permitFormLink: '',
-        receiptsLinks: []
-      };
+      // 1. Upload Certificate
+      const certPromise = files.certificate.length > 0 
+        ? uploadFileDirectToDrive(files.certificate[0]) 
+        : Promise.resolve('');
 
-      // 1. Upload Permit Certificate
-      if (files.certificate.length > 0) {
-        setMessage(`Uploading Permit Certificate (${files.certificate[0].name})...`);
-        uploadedUrls.certificateLink = await uploadFileDirectToDrive(files.certificate[0]);
-      }
+      // 2. Upload Permit Form
+      const formPromise = files.permitForm.length > 0 
+        ? uploadFileDirectToDrive(files.permitForm[0]) 
+        : Promise.resolve('');
 
-      // 2. Upload Architectural Drawings (Handles 100MB+ files seamlessly)
-      for (let i = 0; i < files.drawings.length; i++) {
-        setMessage(`Uploading Drawing ${i + 1} of ${files.drawings.length} (${files.drawings[i].name})...`);
-        const url = await uploadFileDirectToDrive(files.drawings[i]);
-        uploadedUrls.drawingsLinks.push(url);
-      }
+      // 3. Upload Architectural Drawings (Parallel)
+      const drawingsPromises = files.drawings.map(file => uploadFileDirectToDrive(file));
 
-      // 3. Upload Permit Form
-      if (files.permitForm.length > 0) {
-        setMessage(`Uploading Permit Form...`);
-        uploadedUrls.permitFormLink = await uploadFileDirectToDrive(files.permitForm[0]);
-      }
+      // 4. Upload Receipts (Parallel)
+      const receiptsPromises = files.receipts.map(file => uploadFileDirectToDrive(file));
 
-      // 4. Upload Receipts
-      for (let i = 0; i < files.receipts.length; i++) {
-        setMessage(`Uploading Receipt ${i + 1} of ${files.receipts.length}...`);
-        const url = await uploadFileDirectToDrive(files.receipts[i]);
-        uploadedUrls.receiptsLinks.push(url);
-      }
+      // EXECUTE ALL GOOGLE DRIVE UPLOADS SIMULTANEOUSLY
+      const [certificateLink, permitFormLink, drawingsLinks, receiptsLinks] = await Promise.all([
+        certPromise,
+        formPromise,
+        Promise.all(drawingsPromises),
+        Promise.all(receiptsPromises)
+      ]);
 
       // 5. Send lightweight metadata to Render backend database
       setMessage("Saving permit record to database...");
@@ -219,10 +208,10 @@ const NewPermit = () => {
         phone: formData.phone,
         location: formData.location,
         address: formData.address,
-        certificateLink: uploadedUrls.certificateLink,
-        drawingsLinks: uploadedUrls.drawingsLinks.join(','),
-        permitFormLink: uploadedUrls.permitFormLink,
-        receiptsLinks: uploadedUrls.receiptsLinks.join(',')
+        certificateLink: certificateLink,
+        drawingsLinks: drawingsLinks.join(','),
+        permitFormLink: permitFormLink,
+        receiptsLinks: receiptsLinks.join(',')
       };
 
       const metaRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive-metadata", {
@@ -331,7 +320,7 @@ const NewPermit = () => {
       {isSubmitting && (
         <div className="mb-6 bg-white p-4 rounded-xl border border-blue-200 shadow-sm space-y-2">
           <div className="flex justify-between text-xs font-bold text-blue-800">
-            <span>Uploading Directly to Google Drive...</span>
+            <span>Uploading Directly to Google Drive (Parallel Stream)...</span>
             <span>{uploadProgress}%</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
