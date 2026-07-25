@@ -1,27 +1,23 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 
-// Database connection using your env DATABASE_URL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('supabase') 
-    ? { rejectUnauthorized: false } 
-    : false
+  ssl: { rejectUnauthorized: false }
 });
 
-// POST /api/auth/login
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
-    return res.status(400).json({ success: false, message: 'Email and password are required.' });
-  }
-
   try {
-    // 1. Look up user by email
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password required.' });
+    }
+
+    // 1. Find user by email
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase().trim()]);
     
     if (result.rows.length === 0) {
@@ -30,28 +26,24 @@ router.post('/login', async (req, res) => {
 
     const user = result.rows[0];
 
-    // 2. Compare password with stored hash
+    // 2. Verify password
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid email or password.' });
     }
 
-    // 3. Issue JWT Token (valid for 12 hours)
+    // 3. Ensure JWT_SECRET is present
+    const secret = process.env.JWT_SECRET || 'fallback_secret_key_2026';
+
+    // 4. Generate JWT Token
     const token = jwt.sign(
-      { 
-        id: user.id, 
-        name: user.name, 
-        email: user.email, 
-        role: user.role 
-      },
-      process.env.JWT_SECRET,
+      { id: user.id, email: user.email, role: user.role, name: user.name },
+      secret,
       { expiresIn: '12h' }
     );
 
-    // 4. Return token & user profile
-    res.json({
+    return res.json({
       success: true,
-      message: 'Login successful',
       token,
       user: {
         id: user.id,
@@ -60,9 +52,11 @@ router.post('/login', async (req, res) => {
         role: user.role
       }
     });
-  } catch (err) {
-    console.error('Login Error:', err.message);
-    res.status(500).json({ success: false, message: 'Server error during authentication.' });
+
+  } catch (error) {
+    // THIS LOGS THE REAL ERROR TO YOUR RENDER DASHBOARD
+    console.error('SERVER AUTH ERROR:', error.message);
+    return res.status(500).json({ success: false, message: 'Server error during authentication: ' + error.message });
   }
 });
 
