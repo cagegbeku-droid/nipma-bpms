@@ -1,31 +1,22 @@
 import React, { useState, useEffect } from 'react';
+import Login from './Login';
 
 const NewPermit = () => {
-  // --- SECRET ADMIN LOGIN STATE ---
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    if (localStorage.getItem('x-admin-key') === 'supersecret123') {
-      setIsAuthenticated(true);
+    const savedUser = localStorage.getItem('user');
+    const token = localStorage.getItem('token');
+    if (savedUser && token) {
+      setCurrentUser(JSON.parse(savedUser));
     }
   }, []);
 
-  const handleLogin = (e) => {
-    e.preventDefault();
-    const pass = e.target.password.value;
-    if (pass === 'supersecret123') {
-      localStorage.setItem('x-admin-key', pass);
-      setIsAuthenticated(true);
-    } else {
-      alert('Access Denied. Incorrect Passcode.');
-    }
-  };
-
   const handleLogout = () => {
-    localStorage.removeItem('x-admin-key');
-    setIsAuthenticated(false);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setCurrentUser(null);
   };
-  // ---------------------------------
 
   const [formData, setFormData] = useState({
     permitNumber: '', 
@@ -42,7 +33,6 @@ const NewPermit = () => {
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- AUTO-FORMATTER HELPER FOR PERMIT NUMBER ---
   const formatPermitNumberInput = (value) => {
     const cleanVal = (value || '').trim().toUpperCase();
     if (cleanVal.startsWith('NIPDA/')) {
@@ -105,26 +95,26 @@ const NewPermit = () => {
     });
 
     try {
+      const token = localStorage.getItem('token');
       const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive", {
         method: "POST",
         headers: {
-          'x-admin-key': localStorage.getItem('x-admin-key')
+          'Authorization': `Bearer ${token}`
         },
         body: submitData
       });
       const data = await response.json();
       
-      if (data.success) {
+      if (response.ok && data.success) {
         setMessage("Success! Record and all documents archived securely.");
         setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
         
-        // Clear message and return form to clean state after 3 seconds
         setTimeout(() => {
           setMessage('');
-        }, 3500);
+        }, 4000);
       } else {
-        setMessage("Failed to archive record. Please try again.");
+        setMessage(data.message || "Failed to archive record. Permission denied or invalid input.");
       }
     } catch (error) {
       setMessage("Server connection error. Please check your network.");
@@ -136,12 +126,12 @@ const NewPermit = () => {
   const renderDocumentUpload = (label, fieldName, allowMultiple = true) => {
     const currentFiles = files[fieldName] || []; 
     return (
-      <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-        <label className="block text-sm font-bold text-gray-800 mb-2">{label}</label>
-        <p className="text-xs text-gray-500 mb-3">Upload scanned PDFs or images (multi-page supported)</p>
+      <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-2">
+        <label className="block text-sm font-bold text-gray-800">{label}</label>
+        <p className="text-xs text-gray-500 mb-2">Upload scanned PDFs or images</p>
         
         <label className={`cursor-pointer bg-blue-50 text-blue-700 font-semibold py-2.5 px-4 rounded-md hover:bg-blue-100 transition text-sm flex items-center justify-center border border-blue-200 ${isSubmitting ? 'opacity-50 pointer-events-none' : ''}`}>
-          <span>📁 Browse & Select {allowMultiple ? 'Documents' : 'Document'}</span>
+          <span>📁 Browse & Select {allowMultiple ? 'Scanned Documents' : 'Scanned Document'}</span>
           <input 
             type="file" 
             name={fieldName} 
@@ -174,27 +164,21 @@ const NewPermit = () => {
     );
   };
 
-  // --- IF NOT LOGGED IN ---
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="bg-white p-8 rounded-xl shadow-md w-96 max-w-full text-center">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">Restricted Area</h2>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <input type="password" name="password" required placeholder="Enter Admin Passcode" className="w-full p-3 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-500" />
-            <button type="submit" className="w-full bg-blue-600 text-white font-semibold py-3 rounded-md hover:bg-blue-700 transition">Access System</button>
-          </form>
-        </div>
-      </div>
-    );
+  // --- SHOW LOGIN IF NOT LOGGED IN OR NOT AN UPLOADER ---
+  if (!currentUser || (currentUser.role !== 'uploader' && currentUser.role !== 'admin')) {
+    return <Login onLoginSuccess={(user) => setCurrentUser(user)} />;
   }
 
-  // --- NORMAL RENDER ---
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Archive Historical Permit</h1>
-        <button onClick={handleLogout} className="text-sm text-red-500 hover:underline">Logout & Lock System</button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Archive Historical Permit</h1>
+          <p className="text-xs text-gray-500">Logged in as: <span className="font-semibold text-gray-700">{currentUser.name} ({currentUser.email})</span></p>
+        </div>
+        <button onClick={handleLogout} className="text-sm bg-red-50 text-red-600 px-3 py-1.5 rounded border border-red-200 font-medium hover:bg-red-100 transition">
+          Logout
+        </button>
       </div>
       
       {message && (
@@ -217,13 +201,13 @@ const NewPermit = () => {
                 onBlur={handlePermitNumberBlur}
                 required 
                 disabled={isSubmitting}
-                className="w-full p-2 border rounded-md uppercase disabled:bg-gray-50" 
+                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" 
                 placeholder="E.G., LAK-NIN2630 or NIPDA/LAK-NIN/26/30"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label>
-              <input type="date" name="dateIssued" value={formData.dateIssued} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border rounded-md disabled:bg-gray-50" />
+              <input type="date" name="dateIssued" value={formData.dateIssued} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50" />
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Building Purpose / Use</label>
@@ -233,7 +217,7 @@ const NewPermit = () => {
                 onChange={handleTextChange} 
                 required 
                 disabled={isSubmitting}
-                className="w-full p-2 border rounded-md bg-white uppercase disabled:bg-gray-50"
+                className="w-full p-2 border border-gray-300 rounded-md bg-white uppercase disabled:bg-gray-50"
               >
                 <option value="RESIDENTIAL">RESIDENTIAL</option>
                 <option value="COMMERCIAL">COMMERCIAL</option>
@@ -255,7 +239,7 @@ const NewPermit = () => {
                   onChange={handleTextChange} 
                   required 
                   disabled={isSubmitting}
-                  className="w-full p-2 border rounded-md uppercase disabled:bg-gray-50" 
+                  className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" 
                   placeholder="E.G., INDUSTRIAL WAREHOUSE" 
                 />
               </div>
@@ -268,19 +252,19 @@ const NewPermit = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Applicant / Organization Name</label>
-              <input type="text" name="applicantName" value={formData.applicantName} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border rounded-md uppercase disabled:bg-gray-50" placeholder="E.G., JOHN & MARY DOE / ST. PETER'S METHODIST CHURCH" />
+              <input type="text" name="applicantName" value={formData.applicantName} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" placeholder="E.G., JOHN & MARY DOE / ST. PETER'S METHODIST CHURCH" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Phone (Optional)</label>
-              <input type="text" name="phone" value={formData.phone} onChange={handleTextChange} disabled={isSubmitting} className="w-full p-2 border rounded-md disabled:bg-gray-50" placeholder="Optional" />
+              <input type="text" name="phone" value={formData.phone} onChange={handleTextChange} disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50" placeholder="Optional" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Location / Community</label>
-              <input type="text" name="location" value={formData.location} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border rounded-md uppercase disabled:bg-gray-50" placeholder="E.G., PRAMPRAM" />
+              <input type="text" name="location" value={formData.location} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" placeholder="E.G., PRAMPRAM" />
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Address / Plot Description</label>
-              <input type="text" name="address" value={formData.address} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border rounded-md uppercase disabled:bg-gray-50" placeholder="E.G., PLOT 12, BLOCK B" />
+              <input type="text" name="address" value={formData.address} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" placeholder="E.G., PLOT 12, BLOCK B" />
             </div>
           </div>
         </div>
@@ -306,7 +290,7 @@ const NewPermit = () => {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              <span>Uploading to Archive Vault...</span>
+              <span>Archiving Documents...</span>
             </>
           ) : (
             <span>Save to Secure Archives</span>
