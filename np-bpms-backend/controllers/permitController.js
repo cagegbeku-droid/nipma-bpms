@@ -1,9 +1,14 @@
+require('dotenv').config(); // <-- Must be at line 1!
 const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config();
 const { createGoogleDriveFolder, uploadFileToDrive } = require('../utils/googleDrive');
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error("Missing SUPABASE_URL or SUPABASE_KEY in .env file.");
+}
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
