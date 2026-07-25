@@ -115,16 +115,20 @@ const NewPermit = () => {
         return;
       }
 
-      // Helper function to upload binary payload directly to Google Drive
+      // Upload binary payload directly to Google Drive
       const uploadFileDirectToDrive = async (file) => {
-        // 1. Get temporary upload session URL from Express backend
+        // 1. Get upload session URL from backend
         const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
           method: "POST",
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify({ fileName: file.name, mimeType: file.type || 'application/pdf' })
+          body: JSON.stringify({ 
+            fileName: file.name, 
+            mimeType: file.type || 'application/pdf',
+            fileSize: file.size
+          })
         });
 
         if (sessionRes.status === 401 || sessionRes.status === 403) {
@@ -138,11 +142,10 @@ const NewPermit = () => {
           throw new Error(sessionData.message || "Failed to create Google Drive session.");
         }
 
-        // 2. Upload binary payload directly to Google Drive via XHR for live progress tracking
+        // 2. Direct upload via XHR with progress tracking
         return new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open("PUT", sessionData.uploadUrl);
-          xhr.setRequestHeader("Content-Type", file.type || "application/pdf");
+          xhr.open("PUT", sessionData.uploadUrl, true);
 
           xhr.upload.onprogress = (event) => {
             if (event.lengthComputable) {
@@ -165,7 +168,7 @@ const NewPermit = () => {
             }
           };
 
-          xhr.onerror = () => reject(new Error("Network connection error during Google Drive upload."));
+          xhr.onerror = () => reject(new Error("Network connection error during Google Drive upload. Disable ad-blockers if active."));
           xhr.send(file);
         });
       };
