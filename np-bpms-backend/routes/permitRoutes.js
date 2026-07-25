@@ -170,11 +170,10 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 2. METADATA SAVER ROUTE (AUTO-CREATES TABLE IF MISSING)
+// 2. METADATA SAVER ROUTE (FIXED DATABASE EXTRACTION)
 // ==========================================
 router.post('/archive-metadata', requireAuth, async (req, res) => {
   try {
-    // Ensure table exists in PostgreSQL before executing INSERT
     await ensureTablesExist();
 
     const { 
@@ -204,9 +203,13 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
       receiptsLinks || null
     ];
 
-    const { rows } = await db.query(query, values);
+    const dbResponse = await db.query(query, values);
 
-    // Also insert into 'permits' table so existing GET routes display the record
+    // SAFE EXTRACTION: Handles both raw array returns and standard pg result object { rows: [...] }
+    const rows = Array.isArray(dbResponse) ? dbResponse : (dbResponse && dbResponse.rows ? dbResponse.rows : []);
+    const savedRecord = rows.length > 0 ? rows[0] : null;
+
+    // Sync into 'permits' table as well
     try {
       const syncQuery = `
         INSERT INTO permits 
@@ -215,11 +218,10 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
       `;
       await db.query(syncQuery, values);
     } catch (syncErr) {
-      // Ignore if permits table schema differs slightly
       console.log("Sync to permits table notice:", syncErr.message);
     }
 
-    res.json({ success: true, data: rows[0] });
+    res.json({ success: true, data: savedRecord });
   } catch (err) {
     console.error("Database metadata insert error:", err);
     res.status(500).json({ 
