@@ -5,8 +5,9 @@ const NewPermit = () => {
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('user');
-    const token = localStorage.getItem('token');
+    // Uses sessionStorage so session dies when tab/browser is closed
+    const savedUser = sessionStorage.getItem('user');
+    const token = sessionStorage.getItem('token');
     if (savedUser && token) {
       setCurrentUser(JSON.parse(savedUser));
     }
@@ -14,9 +15,8 @@ const NewPermit = () => {
 
   // --- CLEAN LOGOUT & REDIRECT TO PUBLIC DASHBOARD ---
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('token_expiry');
+    sessionStorage.clear();
+    localStorage.clear(); // Clear legacy tokens if any remain
     window.location.href = '/';
   };
 
@@ -59,7 +59,7 @@ const NewPermit = () => {
     }));
   };
 
-  // --- DUAL DUPLICATE CHECK: REQUIRES BOTH PERMIT NUMBER & DATE ISSUED TO MATCH ---
+  // --- DUAL DUPLICATE CHECK ---
   const checkDuplicateRecord = async (permitNum, date) => {
     if (!permitNum || !date) return;
     
@@ -106,16 +106,16 @@ const NewPermit = () => {
     e.preventDefault();
     setIsSubmitting(true);
     setUploadProgress(0);
-    setMessage("Uploading all documents directly to Google Drive in parallel...");
+    setMessage("Uploading documents directly to Google Drive in parallel...");
 
     try {
-      const token = localStorage.getItem('token');
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
       if (!token) {
         handleLogout();
         return;
       }
 
-      // Helper function: Direct Upload with XHR Progress
+      // Helper function: Direct Upload via XHR for progress tracking
       const uploadFileDirectToDrive = async (file) => {
         const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
           method: "POST",
@@ -171,20 +171,20 @@ const NewPermit = () => {
         });
       };
 
-      // 1. Upload Certificate
+      // 1. Certificate
       const certPromise = files.certificate.length > 0 
         ? uploadFileDirectToDrive(files.certificate[0]) 
         : Promise.resolve('');
 
-      // 2. Upload Permit Form
+      // 2. Permit Form
       const formPromise = files.permitForm.length > 0 
         ? uploadFileDirectToDrive(files.permitForm[0]) 
         : Promise.resolve('');
 
-      // 3. Upload Architectural Drawings (Parallel)
+      // 3. Drawings (Parallel)
       const drawingsPromises = files.drawings.map(file => uploadFileDirectToDrive(file));
 
-      // 4. Upload Receipts (Parallel)
+      // 4. Receipts (Parallel)
       const receiptsPromises = files.receipts.map(file => uploadFileDirectToDrive(file));
 
       // EXECUTE ALL GOOGLE DRIVE UPLOADS SIMULTANEOUSLY
@@ -195,7 +195,7 @@ const NewPermit = () => {
         Promise.all(receiptsPromises)
       ]);
 
-      // 5. Send lightweight metadata to Render backend database
+      // 5. Save metadata to database
       setMessage("Saving permit record to database...");
       const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
       const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
