@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const Login = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -21,11 +23,15 @@ const Login = ({ onLoginSuccess }) => {
       const data = await response.json();
 
       if (response.ok && data.success) {
+        // 1. Save authentication token and user data
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
         
+        // 2. Handle state update or navigation
         if (onLoginSuccess) {
           onLoginSuccess(data.user);
+        } else {
+          navigate('/');
         }
       } else {
         setError(data.message || 'Invalid email or password.');
@@ -39,47 +45,56 @@ const Login = ({ onLoginSuccess }) => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="bg-white p-8 rounded-xl shadow-md w-full max-w-md border border-gray-100">
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">NIPDA BPMS</h1>
-          <p className="text-sm text-gray-500 mt-1">Officer Archive Portal</p>
+      <div className="bg-white p-8 rounded-xl shadow-md w-96 max-w-full border border-gray-200 text-center">
+        
+        {/* Official Portal Header */}
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-gray-900 leading-snug">
+            NIPDA BPMS<br/>Officer Archive Portal
+          </h2>
         </div>
-
+        
         {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-700 border border-red-200 text-sm rounded-md font-medium">
+          <div className="bg-red-50 text-red-700 p-3 rounded-md mb-4 text-sm border border-red-200 font-medium text-left">
             {error}
           </div>
         )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
+        
+        {/* Form Fields */}
+        <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Official Email</label>
-            <input
-              type="email"
+            <label className="block text-sm font-medium text-gray-700 mb-1 text-left">
+              Official Email
+            </label>
+            <input 
+              type="email" 
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              required
-              placeholder="officer1@nipda.gov.gh"
-              className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              required 
+              placeholder="staff1@nipda.gov.gh" 
+              className="w-full p-3 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-600 text-sm" 
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <input
-              type="password"
+            <label className="block text-sm font-medium text-gray-700 mb-1 text-left">
+              Password
+            </label>
+            <input 
+              type="password" 
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              required
-              placeholder="••••••••"
-              className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              required 
+              placeholder="••••••••" 
+              className="w-full p-3 border border-gray-300 rounded-md outline-none focus:ring-2 focus:ring-blue-600 text-sm" 
             />
           </div>
 
-          <button
-            type="submit"
+          {/* Action Button */}
+          <button 
+            type="submit" 
             disabled={loading}
-            className="w-full bg-blue-600 text-white font-semibold py-3 rounded-md hover:bg-blue-700 transition flex items-center justify-center space-x-2 text-sm disabled:opacity-70 cursor-pointer shadow-sm"
+            className="w-full bg-blue-600 text-white font-semibold py-3 rounded-md hover:bg-blue-700 transition text-sm flex items-center justify-center space-x-2 disabled:opacity-70 cursor-pointer shadow-sm"
           >
             {loading ? (
               <>
