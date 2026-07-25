@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 const PermitList = () => {
-  // --- INVISIBLE ADMIN CHECK ---
-  const adminKey = localStorage.getItem('x-admin-key');
-  const isAdmin = adminKey === 'supersecret123';
+  // --- JWT OFFICER CHECK ---
+  const token = localStorage.getItem('token');
+  const savedUser = localStorage.getItem('user');
+  const user = savedUser ? JSON.parse(savedUser) : null;
+  const isOfficer = Boolean(token && user && (user.role === 'uploader' || user.role === 'admin'));
 
   const [permits, setPermits] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -18,23 +20,24 @@ const PermitList = () => {
   const [isSaving, setIsSaving] = useState(false);            
 
   useEffect(() => {
-    const fetchPermits = async () => {
-      try {
-        const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits");
-        const data = await response.json();
-        if (data.success) {
-          setPermits(data.data);
-        } else {
-          setError("Failed to load records from the database.");
-        }
-      } catch (err) {
-        setError("Server connection error. Please try again later.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
     fetchPermits();
   }, []);
+
+  const fetchPermits = async () => {
+    try {
+      const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits");
+      const data = await response.json();
+      if (data.success) {
+        setPermits(data.data);
+      } else {
+        setError("Failed to load records from the database.");
+      }
+    } catch (err) {
+      setError("Server connection error. Please try again later.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this permit record? This cannot be undone.")) return;
@@ -42,14 +45,16 @@ const PermitList = () => {
     try {
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${id}`, {
         method: "DELETE",
-        headers: { 'x-admin-key': adminKey || '' }
+        headers: { 
+          'Authorization': `Bearer ${token}`
+        }
       });
       const data = await response.json();
       
       if (data.success) {
         setPermits(permits.filter(permit => permit.id !== id));
       } else {
-        alert("Failed to delete record. Access Denied.");
+        alert(data.message || "Failed to delete record. Permission denied.");
       }
     } catch (err) {
       alert("Server connection error.");
@@ -105,7 +110,7 @@ const PermitList = () => {
 
     setEditFormData({
       permit_number: permit.permit_number || '',
-      date_issued: permit.date_issued || '',
+      date_issued: permit.date_issued ? permit.date_issued.split('T')[0] : '',
       purpose: isStandard ? currentPurpose : 'OTHER',
       custom_purpose: isStandard ? '' : currentPurpose,
       applicant_name: applicantNameVal.toUpperCase(),
@@ -149,7 +154,7 @@ const PermitList = () => {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
-          'x-admin-key': adminKey || ''
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(payload)
       });
@@ -159,7 +164,7 @@ const PermitList = () => {
         setPermits(permits.map(p => p.id === editingPermit.id ? { ...p, ...payload } : p));
         setEditingPermit(null);
       } else {
-        alert("Failed to update record. Access Denied.");
+        alert(data.message || "Failed to update record. Permission denied.");
       }
     } catch (err) {
       alert("Server connection error.");
@@ -186,7 +191,7 @@ const PermitList = () => {
     const links = linkString.split(',').map(link => link.trim());
     if (links.length === 1) {
       return (
-        <a href={links[0]} target="_blank" rel="noopener noreferrer" className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline">
+        <a href={links[0]} target="_blank" rel="noopener noreferrer" className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline font-medium">
           📄 View {label}
         </a>
       );
@@ -196,7 +201,7 @@ const PermitList = () => {
         <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
         <div className="flex flex-wrap gap-2 mt-2">
           {links.map((link, index) => (
-            <a key={index} href={link} target="_blank" rel="noopener noreferrer" className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded text-sm hover:underline border border-blue-100">
+            <a key={index} href={link} target="_blank" rel="noopener noreferrer" className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded text-sm hover:underline border border-blue-100 font-medium">
               Part {index + 1}
             </a>
           ))}
@@ -222,9 +227,9 @@ const PermitList = () => {
             <span>📊 Export CSV</span>
           </button>
 
-          {/* ONLY SHOWN TO ADMINS VIA ROUTER LINK */}
-          {isAdmin && (
-            <Link to="/permits/new" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium">
+          {/* VISIBLE TO LOGGED-IN OFFICERS */}
+          {isOfficer && (
+            <Link to="/permits/new" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium whitespace-nowrap">
               + Add New Permit
             </Link>
           )}
@@ -281,16 +286,17 @@ const PermitList = () => {
                       </td>
                       <td className="p-4 align-middle text-center">
                         <div className="flex items-center justify-center space-x-2">
-                          <button onClick={() => setSelectedPermit(permit)} className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="View Documents">
+                          <button onClick={() => setSelectedPermit(permit)} className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="View Documents">
                             👁️ View
                           </button>
                           
-                          {isAdmin && (
+                          {/* EDIT AND DELETE BUTTONS UNLOCKED FOR LOGGED-IN OFFICERS */}
+                          {isOfficer && (
                             <>
-                              <button onClick={() => handleEditClick(permit)} className="bg-gray-50 text-gray-700 hover:bg-gray-700 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Edit Details">
+                              <button onClick={() => handleEditClick(permit)} className="bg-gray-100 text-gray-700 hover:bg-gray-800 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Edit Details">
                                 ✏️ Edit
                               </button>
-                              <button onClick={() => handleDelete(permit.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition" title="Delete Record">
+                              <button onClick={() => handleDelete(permit.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Delete Record">
                                 🗑️ Delete
                               </button>
                             </>
@@ -319,7 +325,7 @@ const PermitList = () => {
                   <h3 className="text-xl font-bold text-gray-900">Archived Documents & Details</h3>
                   <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold">{selectedPermit.permit_number}</span></p>
                 </div>
-                <button onClick={() => setSelectedPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition">
+                <button onClick={() => setSelectedPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer">
                   ✕
                 </button>
               </div>
@@ -374,7 +380,7 @@ const PermitList = () => {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
               <h3 className="text-xl font-bold text-gray-900">Edit Permit Record</h3>
-              <button onClick={() => setEditingPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition">
+              <button onClick={() => setEditingPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer">
                 ✕
               </button>
             </div>
@@ -390,17 +396,17 @@ const PermitList = () => {
                     onChange={handleEditChange} 
                     onBlur={handlePermitNumberBlur}
                     required 
-                    className="w-full p-2 border rounded-md uppercase" 
+                    className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" 
                     placeholder="E.G., PRAM2517"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label>
-                  <input type="date" name="date_issued" value={editFormData.date_issued} onChange={handleEditChange} required className="w-full p-2 border rounded-md" />
+                  <input type="date" name="date_issued" value={editFormData.date_issued} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md text-sm" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Building Purpose / Use</label>
-                  <select name="purpose" value={editFormData.purpose} onChange={handleEditChange} required className="w-full p-2 border rounded-md bg-white uppercase">
+                  <select name="purpose" value={editFormData.purpose} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md bg-white uppercase text-sm">
                     <option value="RESIDENTIAL">RESIDENTIAL</option>
                     <option value="COMMERCIAL">COMMERCIAL</option>
                     <option value="INSTITUTION">INSTITUTION</option>
@@ -414,31 +420,31 @@ const PermitList = () => {
                 {editFormData.purpose === 'OTHER' && (
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Specify Other Purpose</label>
-                    <input type="text" name="custom_purpose" value={editFormData.custom_purpose} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" placeholder="E.G., INDUSTRIAL WAREHOUSE" />
+                    <input type="text" name="custom_purpose" value={editFormData.custom_purpose} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" placeholder="E.G., INDUSTRIAL WAREHOUSE" />
                   </div>
                 )}
 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Applicant / Organization Name</label>
-                  <input type="text" name="applicant_name" value={editFormData.applicant_name} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" />
+                  <input type="text" name="applicant_name" value={editFormData.applicant_name} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                  <input type="text" name="phone" value={editFormData.phone} onChange={handleEditChange} className="w-full p-2 border rounded-md" placeholder="Optional" />
+                  <input type="text" name="phone" value={editFormData.phone} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md text-sm" placeholder="Optional" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                  <input type="text" name="location" value={editFormData.location} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" />
+                  <input type="text" name="location" value={editFormData.location} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-                  <input type="text" name="address" value={editFormData.address} onChange={handleEditChange} required className="w-full p-2 border rounded-md uppercase" />
+                  <input type="text" name="address" value={editFormData.address} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" />
                 </div>
               </div>
 
               <div className="pt-4 border-t border-gray-100 flex justify-end space-x-3 mt-6">
-                <button type="button" onClick={() => setEditingPermit(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200">Cancel</button>
-                <button type="submit" disabled={isSaving} className="px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 disabled:opacity-50">
+                <button type="button" onClick={() => setEditingPermit(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium cursor-pointer">Cancel</button>
+                <button type="submit" disabled={isSaving} className="px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm cursor-pointer">
                   {isSaving ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>

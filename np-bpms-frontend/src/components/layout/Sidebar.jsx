@@ -35,7 +35,8 @@ const Sidebar = () => {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/'); // <-- NOW REDIRECTS TO DASHBOARD
+    localStorage.removeItem('token_expiry'); // <-- CLEARS EXPIRY TIMESTAMP
+    navigate('/');
   };
 
   const handleLoginClick = () => {

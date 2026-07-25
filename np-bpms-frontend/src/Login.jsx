@@ -23,9 +23,12 @@ const Login = ({ onLoginSuccess }) => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // 1. Save authentication token and user data
+        // 1. Save authentication token, user data, and 12-hour expiration timestamp
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
+        
+        const twelveHoursFromNow = Date.now() + 12 * 60 * 60 * 1000;
+        localStorage.setItem('token_expiry', twelveHoursFromNow.toString());
         
         // 2. Handle state update or navigation
         if (onLoginSuccess) {
