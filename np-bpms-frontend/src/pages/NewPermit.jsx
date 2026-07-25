@@ -5,7 +5,6 @@ const NewPermit = () => {
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    // Reads from sessionStorage OR localStorage seamlessly
     const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
     const token = sessionStorage.getItem('token') || localStorage.getItem('token');
     if (savedUser && token) {
@@ -103,12 +102,12 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  // --- PARALLEL DIRECT UPLOAD WITH DYNAMIC GOOGLE DRIVE SUBFOLDERS ---
+  // --- PARALLEL DIRECT UPLOAD WITH DYNAMIC MASTER FOLDER & SUBFOLDERS ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setUploadProgress(0);
-    setMessage("Creating Google Drive permit folders and uploading files...");
+    setMessage("Creating master permit folder and uploading files...");
 
     try {
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
@@ -128,6 +127,7 @@ const NewPermit = () => {
           },
           body: JSON.stringify({ 
             permitNumber: formattedPermitNumber,
+            applicantName: formData.applicantName,
             category: category,
             fileName: file.name, 
             mimeType: file.type || 'application/pdf',
@@ -223,7 +223,7 @@ const NewPermit = () => {
       const metaData = await metaRes.json();
 
       if (metaRes.ok && metaData.success) {
-        setMessage("Success! Permit folder created with subfolders and documents archived securely.");
+        setMessage("Success! Master folder created and documents archived with status Synced.");
         setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
         setDuplicateWarning('');
@@ -283,7 +283,6 @@ const NewPermit = () => {
     );
   };
 
-  // Flexible authorization check (allows any logged-in officer or admin)
   const roleStr = (currentUser?.role || '').toLowerCase();
   const isAuthorized = currentUser && (
     !currentUser.role || 
@@ -327,7 +326,7 @@ const NewPermit = () => {
       {isSubmitting && (
         <div className="mb-6 bg-white p-4 rounded-xl border border-blue-200 shadow-sm space-y-2">
           <div className="flex justify-between text-xs font-bold text-blue-800">
-            <span>Creating Permit Folder & Uploading Files...</span>
+            <span>Creating Folder Structure & Uploading Files...</span>
             <span>{uploadProgress}%</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
