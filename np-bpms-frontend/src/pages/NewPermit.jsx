@@ -101,74 +101,156 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  const handleSubmit = (e) => {
+  // --- DIRECT-TO-GOOGLE DRIVE UPLOAD HANDLER ---
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setUploadProgress(0);
-    setMessage("Uploading files to Secure Archive Vault...");
-    
-    const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
-    const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
+    setMessage("Initializing Google Drive Direct Upload...");
 
-    const submitData = new FormData();
-    Object.keys(formData).forEach(key => {
-      if (key !== 'customPurpose') {
-        submitData.append(key, key === 'permitNumber' ? formattedPermitNumber : (key === 'purpose' ? finalPurposeValue : formData[key]));
-      }
-    });
-    
-    Object.keys(files).forEach(key => {
-      files[key].forEach(file => submitData.append(key, file));
-    });
-
-    const token = localStorage.getItem('token');
-    if (!token) {
-      handleLogout();
-      return;
-    }
-
-    // --- XMLHttpRequest for Real-Time Upload Progress ---
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "https://nipma-bpms-backend.onrender.com/api/permits/archive");
-    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        const percentComplete = Math.round((event.loaded / event.total) * 100);
-        setUploadProgress(percentComplete);
-      }
-    };
-
-    xhr.onload = () => {
-      setIsSubmitting(false);
-      if (xhr.status === 401 || xhr.status === 403) {
-        alert("Your session has expired. Please log in again to continue archiving.");
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
         handleLogout();
         return;
       }
 
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (xhr.status === 200 && data.success) {
-          setMessage("Success! Record and all documents archived securely.");
-          setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
-          setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
-          setDuplicateWarning('');
-          setTimeout(() => setMessage(''), 4000);
-        } else {
-          setMessage(data.message || "Failed to archive record. Permission denied or invalid input.");
+      // Helper function to upload binary payload directly to Google Drive
+      const uploadFileDirectToDrive = async (file) => {
+        // 1. Get temporary upload session URL from Express backend
+        const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
+          method: "POST",
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ fileName: file.name, mimeType: file.type || 'application/pdf' })
+        });
+
+        if (sessionRes.status === 401 || sessionRes.status === 403) {
+          alert("Your session has expired. Please log in again.");
+          handleLogout();
+          throw new Error("Session expired");
         }
-      } catch (err) {
-        setMessage("Server response error.");
+
+        const sessionData = await sessionRes.json();
+        if (!sessionData.success || !sessionData.uploadUrl) {
+          throw new Error(sessionData.message || "Failed to create Google Drive session.");
+        }
+
+        // 2. Upload binary payload directly to Google Drive via XHR for live progress tracking
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("PUT", sessionData.uploadUrl);
+          xhr.setRequestHeader("Content-Type", file.type || "application/pdf");
+
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              setUploadProgress(percent);
+            }
+          };
+
+          xhr.onload = () => {
+            if (xhr.status === 200 || xhr.status === 201) {
+              try {
+                const resJson = JSON.parse(xhr.responseText);
+                const driveFileUrl = `https://drive.google.com/file/d/${resJson.id}/view`;
+                resolve(driveFileUrl);
+              } catch (e) {
+                resolve(sessionData.uploadUrl);
+              }
+            } else {
+              reject(new Error(`Google Drive upload failed with status ${xhr.status}`));
+            }
+          };
+
+          xhr.onerror = () => reject(new Error("Network connection error during Google Drive upload."));
+          xhr.send(file);
+        });
+      };
+
+      const uploadedUrls = {
+        certificateLink: '',
+        drawingsLinks: [],
+        permitFormLink: '',
+        receiptsLinks: []
+      };
+
+      // 1. Upload Permit Certificate
+      if (files.certificate.length > 0) {
+        setMessage(`Uploading Permit Certificate (${files.certificate[0].name})...`);
+        uploadedUrls.certificateLink = await uploadFileDirectToDrive(files.certificate[0]);
       }
-    };
 
-    xhr.onerror = () => {
+      // 2. Upload Architectural Drawings (Handles 100MB+ files seamlessly)
+      for (let i = 0; i < files.drawings.length; i++) {
+        setMessage(`Uploading Drawing ${i + 1} of ${files.drawings.length} (${files.drawings[i].name})...`);
+        const url = await uploadFileDirectToDrive(files.drawings[i]);
+        uploadedUrls.drawingsLinks.push(url);
+      }
+
+      // 3. Upload Permit Form
+      if (files.permitForm.length > 0) {
+        setMessage(`Uploading Permit Form...`);
+        uploadedUrls.permitFormLink = await uploadFileDirectToDrive(files.permitForm[0]);
+      }
+
+      // 4. Upload Receipts
+      for (let i = 0; i < files.receipts.length; i++) {
+        setMessage(`Uploading Receipt ${i + 1} of ${files.receipts.length}...`);
+        const url = await uploadFileDirectToDrive(files.receipts[i]);
+        uploadedUrls.receiptsLinks.push(url);
+      }
+
+      // 5. Send lightweight metadata to Render backend database
+      setMessage("Saving permit record to database...");
+      const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
+      const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
+
+      const metadataPayload = {
+        permitNumber: formattedPermitNumber,
+        dateIssued: formData.dateIssued,
+        purpose: finalPurposeValue,
+        applicantName: formData.applicantName,
+        phone: formData.phone,
+        location: formData.location,
+        address: formData.address,
+        certificateLink: uploadedUrls.certificateLink,
+        drawingsLinks: uploadedUrls.drawingsLinks.join(','),
+        permitFormLink: uploadedUrls.permitFormLink,
+        receiptsLinks: uploadedUrls.receiptsLinks.join(',')
+      };
+
+      const metaRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive-metadata", {
+        method: "POST",
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(metadataPayload)
+      });
+
+      const metaData = await metaRes.json();
+
+      if (metaRes.ok && metaData.success) {
+        setMessage("Success! Record and 100MB+ files uploaded directly to Google Drive.");
+        setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
+        setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
+        setDuplicateWarning('');
+        setTimeout(() => setMessage(''), 4000);
+      } else {
+        setMessage(metaData.message || "Failed to save record metadata.");
+      }
+
+    } catch (err) {
+      console.error("Direct Upload Error:", err);
+      if (err.message !== "Session expired") {
+        setMessage("Upload Error: " + (err.message || "Failed to complete upload."));
+      }
+    } finally {
       setIsSubmitting(false);
-      setMessage("Server connection error. Please check your network.");
-    };
-
-    xhr.send(submitData);
+    }
   };
 
   const renderDocumentUpload = (label, fieldName, allowMultiple = true) => {
@@ -246,7 +328,7 @@ const NewPermit = () => {
       {isSubmitting && (
         <div className="mb-6 bg-white p-4 rounded-xl border border-blue-200 shadow-sm space-y-2">
           <div className="flex justify-between text-xs font-bold text-blue-800">
-            <span>Uploading Files to Cloud Vault...</span>
+            <span>Uploading Directly to Google Drive...</span>
             <span>{uploadProgress}%</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
