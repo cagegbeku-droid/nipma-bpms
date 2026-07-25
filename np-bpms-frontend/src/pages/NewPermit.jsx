@@ -5,10 +5,15 @@ const NewPermit = () => {
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    const savedUser = sessionStorage.getItem('user');
-    const token = sessionStorage.getItem('token');
+    // Reads from sessionStorage OR localStorage seamlessly
+    const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
     if (savedUser && token) {
-      setCurrentUser(JSON.parse(savedUser));
+      try {
+        setCurrentUser(JSON.parse(savedUser));
+      } catch (e) {
+        console.error("Error parsing user session:", e);
+      }
     }
   }, []);
 
@@ -98,7 +103,7 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  // --- PARALLEL DIRECT UPLOAD WITH AUTOMATIC FOLDER STRUCTURE ---
+  // --- PARALLEL DIRECT UPLOAD WITH DYNAMIC GOOGLE DRIVE SUBFOLDERS ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -114,7 +119,6 @@ const NewPermit = () => {
 
       const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
 
-      // Upload file directly into permit subfolder
       const uploadFileDirectToDrive = async (file, category) => {
         const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
           method: "POST",
@@ -172,7 +176,6 @@ const NewPermit = () => {
         });
       };
 
-      // 1. Prepare Promises for each category
       const certPromise = files.certificate.length > 0 
         ? uploadFileDirectToDrive(files.certificate[0], 'certificate') 
         : Promise.resolve('');
@@ -184,7 +187,6 @@ const NewPermit = () => {
       const drawingsPromises = files.drawings.map(file => uploadFileDirectToDrive(file, 'drawings'));
       const receiptsPromises = files.receipts.map(file => uploadFileDirectToDrive(file, 'receipts'));
 
-      // 2. Execute parallel uploads directly into Google Drive subfolders
       const [certificateLink, permitFormLink, drawingsLinks, receiptsLinks] = await Promise.all([
         certPromise,
         formPromise,
@@ -192,7 +194,6 @@ const NewPermit = () => {
         Promise.all(receiptsPromises)
       ]);
 
-      // 3. Save metadata to PostgreSQL database
       setMessage("Saving permit record metadata...");
       const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
 
@@ -282,7 +283,17 @@ const NewPermit = () => {
     );
   };
 
-  if (!currentUser || (currentUser.role !== 'uploader' && currentUser.role !== 'admin')) {
+  // Flexible authorization check (allows any logged-in officer or admin)
+  const roleStr = (currentUser?.role || '').toLowerCase();
+  const isAuthorized = currentUser && (
+    !currentUser.role || 
+    roleStr === 'uploader' || 
+    roleStr === 'admin' || 
+    roleStr === 'officer' || 
+    roleStr === 'staff'
+  );
+
+  if (!currentUser || !isAuthorized) {
     return <Login onLoginSuccess={(user) => setCurrentUser(user)} />;
   }
 
@@ -291,7 +302,7 @@ const NewPermit = () => {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Archive Historical Permit</h1>
-          <p className="text-xs text-gray-500">Logged in as: <span className="font-semibold text-gray-700">{currentUser.name} ({currentUser.email})</span></p>
+          <p className="text-xs text-gray-500">Logged in as: <span className="font-semibold text-gray-700">{currentUser.name || currentUser.email}</span></p>
         </div>
         <button 
           onClick={handleLogout} 

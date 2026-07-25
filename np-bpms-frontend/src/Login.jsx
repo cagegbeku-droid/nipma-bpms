@@ -23,19 +23,17 @@ const Login = ({ onLoginSuccess }) => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        // Clear any old legacy localStorage tokens
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('token_expiry');
+        const twelveHoursFromNow = Date.now() + 12 * 60 * 60 * 1000;
 
-        // Save session strictly to sessionStorage (clears automatically when tab/browser closes)
+        // Save to BOTH sessionStorage and localStorage so all app components find the session
         sessionStorage.setItem('token', data.token);
         sessionStorage.setItem('user', JSON.stringify(data.user));
-        
-        const twelveHoursFromNow = Date.now() + 12 * 60 * 60 * 1000;
         sessionStorage.setItem('token_expiry', twelveHoursFromNow.toString());
-        
-        // Handle state update or navigation
+
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        localStorage.setItem('token_expiry', twelveHoursFromNow.toString());
+
         if (onLoginSuccess) {
           onLoginSuccess(data.user);
         } else {
@@ -45,6 +43,7 @@ const Login = ({ onLoginSuccess }) => {
         setError(data.message || 'Invalid email or password.');
       }
     } catch (err) {
+      console.error("Login fetch error:", err);
       setError('Server connection error. Please check your network.');
     } finally {
       setLoading(false);
