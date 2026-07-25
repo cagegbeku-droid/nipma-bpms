@@ -26,6 +26,52 @@ const archivalUploads = upload.fields([
   { name: 'receipts', maxCount: 10 }
 ]);
 
+// --- AUTO-CREATE DATABASE TABLES IF MISSING ---
+const ensureTablesExist = async () => {
+  const createHistoricalPermitsTable = `
+    CREATE TABLE IF NOT EXISTS historical_permits (
+      id SERIAL PRIMARY KEY,
+      permit_number VARCHAR(255) NOT NULL,
+      date_issued DATE,
+      purpose VARCHAR(255),
+      applicant_name VARCHAR(255),
+      phone VARCHAR(100),
+      location VARCHAR(255),
+      address TEXT,
+      certificate_link TEXT,
+      drawings_links TEXT,
+      permit_form_link TEXT,
+      receipts_links TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  const createPermitsTable = `
+    CREATE TABLE IF NOT EXISTS permits (
+      id SERIAL PRIMARY KEY,
+      permit_number VARCHAR(255) NOT NULL,
+      date_issued DATE,
+      purpose VARCHAR(255),
+      applicant_name VARCHAR(255),
+      phone VARCHAR(100),
+      location VARCHAR(255),
+      address TEXT,
+      certificate_link TEXT,
+      drawings_links TEXT,
+      permit_form_link TEXT,
+      receipts_links TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
+  try {
+    await db.query(createHistoricalPermitsTable);
+    await db.query(createPermitsTable);
+  } catch (err) {
+    console.error("Error ensuring database tables exist:", err);
+  }
+};
+
 // --- JWT OFFICER AUTHENTICATION MIDDLEWARE ---
 const requireAuth = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -124,10 +170,13 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 2. METADATA SAVER ROUTE (RETURNS EXACT SQL ERROR IF FAIL)
+// 2. METADATA SAVER ROUTE (AUTO-CREATES TABLE IF MISSING)
 // ==========================================
 router.post('/archive-metadata', requireAuth, async (req, res) => {
   try {
+    // Ensure table exists in PostgreSQL before executing INSERT
+    await ensureTablesExist();
+
     const { 
       permitNumber, dateIssued, purpose, applicantName, 
       phone, location, address, certificateLink, 
@@ -157,10 +206,22 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 
     const { rows } = await db.query(query, values);
 
+    // Also insert into 'permits' table so existing GET routes display the record
+    try {
+      const syncQuery = `
+        INSERT INTO permits 
+        (permit_number, date_issued, purpose, applicant_name, phone, location, address, certificate_link, drawings_links, permit_form_link, receipts_links)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+      `;
+      await db.query(syncQuery, values);
+    } catch (syncErr) {
+      // Ignore if permits table schema differs slightly
+      console.log("Sync to permits table notice:", syncErr.message);
+    }
+
     res.json({ success: true, data: rows[0] });
   } catch (err) {
     console.error("Database metadata insert error:", err);
-    // Returns exact SQL error message to frontend for instant debugging
     res.status(500).json({ 
       success: false, 
       message: `Database Insert Error: ${err.message}` 
