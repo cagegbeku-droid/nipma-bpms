@@ -51,22 +51,43 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. DIRECT GOOGLE DRIVE UPLOAD SESSION ROUTE
+// 1. DIRECT GOOGLE DRIVE UPLOAD SESSION ROUTE (OAuth 2.0 Client ID)
 // ==========================================
 router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
   try {
     const { fileName, mimeType } = req.body;
 
-    const auth = new google.auth.GoogleAuth({
-      scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive']
-    });
-
-    const client = await auth.getClient();
-    const tokenResponse = await client.getAccessToken();
-    const accessToken = tokenResponse.token;
-
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
+    if (!clientId || !clientSecret || !refreshToken) {
+      console.error('❌ CRITICAL: Missing Google OAuth 2.0 credentials in Render Environment variables.');
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Server Configuration Error: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, or GOOGLE_REFRESH_TOKEN missing on Render.' 
+      });
+    }
+
+    // Initialize Google OAuth2 Client
+    const oauth2Client = new google.auth.OAuth2(
+      clientId,
+      clientSecret,
+      process.env.GOOGLE_REDIRECT_URI || 'https://developers.google.com/oauthplayground'
+    );
+
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+    // Generate dynamic Access Token via Refresh Token
+    const tokenResponse = await oauth2Client.getAccessToken();
+    const accessToken = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
+
+    if (!accessToken) {
+      throw new Error("Could not retrieve access token from Google OAuth2 client.");
+    }
+
+    // Request a Resumable Upload Session URL directly from Google Drive API
     const googleRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
       method: 'POST',
       headers: {
@@ -83,13 +104,21 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
     const uploadUrl = googleRes.headers.get('location');
 
     if (!uploadUrl) {
-      return res.status(500).json({ success: false, message: 'Failed to generate Google Drive upload session.' });
+      const errBody = await googleRes.text();
+      console.error('Google Drive API Error Details:', errBody);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Google Drive rejected upload session creation. Check server logs.' 
+      });
     }
 
     res.json({ success: true, uploadUrl });
   } catch (err) {
-    console.error('Error generating Google Drive session:', err);
-    res.status(500).json({ success: false, message: 'Server error creating Google Drive upload session.' });
+    console.error('Error generating Google Drive session via OAuth 2.0:', err.message || err);
+    res.status(500).json({ 
+      success: false, 
+      message: `Google Drive OAuth Error: ${err.message || 'Authentication failed'}` 
+    });
   }
 });
 
@@ -135,14 +164,14 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// PUBLIC ROUTES (Anyone can view records)
+// PUBLIC ROUTES
 // ==========================================
 router.get('/stats', getPermitStats);
 router.get('/monthly-stats', getMonthlyStats); 
 router.get('/', getPermits);
 
 // ==========================================
-// PROTECTED ROUTES (Logged-in Officers Only)
+// PROTECTED ROUTES
 // ==========================================
 router.post('/archive', requireAuth, archivalUploads, archivePermit);
 router.delete('/:id', requireAuth, deletePermit);
