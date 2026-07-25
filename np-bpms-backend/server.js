@@ -7,11 +7,10 @@ const db = require('./config/db');
 const app = express();
 
 // --- UPDATED CORS MIDDLEWARE ---
-// This explicitly allows the browser to send your secret admin key
 app.use(cors({
-  origin: '*', // Allows your frontend to connect from anywhere (Vercel, Netlify, localhost)
+  origin: '*', // Allows frontend to connect from anywhere (Vercel, Netlify, localhost)
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key'] // <-- Magic fix right here
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-key']
 }));
 
 app.use(express.json());
@@ -21,11 +20,13 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Import Routes
 const permitRoutes = require('./routes/permitRoutes');
+const authRoutes = require('./routes/auth'); // <-- ADDED: Handles /api/auth/login
 const { triggerBackup } = require('./controllers/backupController'); 
 
 // Use Routes
 app.use('/api/permits', permitRoutes);
-app.get('/api/backup', triggerBackup); // Your hidden backup route!
+app.use('/api/auth', authRoutes); // <-- ADDED: Mounts the authentication endpoints
+app.get('/api/backup', triggerBackup);
 
 app.get('/', (req, res) => {
   res.send('NP-BPMS Archival API is running');
