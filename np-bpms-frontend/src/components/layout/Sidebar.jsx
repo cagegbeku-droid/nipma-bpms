@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { 
   HomeIcon, 
   ArrowUpTrayIcon, 
@@ -16,12 +16,22 @@ const navigation = [
 
 const Sidebar = () => {
   const navigate = useNavigate();
+  const location = useLocation(); // <-- Forces Sidebar to re-render on route changes
 
   // --- JWT USER CHECK ---
   const token = localStorage.getItem('token');
   const savedUser = localStorage.getItem('user');
   const user = savedUser ? JSON.parse(savedUser) : null;
   const isLoggedIn = Boolean(token && user);
+
+  // --- FILTER NAVIGATION ---
+  // Hide "Upload Archive" from sidebar unless logged in
+  const filteredNavigation = navigation.filter((item) => {
+    if (!isLoggedIn && item.name === 'Upload Archive') {
+      return false;
+    }
+    return true;
+  });
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -55,7 +65,7 @@ const Sidebar = () => {
         {/* --- NAVIGATION LINKS --- */}
         <div className="py-2 md:py-4">
           <nav className="flex md:flex-col space-x-2 md:space-x-0 md:space-y-1 px-2">
-            {navigation.map((item) => (
+            {filteredNavigation.map((item) => (
               <NavLink
                 key={item.name}
                 to={item.href}
