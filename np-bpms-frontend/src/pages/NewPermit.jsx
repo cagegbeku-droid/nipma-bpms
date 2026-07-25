@@ -102,12 +102,11 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  // --- PARALLEL DIRECT UPLOAD WITH DYNAMIC MASTER FOLDER & SUBFOLDERS ---
+  // --- TWO-STEP WORKFLOW: SINGLE MASTER FOLDER CREATION THEN PARALLEL UPLOADS ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setUploadProgress(0);
-    setMessage("Creating master permit folder and uploading files...");
 
     try {
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
@@ -118,7 +117,35 @@ const NewPermit = () => {
 
       const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
 
-      const uploadFileDirectToDrive = async (file, category) => {
+      // STEP 1: Create Single Master Folder & Subfolders ONCE
+      setMessage("Creating master permit folder in Google Drive...");
+      const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
+        method: "POST",
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          permitNumber: formattedPermitNumber,
+          applicantName: formData.applicantName
+        })
+      });
+
+      if (folderRes.status === 401 || folderRes.status === 403) {
+        alert("Your session has expired. Please log in again.");
+        handleLogout();
+        return;
+      }
+
+      const folderData = await folderRes.json();
+      if (!folderRes.ok || !folderData.success || !folderData.subfolders) {
+        throw new Error(folderData.message || "Failed to create Google Drive permit folders.");
+      }
+
+      const subfolders = folderData.subfolders;
+
+      // Helper function: Direct Upload using specific target subfolder ID
+      const uploadFileDirectToDrive = async (file, targetFolderId) => {
         const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
           method: "POST",
           headers: {
@@ -126,20 +153,12 @@ const NewPermit = () => {
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({ 
-            permitNumber: formattedPermitNumber,
-            applicantName: formData.applicantName,
-            category: category,
+            targetFolderId: targetFolderId,
             fileName: file.name, 
             mimeType: file.type || 'application/pdf',
             fileSize: file.size
           })
         });
-
-        if (sessionRes.status === 401 || sessionRes.status === 403) {
-          alert("Your session has expired. Please log in again.");
-          handleLogout();
-          throw new Error("Session expired");
-        }
 
         const sessionData = await sessionRes.json();
         if (!sessionData.success || !sessionData.uploadUrl) {
@@ -176,16 +195,19 @@ const NewPermit = () => {
         });
       };
 
+      // STEP 2: Parallel direct uploads straight into target subfolders
+      setMessage("Uploading documents to subfolders...");
+
       const certPromise = files.certificate.length > 0 
-        ? uploadFileDirectToDrive(files.certificate[0], 'certificate') 
+        ? uploadFileDirectToDrive(files.certificate[0], subfolders.certificate) 
         : Promise.resolve('');
 
       const formPromise = files.permitForm.length > 0 
-        ? uploadFileDirectToDrive(files.permitForm[0], 'permitForm') 
+        ? uploadFileDirectToDrive(files.permitForm[0], subfolders.permitForm) 
         : Promise.resolve('');
 
-      const drawingsPromises = files.drawings.map(file => uploadFileDirectToDrive(file, 'drawings'));
-      const receiptsPromises = files.receipts.map(file => uploadFileDirectToDrive(file, 'receipts'));
+      const drawingsPromises = files.drawings.map(file => uploadFileDirectToDrive(file, subfolders.drawings));
+      const receiptsPromises = files.receipts.map(file => uploadFileDirectToDrive(file, subfolders.receipts));
 
       const [certificateLink, permitFormLink, drawingsLinks, receiptsLinks] = await Promise.all([
         certPromise,
@@ -194,6 +216,7 @@ const NewPermit = () => {
         Promise.all(receiptsPromises)
       ]);
 
+      // STEP 3: Save metadata to PostgreSQL database
       setMessage("Saving permit record metadata...");
       const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
 
@@ -223,7 +246,7 @@ const NewPermit = () => {
       const metaData = await metaRes.json();
 
       if (metaRes.ok && metaData.success) {
-        setMessage("Success! Master folder created and documents archived with status Synced.");
+        setMessage("Success! Single master folder created and documents archived with status Synced.");
         setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
         setDuplicateWarning('');
@@ -326,7 +349,7 @@ const NewPermit = () => {
       {isSubmitting && (
         <div className="mb-6 bg-white p-4 rounded-xl border border-blue-200 shadow-sm space-y-2">
           <div className="flex justify-between text-xs font-bold text-blue-800">
-            <span>Creating Folder Structure & Uploading Files...</span>
+            <span>Creating Folders & Archiving Files...</span>
             <span>{uploadProgress}%</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
