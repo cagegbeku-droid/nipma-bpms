@@ -1,6 +1,12 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
-import { HomeIcon, ArrowUpTrayIcon, ArchiveBoxIcon } from '@heroicons/react/24/outline'; 
+import { NavLink, useNavigate } from 'react-router-dom';
+import { 
+  HomeIcon, 
+  ArrowUpTrayIcon, 
+  ArchiveBoxIcon, 
+  ArrowLeftOnRectangleIcon, 
+  KeyIcon 
+} from '@heroicons/react/24/outline'; 
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
@@ -9,37 +15,29 @@ const navigation = [
 ];
 
 const Sidebar = () => {
-  // --- INVISIBLE ADMIN CHECK ---
-  const isAdmin = localStorage.getItem('x-admin-key') === 'supersecret123';
+  const navigate = useNavigate();
 
-  // Automatically hide the "Upload Archive" link from the public
-  const filteredNavigation = navigation.filter((item) => {
-    if (!isAdmin && item.name === 'Upload Archive') {
-      return false; 
-    }
-    return true; 
-  });
+  // --- JWT USER CHECK ---
+  const token = localStorage.getItem('token');
+  const savedUser = localStorage.getItem('user');
+  const user = savedUser ? JSON.parse(savedUser) : null;
+  const isLoggedIn = Boolean(token && user);
 
   const handleLogout = () => {
-    localStorage.removeItem('x-admin-key');
-    window.location.reload(); 
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/vault-admin');
   };
 
-  // --- ADMIN LOGIN TRIGGER ---
-  const handleStealthUnlock = () => {
-    const pass = prompt("Enter Admin Passcode:");
-    if (pass === 'supersecret123') {
-      localStorage.setItem('x-admin-key', pass);
-      window.location.reload(); // Unlocks instantly across the live app!
-    } else if (pass !== null) {
-      alert("Incorrect passcode.");
-    }
+  const handleLoginClick = () => {
+    navigate('/vault-admin');
   };
 
   return (
     <div className="flex flex-col w-full md:w-64 bg-gray-900 text-white shrink-0 md:min-h-screen justify-between">
       
       <div>
+        {/* --- HEADER LOGO & TITLE --- */}
         <div className="flex flex-col items-center justify-center py-4 md:py-6 border-b border-gray-800">
           <img 
             src="/465783232_1385047576154895_1881211722468502227_n.jpg" 
@@ -54,9 +52,10 @@ const Sidebar = () => {
           </p>
         </div>
 
+        {/* --- NAVIGATION LINKS --- */}
         <div className="py-2 md:py-4">
           <nav className="flex md:flex-col space-x-2 md:space-x-0 md:space-y-1 px-2">
-            {filteredNavigation.map((item) => (
+            {navigation.map((item) => (
               <NavLink
                 key={item.name}
                 to={item.href}
@@ -74,23 +73,32 @@ const Sidebar = () => {
       </div>
 
       {/* --- BOTTOM CORNER CONTROLS --- */}
-      <div className="p-3 border-t border-gray-800 flex justify-between items-center text-xs">
-        <span className="text-gray-600">v1.0</span>
-
-        {isAdmin ? (
-          <button
-            onClick={handleLogout}
-            className="text-red-400 hover:text-red-300 font-medium transition flex items-center space-x-1 bg-red-950/40 px-2 py-1 rounded border border-red-900/50"
-          >
-            <span>Lock System</span> <span>🔒</span>
-          </button>
+      <div className="p-3 border-t border-gray-800 flex flex-col space-y-2 text-xs">
+        {isLoggedIn ? (
+          <div className="space-y-2">
+            <div className="px-1 text-gray-400">
+              <p className="text-[10px] uppercase text-gray-500 font-semibold tracking-wider">Logged In Officer</p>
+              <p className="text-white font-medium truncate">{user?.name || user?.email}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full text-red-400 hover:text-red-300 font-medium transition flex items-center justify-between bg-red-950/40 px-3 py-1.5 rounded border border-red-900/50 cursor-pointer"
+            >
+              <span>Log Out Session</span>
+              <ArrowLeftOnRectangleIcon className="h-4 w-4" />
+            </button>
+          </div>
         ) : (
-          <button
-            onClick={handleStealthUnlock}
-            className="text-gray-400 hover:text-white font-medium transition flex items-center space-x-1 bg-gray-800 px-2 py-1 rounded border border-gray-700"
-          >
-            <span>Admin</span> <span>🔒</span>
-          </button>
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">v1.0</span>
+            <button
+              onClick={handleLoginClick}
+              className="text-gray-300 hover:text-white font-medium transition flex items-center space-x-1.5 bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded border border-gray-700 cursor-pointer"
+            >
+              <KeyIcon className="h-3.5 w-3.5 text-blue-400" />
+              <span>Officer Portal</span>
+            </button>
+          </div>
         )}
       </div>
 

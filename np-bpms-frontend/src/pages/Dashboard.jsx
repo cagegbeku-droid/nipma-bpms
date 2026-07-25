@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 const Dashboard = () => {
-  // --- INVISIBLE ADMIN CHECK ---
-  const isAdmin = localStorage.getItem('x-admin-key') === 'supersecret123';
+  // --- JWT OFFICER / ADMIN CHECK ---
+  const token = localStorage.getItem('token');
+  const savedUser = localStorage.getItem('user');
+  const user = savedUser ? JSON.parse(savedUser) : null;
+  const isUploader = Boolean(token && user && (user.role === 'uploader' || user.role === 'admin'));
 
   const [totalPermits, setTotalPermits] = useState(0);
   const [recentPermits, setRecentPermits] = useState([]);
@@ -53,7 +56,7 @@ const Dashboard = () => {
       {/* Analytics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* Card 1: Total Archived (Clickable to redirect to permit list) */}
+        {/* Card 1: Total Archived */}
         <Link to="/permits/historical" className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col hover:border-blue-400 hover:shadow-md transition group">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider group-hover:text-blue-600 transition-colors">Total Archived</h2>
@@ -70,11 +73,11 @@ const Dashboard = () => {
           </div>
           <p className="text-xs text-green-600 font-medium mt-2 flex items-center justify-between">
             <span>✓ Safely secured in vault</span>
-            <span className="text-blue-600 opacity-0 group-hover:opacity-150 transition-opacity font-bold">View List →</span>
+            <span className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity font-bold">View List →</span>
           </p>
         </Link>
 
-        {/* Card 2: System Status */}
+        {/* Card 2: Cloud Storage */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Cloud Storage</h2>
@@ -87,16 +90,18 @@ const Dashboard = () => {
           <p className="text-xs text-gray-500 mt-2">Google Drive & Supabase synced</p>
         </div>
 
-        {/* Card 3: Security Alerts */}
+        {/* Card 3: Security Status */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Security Alerts</h2>
+            <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Security Status</h2>
             <span className="text-yellow-600 bg-yellow-50 p-2 rounded-lg text-xl">🛡️</span>
           </div>
           <div className="mt-4">
-            <span className="text-2xl font-bold text-gray-900">0</span>
+            <span className="text-2xl font-bold text-gray-900">{isUploader ? 'Authenticated' : 'Public Access'}</span>
           </div>
-          <p className="text-xs text-gray-500 mt-2">System operating normally</p>
+          <p className="text-xs text-gray-500 mt-2">
+            {isUploader ? `Officer: ${user?.name}` : 'Login required for archiving'}
+          </p>
         </div>
       </div>
 
@@ -105,8 +110,8 @@ const Dashboard = () => {
         <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           
-          {/* --- SECRET UPLOAD ACTION: ONLY VISIBLE TO YOU --- */}
-          {isAdmin && (
+          {/* UPLOAD ACTION: VISIBLE TO AUTHENTICATED OFFICERS */}
+          {isUploader ? (
             <Link to="/permits/new" className="group flex items-center p-6 bg-blue-600 rounded-xl shadow-sm hover:bg-blue-700 transition">
               <div className="bg-blue-500 text-white p-4 rounded-full mr-4 group-hover:scale-110 transition-transform">
                 ➕
@@ -114,6 +119,16 @@ const Dashboard = () => {
               <div>
                 <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
                 <p className="text-blue-100 text-sm">Scan and digitize a historical physical file</p>
+              </div>
+            </Link>
+          ) : (
+            <Link to="/vault-admin" className="group flex items-center p-6 bg-gray-900 text-white rounded-xl shadow-sm hover:bg-black transition">
+              <div className="bg-gray-800 text-blue-400 p-4 rounded-full mr-4 group-hover:scale-110 transition-transform">
+                🔑
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Officer Portal Login</h3>
+                <p className="text-gray-400 text-sm">Log in to upload and manage permit archives</p>
               </div>
             </Link>
           )}
@@ -132,7 +147,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* --- RECENT UPLOADS SECTION --- */}
+      {/* RECENT UPLOADS SECTION */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-gray-900">Recent Archives</h2>
