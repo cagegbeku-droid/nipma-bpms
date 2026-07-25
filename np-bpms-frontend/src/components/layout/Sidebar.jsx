@@ -16,7 +16,7 @@ const navigation = [
 
 const Sidebar = () => {
   const navigate = useNavigate();
-  const location = useLocation(); // <-- Forces Sidebar to re-render on route changes
+  const location = useLocation();
 
   // --- JWT USER CHECK ---
   const token = localStorage.getItem('token');
@@ -25,7 +25,6 @@ const Sidebar = () => {
   const isLoggedIn = Boolean(token && user);
 
   // --- FILTER NAVIGATION ---
-  // Hide "Upload Archive" from sidebar unless logged in
   const filteredNavigation = navigation.filter((item) => {
     if (!isLoggedIn && item.name === 'Upload Archive') {
       return false;
@@ -36,7 +35,7 @@ const Sidebar = () => {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    navigate('/vault-admin');
+    navigate('/'); // <-- NOW REDIRECTS TO DASHBOARD
   };
 
   const handleLoginClick = () => {
