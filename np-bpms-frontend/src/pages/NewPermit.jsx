@@ -5,7 +5,6 @@ const NewPermit = () => {
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    // Uses sessionStorage so session dies when tab/browser is closed
     const savedUser = sessionStorage.getItem('user');
     const token = sessionStorage.getItem('token');
     if (savedUser && token) {
@@ -13,10 +12,9 @@ const NewPermit = () => {
     }
   }, []);
 
-  // --- CLEAN LOGOUT & REDIRECT TO PUBLIC DASHBOARD ---
   const handleLogout = () => {
     sessionStorage.clear();
-    localStorage.clear(); // Clear legacy tokens if any remain
+    localStorage.clear();
     window.location.href = '/';
   };
 
@@ -59,7 +57,6 @@ const NewPermit = () => {
     }));
   };
 
-  // --- DUAL DUPLICATE CHECK ---
   const checkDuplicateRecord = async (permitNum, date) => {
     if (!permitNum || !date) return;
     
@@ -101,12 +98,12 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  // --- PARALLEL DIRECT-TO-GOOGLE DRIVE UPLOAD HANDLER ---
+  // --- PARALLEL DIRECT UPLOAD WITH AUTOMATIC FOLDER STRUCTURE ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setUploadProgress(0);
-    setMessage("Uploading documents directly to Google Drive in parallel...");
+    setMessage("Creating Google Drive permit folders and uploading files...");
 
     try {
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
@@ -115,8 +112,10 @@ const NewPermit = () => {
         return;
       }
 
-      // Helper function: Direct Upload via XHR for progress tracking
-      const uploadFileDirectToDrive = async (file) => {
+      const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
+
+      // Upload file directly into permit subfolder
+      const uploadFileDirectToDrive = async (file, category) => {
         const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
           method: "POST",
           headers: {
@@ -124,6 +123,8 @@ const NewPermit = () => {
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify({ 
+            permitNumber: formattedPermitNumber,
+            category: category,
             fileName: file.name, 
             mimeType: file.type || 'application/pdf',
             fileSize: file.size
@@ -171,23 +172,19 @@ const NewPermit = () => {
         });
       };
 
-      // 1. Certificate
+      // 1. Prepare Promises for each category
       const certPromise = files.certificate.length > 0 
-        ? uploadFileDirectToDrive(files.certificate[0]) 
+        ? uploadFileDirectToDrive(files.certificate[0], 'certificate') 
         : Promise.resolve('');
 
-      // 2. Permit Form
       const formPromise = files.permitForm.length > 0 
-        ? uploadFileDirectToDrive(files.permitForm[0]) 
+        ? uploadFileDirectToDrive(files.permitForm[0], 'permitForm') 
         : Promise.resolve('');
 
-      // 3. Drawings (Parallel)
-      const drawingsPromises = files.drawings.map(file => uploadFileDirectToDrive(file));
+      const drawingsPromises = files.drawings.map(file => uploadFileDirectToDrive(file, 'drawings'));
+      const receiptsPromises = files.receipts.map(file => uploadFileDirectToDrive(file, 'receipts'));
 
-      // 4. Receipts (Parallel)
-      const receiptsPromises = files.receipts.map(file => uploadFileDirectToDrive(file));
-
-      // EXECUTE ALL GOOGLE DRIVE UPLOADS SIMULTANEOUSLY
+      // 2. Execute parallel uploads directly into Google Drive subfolders
       const [certificateLink, permitFormLink, drawingsLinks, receiptsLinks] = await Promise.all([
         certPromise,
         formPromise,
@@ -195,9 +192,8 @@ const NewPermit = () => {
         Promise.all(receiptsPromises)
       ]);
 
-      // 5. Save metadata to database
-      setMessage("Saving permit record to database...");
-      const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
+      // 3. Save metadata to PostgreSQL database
+      setMessage("Saving permit record metadata...");
       const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
 
       const metadataPayload = {
@@ -226,7 +222,7 @@ const NewPermit = () => {
       const metaData = await metaRes.json();
 
       if (metaRes.ok && metaData.success) {
-        setMessage("Success! Record and 100MB+ files uploaded directly to Google Drive.");
+        setMessage("Success! Permit folder created with subfolders and documents archived securely.");
         setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
         setDuplicateWarning('');
@@ -320,7 +316,7 @@ const NewPermit = () => {
       {isSubmitting && (
         <div className="mb-6 bg-white p-4 rounded-xl border border-blue-200 shadow-sm space-y-2">
           <div className="flex justify-between text-xs font-bold text-blue-800">
-            <span>Uploading Directly to Google Drive (Parallel Stream)...</span>
+            <span>Creating Permit Folder & Uploading Files...</span>
             <span>{uploadProgress}%</span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
