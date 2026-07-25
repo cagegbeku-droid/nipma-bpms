@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import Login from './Login';
+import Login from '../Login';
 
 const NewPermit = () => {
   const [currentUser, setCurrentUser] = useState(null);
@@ -96,6 +96,13 @@ const NewPermit = () => {
 
     try {
       const token = localStorage.getItem('token');
+      
+      // If token is missing prior to dispatch, force re-login immediately
+      if (!token) {
+        handleLogout();
+        return;
+      }
+
       const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive", {
         method: "POST",
         headers: {
@@ -103,6 +110,14 @@ const NewPermit = () => {
         },
         body: submitData
       });
+
+      // Handle session expiration or authorization failure (401 / 403)
+      if (response.status === 401 || response.status === 403) {
+        handleLogout();
+        alert("Your session has expired (12-hour limit). Please log in again to continue archiving.");
+        return;
+      }
+
       const data = await response.json();
       
       if (response.ok && data.success) {
@@ -152,7 +167,7 @@ const NewPermit = () => {
                   type="button" 
                   onClick={() => removeFile(fieldName, index)} 
                   disabled={isSubmitting}
-                  className="text-red-500 font-bold px-2 py-1 hover:bg-red-50 rounded text-xs"
+                  className="text-red-500 font-bold px-2 py-1 hover:bg-red-50 rounded text-xs cursor-pointer"
                 >
                   Remove
                 </button>
@@ -164,7 +179,7 @@ const NewPermit = () => {
     );
   };
 
-  // --- SHOW LOGIN IF NOT LOGGED IN OR NOT AN UPLOADER ---
+  // --- SHOW LOGIN IF NOT LOGGED IN OR NOT AN UPLOADER / ADMIN ---
   if (!currentUser || (currentUser.role !== 'uploader' && currentUser.role !== 'admin')) {
     return <Login onLoginSuccess={(user) => setCurrentUser(user)} />;
   }
@@ -176,7 +191,10 @@ const NewPermit = () => {
           <h1 className="text-2xl font-bold text-gray-900">Archive Historical Permit</h1>
           <p className="text-xs text-gray-500">Logged in as: <span className="font-semibold text-gray-700">{currentUser.name} ({currentUser.email})</span></p>
         </div>
-        <button onClick={handleLogout} className="text-sm bg-red-50 text-red-600 px-3 py-1.5 rounded border border-red-200 font-medium hover:bg-red-100 transition">
+        <button 
+          onClick={handleLogout} 
+          className="text-sm bg-red-50 text-red-600 px-3 py-1.5 rounded border border-red-200 font-medium hover:bg-red-100 transition cursor-pointer"
+        >
           Logout
         </button>
       </div>
@@ -187,7 +205,7 @@ const NewPermit = () => {
         </div>
       )}
       
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-6 space-y-8">
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-6 space-y-8 border border-gray-100">
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">1. Permit Data</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -201,13 +219,21 @@ const NewPermit = () => {
                 onBlur={handlePermitNumberBlur}
                 required 
                 disabled={isSubmitting}
-                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" 
+                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
                 placeholder="E.G., LAK-NIN2630 or NIPDA/LAK-NIN/26/30"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label>
-              <input type="date" name="dateIssued" value={formData.dateIssued} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50" />
+              <input 
+                type="date" 
+                name="dateIssued" 
+                value={formData.dateIssued} 
+                onChange={handleTextChange} 
+                required 
+                disabled={isSubmitting} 
+                className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm" 
+              />
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Building Purpose / Use</label>
@@ -217,7 +243,7 @@ const NewPermit = () => {
                 onChange={handleTextChange} 
                 required 
                 disabled={isSubmitting}
-                className="w-full p-2 border border-gray-300 rounded-md bg-white uppercase disabled:bg-gray-50"
+                className="w-full p-2 border border-gray-300 rounded-md bg-white uppercase disabled:bg-gray-50 text-sm"
               >
                 <option value="RESIDENTIAL">RESIDENTIAL</option>
                 <option value="COMMERCIAL">COMMERCIAL</option>
@@ -239,7 +265,7 @@ const NewPermit = () => {
                   onChange={handleTextChange} 
                   required 
                   disabled={isSubmitting}
-                  className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" 
+                  className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
                   placeholder="E.G., INDUSTRIAL WAREHOUSE" 
                 />
               </div>
@@ -252,19 +278,54 @@ const NewPermit = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Applicant / Organization Name</label>
-              <input type="text" name="applicantName" value={formData.applicantName} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" placeholder="E.G., JOHN & MARY DOE / ST. PETER'S METHODIST CHURCH" />
+              <input 
+                type="text" 
+                name="applicantName" 
+                value={formData.applicantName} 
+                onChange={handleTextChange} 
+                required 
+                disabled={isSubmitting} 
+                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
+                placeholder="E.G., JOHN & MARY DOE / ST. PETER'S METHODIST CHURCH" 
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Phone (Optional)</label>
-              <input type="text" name="phone" value={formData.phone} onChange={handleTextChange} disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50" placeholder="Optional" />
+              <input 
+                type="text" 
+                name="phone" 
+                value={formData.phone} 
+                onChange={handleTextChange} 
+                disabled={isSubmitting} 
+                className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm" 
+                placeholder="Optional" 
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Location / Community</label>
-              <input type="text" name="location" value={formData.location} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" placeholder="E.G., PRAMPRAM" />
+              <input 
+                type="text" 
+                name="location" 
+                value={formData.location} 
+                onChange={handleTextChange} 
+                required 
+                disabled={isSubmitting} 
+                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
+                placeholder="E.G., PRAMPRAM" 
+              />
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Address / Plot Description</label>
-              <input type="text" name="address" value={formData.address} onChange={handleTextChange} required disabled={isSubmitting} className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50" placeholder="E.G., PLOT 12, BLOCK B" />
+              <input 
+                type="text" 
+                name="address" 
+                value={formData.address} 
+                onChange={handleTextChange} 
+                required 
+                disabled={isSubmitting} 
+                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
+                placeholder="E.G., PLOT 12, BLOCK B" 
+              />
             </div>
           </div>
         </div>
