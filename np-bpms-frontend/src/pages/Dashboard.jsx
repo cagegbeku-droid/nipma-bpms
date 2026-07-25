@@ -100,7 +100,7 @@ const Dashboard = () => {
             <span className="text-2xl font-bold text-gray-900">{isUploader ? 'Authenticated' : 'Public Access'}</span>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            {isUploader ? `Officer: ${user?.name}` : 'Login required for archiving'}
+            {isUploader ? `Officer: ${user?.name}` : 'Public view mode'}
           </p>
         </div>
       </div>
@@ -110,8 +110,8 @@ const Dashboard = () => {
         <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           
-          {/* UPLOAD ACTION: VISIBLE TO AUTHENTICATED OFFICERS */}
-          {isUploader ? (
+          {/* UPLOAD ACTION: VISIBLE ONLY TO AUTHENTICATED OFFICERS */}
+          {isUploader && (
             <Link to="/permits/new" className="group flex items-center p-6 bg-blue-600 rounded-xl shadow-sm hover:bg-blue-700 transition">
               <div className="bg-blue-500 text-white p-4 rounded-full mr-4 group-hover:scale-110 transition-transform">
                 ➕
@@ -119,16 +119,6 @@ const Dashboard = () => {
               <div>
                 <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
                 <p className="text-blue-100 text-sm">Scan and digitize a historical physical file</p>
-              </div>
-            </Link>
-          ) : (
-            <Link to="/vault-admin" className="group flex items-center p-6 bg-gray-900 text-white rounded-xl shadow-sm hover:bg-black transition">
-              <div className="bg-gray-800 text-blue-400 p-4 rounded-full mr-4 group-hover:scale-110 transition-transform">
-                🔑
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">Officer Portal Login</h3>
-                <p className="text-gray-400 text-sm">Log in to upload and manage permit archives</p>
               </div>
             </Link>
           )}
