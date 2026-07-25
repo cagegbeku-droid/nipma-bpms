@@ -90,11 +90,11 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. SINGLE MASTER FOLDER & SUBFOLDERS CREATOR (WITH ESCAPED SEARCH)
+// 1. DYNAMIC SUBFOLDER CREATOR (ONLY CREATES FOLDERS FOR ATTACHED FILES)
 // ==========================================
 router.post('/create-permit-folders', requireAuth, async (req, res) => {
   try {
-    const { permitNumber, applicantName } = req.body;
+    const { permitNumber, applicantName, categories } = req.body;
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -131,14 +131,12 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
         });
 
         if (searchRes.data.files && searchRes.data.files.length > 0) {
-          // Folder already exists! Return its ID
           return searchRes.data.files[0].id;
         }
       } catch (searchErr) {
         console.error("Folder search query warning:", searchErr.message);
       }
 
-      // Create new folder if not found
       const createRes = await drive.files.create({
         requestBody: {
           name: folderName,
@@ -162,21 +160,30 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
     // A. Create/Fetch Exactly ONE Master Permit Folder
     const masterFolderId = await getOrCreateFolder(masterFolderName, rootFolderId);
 
-    // B. Create/Fetch All 4 Subfolders Inside the Master Folder
-    const certFolderId = await getOrCreateFolder('1. Permit Certificates', masterFolderId);
-    const drawingsFolderId = await getOrCreateFolder('2. Architectural Drawings', masterFolderId);
-    const formFolderId = await getOrCreateFolder('3. Permit Forms', masterFolderId);
-    const receiptsFolderId = await getOrCreateFolder('4. Receipts & Bills', masterFolderId);
+    // B. Map of category keys to human-readable subfolder names
+    const categoryMap = {
+      certificate: '1. Permit Certificates',
+      drawings: '2. Architectural Drawings',
+      permitForm: '3. Permit Forms',
+      receipts: '4. Receipts & Bills'
+    };
+
+    // C. Create ONLY the subfolders that were requested in categories array
+    const subfolders = {};
+    const requestedCategories = Array.isArray(categories) && categories.length > 0 
+      ? categories 
+      : Object.keys(categoryMap);
+
+    for (const cat of requestedCategories) {
+      if (categoryMap[cat]) {
+        subfolders[cat] = await getOrCreateFolder(categoryMap[cat], masterFolderId);
+      }
+    }
 
     res.json({
       success: true,
       masterFolderId,
-      subfolders: {
-        certificate: certFolderId,
-        drawings: drawingsFolderId,
-        permitForm: formFolderId,
-        receipts: receiptsFolderId
-      }
+      subfolders
     });
 
   } catch (err) {
