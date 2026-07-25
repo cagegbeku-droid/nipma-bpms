@@ -2,21 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 const Dashboard = () => {
-  // --- JWT OFFICER / ADMIN CHECK ---
   const token = localStorage.getItem('token');
   const savedUser = localStorage.getItem('user');
   const user = savedUser ? JSON.parse(savedUser) : null;
   const isUploader = Boolean(token && user && (user.role === 'uploader' || user.role === 'admin'));
 
   const [totalPermits, setTotalPermits] = useState(0);
+  const [purposeBreakdown, setPurposeBreakdown] = useState({});
   const [recentPermits, setRecentPermits] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        // Fetch stats and permits in parallel
         const [statsRes, permitsRes] = await Promise.all([
           fetch("https://nipma-bpms-backend.onrender.com/api/permits/stats"),
           fetch("https://nipma-bpms-backend.onrender.com/api/permits")
@@ -27,16 +25,22 @@ const Dashboard = () => {
         
         if (statsData.success) {
           setTotalPermits(statsData.total);
-        } else {
-          setError("Failed to load statistics.");
         }
 
         if (permitsData.success) {
-          // Grab only the latest 5 records for the recent upload section
-          setRecentPermits(permitsData.data.slice(0, 5));
+          const allPermits = permitsData.data;
+          setRecentPermits(allPermits.slice(0, 5));
+
+          // Calculate purpose breakdown
+          const breakdown = {};
+          allPermits.forEach(p => {
+            const purpose = p.purpose || 'RESIDENTIAL';
+            breakdown[purpose] = (breakdown[purpose] || 0) + 1;
+          });
+          setPurposeBreakdown(breakdown);
         }
       } catch (err) {
-        setError("Database connection error.");
+        console.error("Dashboard fetch error:", err);
       } finally {
         setIsLoading(false);
       }
@@ -47,7 +51,6 @@ const Dashboard = () => {
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
-      {/* Header Section */}
       <div>
         <h1 className="text-3xl font-bold text-gray-900">NiPDA Archive Control</h1>
         <p className="text-gray-500 mt-2">Welcome to the Building Permit Management System.</p>
@@ -55,29 +58,20 @@ const Dashboard = () => {
 
       {/* Analytics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Card 1: Total Archived */}
         <Link to="/permits/historical" className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col hover:border-blue-400 hover:shadow-md transition group">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider group-hover:text-blue-600 transition-colors">Total Archived</h2>
             <span className="text-blue-600 bg-blue-50 p-2 rounded-lg text-xl">📁</span>
           </div>
           <div className="mt-4">
-            {isLoading ? (
-              <div className="animate-pulse h-8 bg-gray-200 rounded w-1/3"></div>
-            ) : error ? (
-              <span className="text-red-500 text-sm font-medium">{error}</span>
-            ) : (
-              <span className="text-4xl font-extrabold text-gray-900">{totalPermits}</span>
-            )}
+            <span className="text-4xl font-extrabold text-gray-900">{totalPermits}</span>
           </div>
           <p className="text-xs text-green-600 font-medium mt-2 flex items-center justify-between">
             <span>✓ Safely secured in vault</span>
-            <span className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity font-bold">View List →</span>
+            <span className="text-blue-600 font-bold">View List →</span>
           </p>
         </Link>
 
-        {/* Card 2: Cloud Storage */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Cloud Storage</h2>
@@ -90,7 +84,6 @@ const Dashboard = () => {
           <p className="text-xs text-gray-500 mt-2">Google Drive & Supabase synced</p>
         </div>
 
-        {/* Card 3: Security Status */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Security Status</h2>
@@ -105,17 +98,38 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Quick Actions Section */}
+      {/* VISUAL ANALYTICS BREAKDOWN */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
+        <h2 className="text-lg font-bold text-gray-900">Permits Breakdown by Category</h2>
+        {totalPermits > 0 ? (
+          <div className="space-y-3">
+            {Object.entries(purposeBreakdown).map(([purpose, count]) => {
+              const percentage = Math.round((count / totalPermits) * 100);
+              return (
+                <div key={purpose} className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold text-gray-700">
+                    <span>{purpose}</span>
+                    <span>{count} permits ({percentage}%)</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${percentage}%` }}></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 py-2">No category data available yet.</p>
+        )}
+      </div>
+
+      {/* Quick Actions */}
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          
-          {/* UPLOAD ACTION: VISIBLE ONLY TO AUTHENTICATED OFFICERS */}
           {isUploader && (
             <Link to="/permits/new" className="group flex items-center p-6 bg-blue-600 rounded-xl shadow-sm hover:bg-blue-700 transition">
-              <div className="bg-blue-500 text-white p-4 rounded-full mr-4 group-hover:scale-110 transition-transform">
-                ➕
-              </div>
+              <div className="bg-blue-500 text-white p-4 rounded-full mr-4 group-hover:scale-110 transition-transform">➕</div>
               <div>
                 <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
                 <p className="text-blue-100 text-sm">Scan and digitize a historical physical file</p>
@@ -123,75 +137,15 @@ const Dashboard = () => {
             </Link>
           )}
 
-          {/* PUBLIC SEARCH ACTION: VISIBLE TO EVERYONE */}
           <Link to="/permits/historical" className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-blue-400 hover:shadow-md transition">
-            <div className="bg-gray-100 text-blue-600 p-4 rounded-full mr-4 group-hover:bg-blue-50 transition-colors">
-              🔍
-            </div>
+            <div className="bg-gray-100 text-blue-600 p-4 rounded-full mr-4 group-hover:bg-blue-50 transition-colors">🔍</div>
             <div>
               <h3 className="text-lg font-bold text-gray-900">Search Records</h3>
               <p className="text-gray-500 text-sm">Find and view archived documents</p>
             </div>
           </Link>
-
         </div>
       </div>
-
-      {/* RECENT UPLOADS SECTION */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Recent Archives</h2>
-          <Link to="/permits/historical" className="text-sm font-semibold text-blue-600 hover:underline">View All Records →</Link>
-        </div>
-
-        {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map(n => (
-              <div key={n} className="animate-pulse h-12 bg-gray-100 rounded-md"></div>
-            ))}
-          </div>
-        ) : recentPermits.length === 0 ? (
-          <p className="text-sm text-gray-500 py-4 text-center">No permits archived yet.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b text-xs font-bold text-gray-500 uppercase">
-                  <th className="py-3 px-4">Permit Number</th>
-                  <th className="py-3 px-4">Applicant Name</th>
-                  <th className="py-3 px-4">Purpose</th>
-                  <th className="py-3 px-4">Location</th>
-                  <th className="py-3 px-4">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y text-sm text-gray-700">
-                {recentPermits.map(permit => (
-                  <tr key={permit.id} className="hover:bg-gray-50 transition">
-                    <td className="py-3 px-4 font-bold text-gray-900">{permit.permit_number}</td>
-                    <td className="py-3 px-4 uppercase">{permit.applicant_name}</td>
-                    <td className="py-3 px-4">
-                      <span className="bg-gray-100 text-gray-800 text-xs px-2.5 py-1 rounded-md font-medium">
-                        {permit.purpose || 'RESIDENTIAL'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 uppercase">{permit.location}</td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
-                        permit.upload_status === 'completed' 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {permit.upload_status === 'completed' ? 'Synced' : 'Processing'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
     </div>
   );
 };
