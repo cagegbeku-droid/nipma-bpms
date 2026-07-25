@@ -97,22 +97,22 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. DIRECT GOOGLE DRIVE UPLOAD SESSION ROUTE
+// 1. DYNAMIC DRIVE FOLDER & UPLOAD SESSION ROUTE
 // ==========================================
 router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
   try {
-    const { fileName, mimeType, fileSize } = req.body;
+    const { permitNumber, category, fileName, mimeType, fileSize } = req.body;
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+    const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
-    if (!clientId || !clientSecret || !refreshToken) {
-      console.error('❌ Missing Google OAuth keys in Render Environment.');
+    if (!clientId || !clientSecret || !refreshToken || !rootFolderId) {
+      console.error('❌ Missing Google OAuth keys or GOOGLE_DRIVE_FOLDER_ID in Render Environment.');
       return res.status(500).json({ 
         success: false, 
-        message: 'Server Configuration Error: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, or GOOGLE_REFRESH_TOKEN missing.' 
+        message: 'Server Configuration Error: Google OAuth keys missing on Render.' 
       });
     }
 
@@ -124,15 +124,51 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 
     oauth2Client.setCredentials({ refresh_token: refreshToken });
 
+    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+
+    // Helper: Search for existing folder or create new one
+    const getOrCreateFolder = async (folderName, parentId) => {
+      const safeName = folderName.replace(/'/g, "\\'");
+      const q = `mimeType='application/vnd.google-apps.folder' and name='${safeName}' and '${parentId}' in parents and trashed=false`;
+      
+      const searchRes = await drive.files.list({ q, fields: 'files(id, name)' });
+      if (searchRes.data.files && searchRes.data.files.length > 0) {
+        return searchRes.data.files[0].id;
+      }
+
+      const createRes = await drive.files.create({
+        requestBody: {
+          name: folderName,
+          mimeType: 'application/vnd.google-apps.folder',
+          parents: [parentId]
+        },
+        fields: 'id'
+      });
+
+      return createRes.data.id;
+    };
+
+    // A. Get or Create Master Permit Folder (e.g. NIPDA-PRAM-26-29)
+    const cleanPermitNum = permitNumber ? permitNumber.replace(/\//g, '-') : 'UNASSIGNED-PERMIT';
+    const permitFolderId = await getOrCreateFolder(cleanPermitNum, rootFolderId);
+
+    // B. Get or Create Category Subfolder
+    const categoryMap = {
+      certificate: '1. Permit Certificates',
+      drawings: '2. Architectural Drawings',
+      permitForm: '3. Permit Forms',
+      receipts: '4. Receipts & Bills'
+    };
+    const subfolderName = categoryMap[category] || '5. Misc Documents';
+    const targetFolderId = await getOrCreateFolder(subfolderName, permitFolderId);
+
+    // C. Get Access Token for Resumable Session
     const tokenResponse = await oauth2Client.getAccessToken();
     const accessToken = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
 
-    if (!accessToken) {
-      throw new Error("Could not retrieve access token from Google OAuth2 client.");
-    }
-
     const clientOrigin = req.headers.origin || req.headers.referer || '*';
 
+    // D. Request Resumable Session inside the Category Subfolder
     const googleRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
       method: 'POST',
       headers: {
@@ -144,7 +180,7 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
       },
       body: JSON.stringify({
         name: `${Date.now()}-${fileName}`,
-        parents: folderId ? [folderId] : []
+        parents: [targetFolderId]
       })
     });
 
@@ -155,22 +191,22 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
       console.error('Google Drive session creation failed:', errText);
       return res.status(500).json({ 
         success: false, 
-        message: 'Google Drive rejected upload session creation. Check server logs.' 
+        message: 'Google Drive rejected upload session creation.' 
       });
     }
 
     res.json({ success: true, uploadUrl });
   } catch (err) {
-    console.error('Error generating Google Drive session:', err);
+    console.error('Error generating Google Drive folder structure & session:', err);
     res.status(500).json({ 
       success: false, 
-      message: `Google Drive Session Error: ${err.message || 'Authentication failed'}` 
+      message: `Google Drive Folder Error: ${err.message}` 
     });
   }
 });
 
 // ==========================================
-// 2. METADATA SAVER ROUTE (FIXED DATABASE EXTRACTION)
+// 2. METADATA SAVER ROUTE
 // ==========================================
 router.post('/archive-metadata', requireAuth, async (req, res) => {
   try {
@@ -204,12 +240,10 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
     ];
 
     const dbResponse = await db.query(query, values);
-
-    // SAFE EXTRACTION: Handles both raw array returns and standard pg result object { rows: [...] }
     const rows = Array.isArray(dbResponse) ? dbResponse : (dbResponse && dbResponse.rows ? dbResponse.rows : []);
     const savedRecord = rows.length > 0 ? rows[0] : null;
 
-    // Sync into 'permits' table as well
+    // Sync into 'permits' table
     try {
       const syncQuery = `
         INSERT INTO permits 
