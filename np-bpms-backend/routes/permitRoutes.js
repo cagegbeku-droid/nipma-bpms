@@ -26,49 +26,57 @@ const archivalUploads = upload.fields([
   { name: 'receipts', maxCount: 10 }
 ]);
 
-// --- AUTO-CREATE DATABASE TABLES IF MISSING ---
+// --- AUTO-CREATE TABLES & AUTO-FIX "PROCESSING" STATUS ---
 const ensureTablesExist = async () => {
-  const createHistoricalPermitsTable = `
-    CREATE TABLE IF NOT EXISTS historical_permits (
-      id SERIAL PRIMARY KEY,
-      permit_number VARCHAR(255) NOT NULL,
-      date_issued DATE,
-      purpose VARCHAR(255),
-      applicant_name VARCHAR(255),
-      phone VARCHAR(100),
-      location VARCHAR(255),
-      address TEXT,
-      certificate_link TEXT,
-      drawings_links TEXT,
-      permit_form_link TEXT,
-      receipts_links TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `;
-
-  const createPermitsTable = `
-    CREATE TABLE IF NOT EXISTS permits (
-      id SERIAL PRIMARY KEY,
-      permit_number VARCHAR(255) NOT NULL,
-      date_issued DATE,
-      purpose VARCHAR(255),
-      applicant_name VARCHAR(255),
-      phone VARCHAR(100),
-      location VARCHAR(255),
-      address TEXT,
-      certificate_link TEXT,
-      drawings_links TEXT,
-      permit_form_link TEXT,
-      receipts_links TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `;
-
   try {
-    await db.query(createHistoricalPermitsTable);
-    await db.query(createPermitsTable);
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS historical_permits (
+        id SERIAL PRIMARY KEY,
+        permit_number VARCHAR(255) NOT NULL,
+        date_issued DATE,
+        purpose VARCHAR(255),
+        applicant_name VARCHAR(255),
+        phone VARCHAR(100),
+        location VARCHAR(255),
+        address TEXT,
+        certificate_link TEXT,
+        drawings_links TEXT,
+        permit_form_link TEXT,
+        receipts_links TEXT,
+        status VARCHAR(50) DEFAULT 'Synced',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS permits (
+        id SERIAL PRIMARY KEY,
+        permit_number VARCHAR(255) NOT NULL,
+        date_issued DATE,
+        purpose VARCHAR(255),
+        applicant_name VARCHAR(255),
+        phone VARCHAR(100),
+        location VARCHAR(255),
+        address TEXT,
+        certificate_link TEXT,
+        drawings_links TEXT,
+        permit_form_link TEXT,
+        receipts_links TEXT,
+        status VARCHAR(50) DEFAULT 'Synced',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Ensure status column exists on existing tables
+    await db.query(`ALTER TABLE historical_permits ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Synced';`);
+    await db.query(`ALTER TABLE permits ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Synced';`);
+
+    // AUTO-UPDATE ANY EXISTING RECORDS STUCK ON 'Processing' TO 'Synced'
+    await db.query(`UPDATE historical_permits SET status = 'Synced' WHERE status IS NULL OR LOWER(status) = 'processing';`);
+    await db.query(`UPDATE permits SET status = 'Synced' WHERE status IS NULL OR LOWER(status) = 'processing';`);
+
   } catch (err) {
-    console.error("Error ensuring database tables exist:", err);
+    console.error("Error ensuring database tables & status column exist:", err);
   }
 };
 
@@ -97,11 +105,11 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. DYNAMIC DRIVE FOLDER & UPLOAD SESSION ROUTE
+// 1. DYNAMIC DRIVE FOLDER (NIPDA_TSOP_26_02 - Applicant Name) & UPLOAD SESSION
 // ==========================================
 router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
   try {
-    const { permitNumber, category, fileName, mimeType, fileSize } = req.body;
+    const { permitNumber, applicantName, category, fileName, mimeType, fileSize } = req.body;
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -109,7 +117,7 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
     const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
     if (!clientId || !clientSecret || !refreshToken || !rootFolderId) {
-      console.error('❌ Missing Google OAuth keys or GOOGLE_DRIVE_FOLDER_ID in Render Environment.');
+      console.error('❌ Missing Google OAuth keys in Render Environment.');
       return res.status(500).json({ 
         success: false, 
         message: 'Server Configuration Error: Google OAuth keys missing on Render.' 
@@ -123,10 +131,9 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
     );
 
     oauth2Client.setCredentials({ refresh_token: refreshToken });
-
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-    // Helper: Search for existing folder or create new one
+    // Helper: Find or create Google Drive Folder
     const getOrCreateFolder = async (folderName, parentId) => {
       const safeName = folderName.replace(/'/g, "\\'");
       const q = `mimeType='application/vnd.google-apps.folder' and name='${safeName}' and '${parentId}' in parents and trashed=false`;
@@ -148,11 +155,19 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
       return createRes.data.id;
     };
 
-    // A. Get or Create Master Permit Folder (e.g. NIPDA-PRAM-26-29)
-    const cleanPermitNum = permitNumber ? permitNumber.replace(/\//g, '-') : 'UNASSIGNED-PERMIT';
-    const permitFolderId = await getOrCreateFolder(cleanPermitNum, rootFolderId);
+    // Clean folder name values
+    const cleanPermitNum = (permitNumber || '').replace(/[\/\\]/g, '_').trim();
+    const cleanApplicant = (applicantName || '').replace(/[\/\\]/g, '-').trim();
 
-    // B. Get or Create Category Subfolder
+    // FORMAT: NIPDA_TSOP_26_02 - Applicant Name
+    const masterFolderName = cleanApplicant 
+      ? `${cleanPermitNum} - ${cleanApplicant}` 
+      : cleanPermitNum;
+
+    // A. Create/Fetch Master Permit Folder
+    const permitFolderId = await getOrCreateFolder(masterFolderName, rootFolderId);
+
+    // B. Create/Fetch Subfolder
     const categoryMap = {
       certificate: '1. Permit Certificates',
       drawings: '2. Architectural Drawings',
@@ -162,13 +177,13 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
     const subfolderName = categoryMap[category] || '5. Misc Documents';
     const targetFolderId = await getOrCreateFolder(subfolderName, permitFolderId);
 
-    // C. Get Access Token for Resumable Session
+    // C. Get Access Token
     const tokenResponse = await oauth2Client.getAccessToken();
     const accessToken = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
 
     const clientOrigin = req.headers.origin || req.headers.referer || '*';
 
-    // D. Request Resumable Session inside the Category Subfolder
+    // D. Create Resumable Upload Session inside Subfolder
     const googleRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
       method: 'POST',
       headers: {
@@ -197,7 +212,7 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 
     res.json({ success: true, uploadUrl });
   } catch (err) {
-    console.error('Error generating Google Drive folder structure & session:', err);
+    console.error('Error generating Google Drive folder structure:', err);
     res.status(500).json({ 
       success: false, 
       message: `Google Drive Folder Error: ${err.message}` 
@@ -206,7 +221,7 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 2. METADATA SAVER ROUTE
+// 2. METADATA SAVER ROUTE (EXPLICITLY SAVES 'Synced')
 // ==========================================
 router.post('/archive-metadata', requireAuth, async (req, res) => {
   try {
@@ -220,8 +235,8 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 
     const query = `
       INSERT INTO historical_permits 
-      (permit_number, date_issued, purpose, applicant_name, phone, location, address, certificate_link, drawings_links, permit_form_link, receipts_links)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      (permit_number, date_issued, purpose, applicant_name, phone, location, address, certificate_link, drawings_links, permit_form_link, receipts_links, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'Synced')
       RETURNING *;
     `;
     
@@ -247,8 +262,8 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
     try {
       const syncQuery = `
         INSERT INTO permits 
-        (permit_number, date_issued, purpose, applicant_name, phone, location, address, certificate_link, drawings_links, permit_form_link, receipts_links)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+        (permit_number, date_issued, purpose, applicant_name, phone, location, address, certificate_link, drawings_links, permit_form_link, receipts_links, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'Synced');
       `;
       await db.query(syncQuery, values);
     } catch (syncErr) {
