@@ -31,7 +31,9 @@ const NewPermit = () => {
   
   const [files, setFiles] = useState({ certificate: [], drawings: [], permitForm: [], receipts: [] });
   const [message, setMessage] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const formatPermitNumberInput = (value) => {
     const cleanVal = (value || '').trim().toUpperCase();
@@ -49,15 +51,41 @@ const NewPermit = () => {
 
   const handleTextChange = (e) => {
     const { name, value } = e.target;
-    setFormData({ 
-      ...formData, 
+    setFormData(prev => ({ 
+      ...prev, 
       [name]: name === 'dateIssued' || name === 'phone' ? value : value.toUpperCase() 
-    });
+    }));
   };
 
-  const handlePermitNumberBlur = () => {
+  // --- DUAL DUPLICATE CHECK: REQUIRES BOTH PERMIT NUMBER & DATE ISSUED TO MATCH ---
+  const checkDuplicateRecord = async (permitNum, date) => {
+    if (!permitNum || !date) return;
+    
+    try {
+      const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits");
+      const data = await response.json();
+      
+      if (data.success && Array.isArray(data.data)) {
+        const duplicate = data.data.find(p => 
+          p.permit_number?.toUpperCase().trim() === permitNum.toUpperCase().trim() &&
+          p.date_issued && p.date_issued.split('T')[0] === date
+        );
+
+        if (duplicate) {
+          setDuplicateWarning(`⚠️ Duplicate Warning: A permit with number "${permitNum}" issued on ${date} is already archived in the system.`);
+        } else {
+          setDuplicateWarning('');
+        }
+      }
+    } catch (err) {
+      console.error('Duplicate check error:', err);
+    }
+  };
+
+  const handlePermitBlurOrDateChange = () => {
     const formatted = formatPermitNumberInput(formData.permitNumber);
     setFormData(prev => ({ ...prev, permitNumber: formatted }));
+    checkDuplicateRecord(formatted, formData.dateIssued);
   };
 
   const handleFileChange = (e) => {
@@ -71,9 +99,10 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setUploadProgress(0);
     setMessage("Uploading files to Secure Archive Vault...");
     
     const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
@@ -82,11 +111,7 @@ const NewPermit = () => {
     const submitData = new FormData();
     Object.keys(formData).forEach(key => {
       if (key !== 'customPurpose') {
-        if (key === 'permitNumber') {
-          submitData.append(key, formattedPermitNumber);
-        } else {
-          submitData.append(key, key === 'purpose' ? finalPurposeValue : formData[key]);
-        }
+        submitData.append(key, key === 'permitNumber' ? formattedPermitNumber : (key === 'purpose' ? finalPurposeValue : formData[key]));
       }
     });
     
@@ -94,48 +119,54 @@ const NewPermit = () => {
       files[key].forEach(file => submitData.append(key, file));
     });
 
-    try {
-      const token = localStorage.getItem('token');
-      
-      // If token is missing prior to dispatch, force re-login immediately
-      if (!token) {
-        handleLogout();
-        return;
-      }
-
-      const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive", {
-        method: "POST",
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: submitData
-      });
-
-      // Handle session expiration or authorization failure (401 / 403)
-      if (response.status === 401 || response.status === 403) {
-        handleLogout();
-        alert("Your session has expired (12-hour limit). Please log in again to continue archiving.");
-        return;
-      }
-
-      const data = await response.json();
-      
-      if (response.ok && data.success) {
-        setMessage("Success! Record and all documents archived securely.");
-        setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
-        setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
-        
-        setTimeout(() => {
-          setMessage('');
-        }, 4000);
-      } else {
-        setMessage(data.message || "Failed to archive record. Permission denied or invalid input.");
-      }
-    } catch (error) {
-      setMessage("Server connection error. Please check your network.");
-    } finally {
-      setIsSubmitting(false);
+    const token = localStorage.getItem('token');
+    if (!token) {
+      handleLogout();
+      return;
     }
+
+    // --- XMLHttpRequest for Real-Time Upload Progress ---
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "https://nipma-bpms-backend.onrender.com/api/permits/archive");
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percentComplete = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percentComplete);
+      }
+    };
+
+    xhr.onload = () => {
+      setIsSubmitting(false);
+      if (xhr.status === 401 || xhr.status === 403) {
+        handleLogout();
+        alert("Your session has expired. Please log in again to continue archiving.");
+        return;
+      }
+
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status === 200 && data.success) {
+          setMessage("Success! Record and all documents archived securely.");
+          setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
+          setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
+          setDuplicateWarning('');
+          setTimeout(() => setMessage(''), 4000);
+        } else {
+          setMessage(data.message || "Failed to archive record. Permission denied or invalid input.");
+        }
+      } catch (err) {
+        setMessage("Server response error.");
+      }
+    };
+
+    xhr.onerror = () => {
+      setIsSubmitting(false);
+      setMessage("Server connection error. Please check your network.");
+    };
+
+    xhr.send(submitData);
   };
 
   const renderDocumentUpload = (label, fieldName, allowMultiple = true) => {
@@ -179,7 +210,6 @@ const NewPermit = () => {
     );
   };
 
-  // --- SHOW LOGIN IF NOT LOGGED IN OR NOT AN UPLOADER / ADMIN ---
   if (!currentUser || (currentUser.role !== 'uploader' && currentUser.role !== 'admin')) {
     return <Login onLoginSuccess={(user) => setCurrentUser(user)} />;
   }
@@ -198,10 +228,28 @@ const NewPermit = () => {
           Logout
         </button>
       </div>
+
+      {duplicateWarning && (
+        <div className="p-4 mb-6 rounded-md bg-amber-50 text-amber-800 border border-amber-300 font-medium shadow-sm text-sm">
+          {duplicateWarning}
+        </div>
+      )}
       
       {message && (
         <div className={"p-4 mb-6 rounded-md font-medium transition-all shadow-sm " + (message.includes("Success") ? "bg-green-100 text-green-700 border border-green-200" : "bg-blue-100 text-blue-700 border border-blue-200")}> 
           {message} 
+        </div>
+      )}
+
+      {isSubmitting && (
+        <div className="mb-6 bg-white p-4 rounded-xl border border-blue-200 shadow-sm space-y-2">
+          <div className="flex justify-between text-xs font-bold text-blue-800">
+            <span>Uploading Files to Cloud Vault...</span>
+            <span>{uploadProgress}%</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+            <div className="bg-blue-600 h-3 rounded-full transition-all duration-200" style={{ width: `${uploadProgress}%` }}></div>
+          </div>
         </div>
       )}
       
@@ -216,7 +264,7 @@ const NewPermit = () => {
                 name="permitNumber" 
                 value={formData.permitNumber} 
                 onChange={handleTextChange} 
-                onBlur={handlePermitNumberBlur}
+                onBlur={handlePermitBlurOrDateChange}
                 required 
                 disabled={isSubmitting}
                 className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
@@ -229,7 +277,7 @@ const NewPermit = () => {
                 type="date" 
                 name="dateIssued" 
                 value={formData.dateIssued} 
-                onChange={handleTextChange} 
+                onChange={(e) => { handleTextChange(e); handlePermitBlurOrDateChange(); }} 
                 required 
                 disabled={isSubmitting} 
                 className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm" 
@@ -346,13 +394,7 @@ const NewPermit = () => {
           className="w-full bg-blue-600 text-white font-semibold py-4 rounded-md hover:bg-blue-700 transition shadow-md flex items-center justify-center space-x-2 disabled:opacity-70 cursor-pointer"
         >
           {isSubmitting ? (
-            <>
-              <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span>Archiving Documents...</span>
-            </>
+            <span>Archiving Documents ({uploadProgress}%)...</span>
           ) : (
             <span>Save to Secure Archives</span>
           )}

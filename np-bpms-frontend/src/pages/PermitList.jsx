@@ -67,6 +67,34 @@ const PermitList = () => {
     return cleanVal;
   };
 
+  // --- EXPORT TO CSV FUNCTION ---
+  const exportToCSV = () => {
+    if (filteredPermits.length === 0) return;
+
+    const headers = ["Permit Number", "Applicant Name", "Date Issued", "Purpose", "Location", "Phone", "Address"];
+    const rows = filteredPermits.map(p => {
+      const applicantName = p.applicant_name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
+      return [
+        `"${p.permit_number || ''}"`,
+        `"${applicantName}"`,
+        `"${p.date_issued || ''}"`,
+        `"${p.purpose || 'RESIDENTIAL'}"`,
+        `"${p.location || ''}"`,
+        `"${p.phone || ''}"`,
+        `"${p.address || ''}"`
+      ];
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `NiPDA_Permit_Registry_Export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // --- EDIT FUNCTIONS ---
   const handleEditClick = (permit) => {
     const standardPurposes = ['RESIDENTIAL', 'COMMERCIAL', 'INSTITUTION', 'ORGANIZATION', 'MIXED USE', 'FENCE WALL'];
@@ -179,26 +207,35 @@ const PermitList = () => {
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
-      <div className="flex justify-between items-end mb-6">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Archive Vault Records</h1>
           <p className="text-sm text-gray-500 mt-1">Search, update, and retrieve historical building permits.</p>
         </div>
         
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-3">
+          {/* EXPORT TO CSV BUTTON */}
+          <button 
+            onClick={exportToCSV}
+            className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2 rounded-md transition text-sm font-medium flex items-center space-x-1.5 shadow-sm cursor-pointer"
+          >
+            <span>📊 Export CSV</span>
+          </button>
+
           {/* ONLY SHOWN TO ADMINS VIA ROUTER LINK */}
           {isAdmin && (
             <Link to="/permits/new" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium">
               + Add New Permit
             </Link>
           )}
-          <div className="w-80">
+
+          <div className="w-72">
             <input 
               type="text" 
-              placeholder="Search permit #, name, purpose, location..." 
+              placeholder="Search permit #, name, location..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none text-sm"
             />
           </div>
         </div>
