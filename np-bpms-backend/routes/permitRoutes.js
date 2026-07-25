@@ -51,11 +51,11 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. DIRECT GOOGLE DRIVE UPLOAD SESSION ROUTE (OAuth 2.0 Client ID)
+// 1. DIRECT GOOGLE DRIVE UPLOAD SESSION ROUTE (WITH CORS ORIGIN BINDING)
 // ==========================================
 router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
   try {
-    const { fileName, mimeType } = req.body;
+    const { fileName, mimeType, fileSize } = req.body;
 
     const clientId = process.env.GOOGLE_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -63,14 +63,13 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
     if (!clientId || !clientSecret || !refreshToken) {
-      console.error('❌ CRITICAL: Missing Google OAuth 2.0 credentials in Render Environment variables.');
+      console.error('❌ Missing Google OAuth keys in Render Environment.');
       return res.status(500).json({ 
         success: false, 
-        message: 'Server Configuration Error: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, or GOOGLE_REFRESH_TOKEN missing on Render.' 
+        message: 'Server Configuration Error: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, or GOOGLE_REFRESH_TOKEN missing.' 
       });
     }
 
-    // Initialize Google OAuth2 Client
     const oauth2Client = new google.auth.OAuth2(
       clientId,
       clientSecret,
@@ -79,7 +78,6 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 
     oauth2Client.setCredentials({ refresh_token: refreshToken });
 
-    // Generate dynamic Access Token via Refresh Token
     const tokenResponse = await oauth2Client.getAccessToken();
     const accessToken = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
 
@@ -87,13 +85,18 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
       throw new Error("Could not retrieve access token from Google OAuth2 client.");
     }
 
-    // Request a Resumable Upload Session URL directly from Google Drive API
+    // Capture the exact browser origin to prevent CORS blocks on direct client uploads
+    const clientOrigin = req.headers.origin || req.headers.referer || '*';
+
+    // Request Resumable Session with explicit Origin header
     const googleRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'X-Upload-Content-Type': mimeType || 'application/pdf'
+        'X-Upload-Content-Type': mimeType || 'application/pdf',
+        'X-Upload-Content-Length': fileSize ? String(fileSize) : undefined,
+        'Origin': clientOrigin
       },
       body: JSON.stringify({
         name: `${Date.now()}-${fileName}`,
@@ -104,8 +107,8 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
     const uploadUrl = googleRes.headers.get('location');
 
     if (!uploadUrl) {
-      const errBody = await googleRes.text();
-      console.error('Google Drive API Error Details:', errBody);
+      const errText = await googleRes.text();
+      console.error('Google Drive session creation failed:', errText);
       return res.status(500).json({ 
         success: false, 
         message: 'Google Drive rejected upload session creation. Check server logs.' 
@@ -114,10 +117,10 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 
     res.json({ success: true, uploadUrl });
   } catch (err) {
-    console.error('Error generating Google Drive session via OAuth 2.0:', err.message || err);
+    console.error('Error generating Google Drive session:', err);
     res.status(500).json({ 
       success: false, 
-      message: `Google Drive OAuth Error: ${err.message || 'Authentication failed'}` 
+      message: `Google Drive Session Error: ${err.message || 'Authentication failed'}` 
     });
   }
 });
