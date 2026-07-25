@@ -26,7 +26,7 @@ const archivalUploads = upload.fields([
   { name: 'receipts', maxCount: 10 }
 ]);
 
-// --- ENSURE SUPABASE PERMITS TABLE MATCHES & STATUS IS SYNCED ---
+// --- ENSURE SUPABASE PERMITS TABLE & AUTO-FIX STATUS ---
 const ensureTablesExist = async () => {
   try {
     await db.query(`
@@ -50,11 +50,10 @@ const ensureTablesExist = async () => {
       );
     `);
 
-    // Ensure upload_status and status columns exist
     await db.query(`ALTER TABLE permits ADD COLUMN IF NOT EXISTS upload_status text DEFAULT 'completed';`);
     await db.query(`ALTER TABLE permits ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Synced';`);
 
-    // AUTO-CONVERT ANY 'pending' OR 'processing' RECORDS TO 'Synced'
+    // Convert any legacy pending/processing records to Synced
     await db.query(`
       UPDATE permits 
       SET status = 'Synced', upload_status = 'completed' 
@@ -91,7 +90,7 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. SINGLE MASTER FOLDER & SUBFOLDERS CREATOR
+// 1. SINGLE MASTER FOLDER & SUBFOLDERS CREATOR (WITH ESCAPED SEARCH)
 // ==========================================
 router.post('/create-permit-folders', requireAuth, async (req, res) => {
   try {
@@ -118,15 +117,28 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
     oauth2Client.setCredentials({ refresh_token: refreshToken });
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
+    // Helper: Find or create Google Drive Folder with strict quote escaping
     const getOrCreateFolder = async (folderName, parentId) => {
-      const safeName = folderName.replace(/'/g, "\\'");
-      const q = `mimeType='application/vnd.google-apps.folder' and name='${safeName}' and '${parentId}' in parents and trashed=false`;
+      const escapedName = folderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const q = `mimeType='application/vnd.google-apps.folder' and name='${escapedName}' and '${parentId}' in parents and trashed=false`;
       
-      const searchRes = await drive.files.list({ q, fields: 'files(id, name)' });
-      if (searchRes.data.files && searchRes.data.files.length > 0) {
-        return searchRes.data.files[0].id;
+      try {
+        const searchRes = await drive.files.list({
+          q: q,
+          fields: 'files(id, name)',
+          spaces: 'drive',
+          pageSize: 10
+        });
+
+        if (searchRes.data.files && searchRes.data.files.length > 0) {
+          // Folder already exists! Return its ID
+          return searchRes.data.files[0].id;
+        }
+      } catch (searchErr) {
+        console.error("Folder search query warning:", searchErr.message);
       }
 
+      // Create new folder if not found
       const createRes = await drive.files.create({
         requestBody: {
           name: folderName,
@@ -204,7 +216,6 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 
     const clientOrigin = req.headers.origin || req.headers.referer || '*';
 
-    // Request Resumable Upload Session inside target subfolder
     const googleRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable', {
       method: 'POST',
       headers: {
