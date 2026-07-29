@@ -76,6 +76,15 @@ const PermitList = () => {
     }
   };
 
+  // --- GOOGLE MAPS DIRECT NAVIGATION LINK HELPER ---
+  const getGoogleMapsUrl = (address, location) => {
+    if (!address) return '#';
+    const cleanAddress = address.trim();
+    const cleanLocation = location ? location.trim() : '';
+    const fullSearchQuery = `${cleanAddress}, ${cleanLocation}, Ghana`;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullSearchQuery)}`;
+  };
+
   // --- AUTO-FORMATTER HELPER FOR PERMIT NUMBER ---
   const formatPermitNumberInput = (value) => {
     const cleanVal = (value || '').trim().toUpperCase();
@@ -108,7 +117,6 @@ const PermitList = () => {
       const search = searchTerm.toLowerCase().trim();
       const applicantName = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`;
 
-      // Date Parsing for Filters
       let permitMonth = '';
       let permitYear = '';
       if (permit.date_issued) {
@@ -116,7 +124,7 @@ const PermitList = () => {
         const parts = cleanDateStr.split('-');
         if (parts.length >= 2) {
           permitYear = parts[0];
-          permitMonth = parts[1]; // Format: '01' to '12'
+          permitMonth = parts[1];
         }
       }
 
@@ -128,6 +136,7 @@ const PermitList = () => {
         applicantName.toLowerCase().includes(search) ||
         permit.purpose?.toLowerCase().includes(search) ||
         permit.location?.toLowerCase().includes(search) ||
+        permit.address?.toLowerCase().includes(search) ||
         permit.phone?.includes(search)
       );
 
@@ -242,7 +251,6 @@ const PermitList = () => {
     setViewerDoc({ isOpen: true, url, title });
   };
 
-  // Convert Google Drive view link to embed frame link
   const getEmbedUrl = (url) => {
     if (!url) return '';
     if (url.includes('drive.google.com')) {
@@ -291,7 +299,6 @@ const PermitList = () => {
         </div>
         
         <div className="flex items-center space-x-3">
-          {/* EXPORT TO CSV BUTTON */}
           <button 
             onClick={exportToCSV}
             className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2 rounded-md transition text-sm font-medium flex items-center space-x-1.5 shadow-sm cursor-pointer"
@@ -299,7 +306,6 @@ const PermitList = () => {
             <span>📊 Export CSV</span>
           </button>
 
-          {/* VISIBLE TO LOGGED-IN OFFICERS */}
           {isOfficer && (
             <Link to="/permits/new" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium whitespace-nowrap">
               + Add New Permit
@@ -310,19 +316,17 @@ const PermitList = () => {
 
       {/* --- MONTH, YEAR & SEARCH FILTER BAR --- */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Search Query */}
         <div className="md:col-span-2">
           <label className="block text-xs font-semibold text-gray-600 mb-1">Search Keywords</label>
           <input 
             type="text" 
-            placeholder="Search permit #, applicant name, location..." 
+            placeholder="Search permit #, applicant name, location, address..." 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none text-sm"
           />
         </div>
 
-        {/* Month Filter */}
         <div>
           <label className="block text-xs font-semibold text-gray-600 mb-1">Filter by Month</label>
           <select 
@@ -346,7 +350,6 @@ const PermitList = () => {
           </select>
         </div>
 
-        {/* Year Filter */}
         <div>
           <label className="block text-xs font-semibold text-gray-600 mb-1">Filter by Year</label>
           <select 
@@ -371,7 +374,7 @@ const PermitList = () => {
               <tr className="bg-gray-50 text-gray-700 text-sm border-b border-gray-200">
                 <th className="p-4 font-semibold">Permit Info</th>
                 <th className="p-4 font-semibold">Applicant / Entity</th>
-                <th className="p-4 font-semibold">Property Details</th>
+                <th className="p-4 font-semibold">Property Details & GPS Map</th>
                 <th className="p-4 font-semibold text-center">Action</th>
               </tr>
             </thead>
@@ -397,8 +400,28 @@ const PermitList = () => {
                         <div className="text-sm text-gray-600 mt-0.5">📞 {permit.phone || 'N/A'}</div>
                       </td>
                       <td className="p-4 align-middle">
-                        <div className="text-sm text-gray-800 uppercase"><span className="font-semibold text-gray-500">Address:</span> {permit.address || 'N/A'}</div>
-                        <div className="text-sm text-gray-800 uppercase mt-0.5"><span className="font-semibold text-gray-500">Location:</span> {permit.location || 'N/A'}</div>
+                        <div className="text-sm text-gray-800 uppercase">
+                          <span className="font-semibold text-gray-500">Location:</span> {permit.location || 'N/A'}
+                        </div>
+
+                        {/* CLICKABLE GOOGLE MAPS LINK */}
+                        <div className="text-sm uppercase mt-1">
+                          <span className="font-semibold text-gray-500">Address:</span>{' '}
+                          {permit.address ? (
+                            <a 
+                              href={getGoogleMapsUrl(permit.address, permit.location)}
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center space-x-1 text-blue-600 hover:text-blue-800 font-bold hover:underline"
+                              title="Open site location on Google Maps"
+                            >
+                              <span>📍 {permit.address}</span>
+                              <span className="text-xs font-normal">↗</span>
+                            </a>
+                          ) : (
+                            <span className="text-gray-400 italic">N/A</span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-4 align-middle text-center">
                         <div className="flex items-center justify-center space-x-2">
@@ -406,7 +429,6 @@ const PermitList = () => {
                             👁️ View
                           </button>
                           
-                          {/* EDIT AND DELETE BUTTONS UNLOCKED FOR LOGGED-IN OFFICERS */}
                           {isOfficer && (
                             <>
                               <button onClick={() => handleEditClick(permit)} className="bg-gray-100 text-gray-700 hover:bg-gray-800 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Edit Details">
@@ -428,7 +450,7 @@ const PermitList = () => {
         </div>
       </div>
 
-      {/* --- MODAL 1: VIEW FILES & DETAILS --- */}
+      {/* --- MODAL 1: VIEW FILES & DETAILS WITH MAP LINK --- */}
       {selectedPermit && (() => {
         const modalName = selectedPermit.applicant_name || `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim();
         const modalPurpose = selectedPermit.purpose || 'RESIDENTIAL';
@@ -457,12 +479,24 @@ const PermitList = () => {
                     <p className="text-gray-800 font-bold uppercase">{modalName}</p>
                   </div>
                   <div>
-                    <span className="block font-semibold text-gray-400 text-xs">LOCATION</span>
+                    <span className="block font-semibold text-gray-400 text-xs">LOCATION / COMMUNITY</span>
                     <p className="text-gray-800 font-semibold uppercase">{selectedPermit.location || 'N/A'}</p>
                   </div>
                   <div>
-                    <span className="block font-semibold text-gray-400 text-xs">PHONE</span>
-                    <p className="text-gray-800 font-semibold">{selectedPermit.phone || 'N/A'}</p>
+                    <span className="block font-semibold text-gray-400 text-xs">SITE ADDRESS & MAP PIN</span>
+                    {selectedPermit.address ? (
+                      <a 
+                        href={getGoogleMapsUrl(selectedPermit.address, selectedPermit.location)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 font-bold uppercase hover:underline inline-flex items-center space-x-1"
+                      >
+                        <span>📍 {selectedPermit.address}</span>
+                        <span className="text-xs font-normal">↗</span>
+                      </a>
+                    ) : (
+                      <p className="text-gray-400 italic">N/A</p>
+                    )}
                   </div>
                 </div>
 
@@ -494,7 +528,6 @@ const PermitList = () => {
       {viewerDoc.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-gray-200">
-            {/* Viewer Header */}
             <div className="flex justify-between items-center px-6 py-4 bg-gray-900 text-white border-b border-gray-800">
               <div className="flex items-center space-x-2 truncate">
                 <span className="text-xl">📄</span>
@@ -521,7 +554,6 @@ const PermitList = () => {
               </div>
             </div>
 
-            {/* Embedded iFrame Body */}
             <div className="flex-1 bg-gray-100 relative">
               <iframe 
                 src={getEmbedUrl(viewerDoc.url)} 
@@ -531,7 +563,6 @@ const PermitList = () => {
               />
             </div>
             
-            {/* Viewer Footer */}
             <div className="bg-white px-6 py-2.5 border-t border-gray-200 text-xs text-gray-500 flex justify-between items-center">
               <span>NIPDA BPMS Secure Document Vault</span>
               <button 

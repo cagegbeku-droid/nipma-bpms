@@ -1,11 +1,12 @@
-import React from 'react';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   HomeIcon, 
   ArrowUpTrayIcon, 
   ArchiveBoxIcon, 
   ArrowLeftOnRectangleIcon, 
-  KeyIcon 
+  KeyIcon,
+  DevicePhoneMobileIcon
 } from '@heroicons/react/24/outline'; 
 
 const navigation = [
@@ -16,15 +17,38 @@ const navigation = [
 
 const Sidebar = () => {
   const navigate = useNavigate();
-  const location = useLocation();
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
 
-  // --- JWT USER CHECK ---
-  const token = localStorage.getItem('token');
-  const savedUser = localStorage.getItem('user');
+  // --- JWT USER CHECK (STRICTLY VIA SESSION STORAGE) ---
+  const token = sessionStorage.getItem('token');
+  const savedUser = sessionStorage.getItem('user');
   const user = savedUser ? JSON.parse(savedUser) : null;
   const isLoggedIn = Boolean(token && user);
 
-  // --- FILTER NAVIGATION ---
+  // --- PWA MOBILE INSTALL PROMPT DETECTOR ---
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallAppClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
+
+  // --- FILTER NAVIGATION LINKS ---
   const filteredNavigation = navigation.filter((item) => {
     if (!isLoggedIn && item.name === 'Upload Archive') {
       return false;
@@ -33,9 +57,8 @@ const Sidebar = () => {
   });
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('token_expiry');
+    sessionStorage.clear();
+    localStorage.clear();
     // Force a fresh render to the public Dashboard
     window.location.href = '/';
   };
@@ -84,7 +107,19 @@ const Sidebar = () => {
       </div>
 
       {/* --- BOTTOM CORNER CONTROLS --- */}
-      <div className="p-3 border-t border-gray-800 flex flex-col space-y-2 text-xs">
+      <div className="p-3 border-t border-gray-800 flex flex-col space-y-3 text-xs">
+        
+        {/* MOBILE PWA INSTALL BUTTON (SHOWS AUTOMATICALLY WHEN ELIGIBLE) */}
+        {deferredPrompt && (
+          <button
+            onClick={handleInstallAppClick}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-md transition flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+          >
+            <DevicePhoneMobileIcon className="h-4 w-4" />
+            <span>Install App on Mobile</span>
+          </button>
+        )}
+
         {isLoggedIn ? (
           <div className="space-y-2">
             <div className="px-1 text-gray-400">
