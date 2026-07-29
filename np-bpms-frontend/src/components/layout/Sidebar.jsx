@@ -6,7 +6,8 @@ import {
   ArchiveBoxIcon, 
   ArrowLeftOnRectangleIcon, 
   KeyIcon,
-  DevicePhoneMobileIcon
+  DevicePhoneMobileIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline'; 
 
 const navigation = [
@@ -18,6 +19,7 @@ const navigation = [
 const Sidebar = () => {
   const navigate = useNavigate();
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
 
   // --- JWT USER CHECK (STRICTLY VIA SESSION STORAGE) ---
   const token = sessionStorage.getItem('token');
@@ -40,11 +42,15 @@ const Sidebar = () => {
   }, []);
 
   const handleInstallAppClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    } else {
+      // Show step-by-step installation guide for iOS Safari / Chrome fallback
+      setShowInstallGuide(true);
     }
   };
 
@@ -68,7 +74,7 @@ const Sidebar = () => {
   };
 
   return (
-    <div className="flex flex-col w-full md:w-64 bg-gray-900 text-white shrink-0 md:min-h-screen justify-between">
+    <div className="flex flex-col w-full md:w-64 bg-gray-900 text-white shrink-0 md:min-h-screen justify-between relative">
       
       <div>
         {/* --- HEADER LOGO & TITLE --- */}
@@ -109,16 +115,14 @@ const Sidebar = () => {
       {/* --- BOTTOM CORNER CONTROLS --- */}
       <div className="p-3 border-t border-gray-800 flex flex-col space-y-3 text-xs">
         
-        {/* MOBILE PWA INSTALL BUTTON (SHOWS AUTOMATICALLY WHEN ELIGIBLE) */}
-        {deferredPrompt && (
-          <button
-            onClick={handleInstallAppClick}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-md transition flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
-          >
-            <DevicePhoneMobileIcon className="h-4 w-4" />
-            <span>Install App on Mobile</span>
-          </button>
-        )}
+        {/* MOBILE APP INSTALLATION BUTTON (ALWAYS VISIBLE) */}
+        <button
+          onClick={handleInstallAppClick}
+          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-md transition flex items-center justify-center space-x-2 shadow-sm cursor-pointer"
+        >
+          <DevicePhoneMobileIcon className="h-4 w-4" />
+          <span>Install Mobile App</span>
+        </button>
 
         {isLoggedIn ? (
           <div className="space-y-2">
@@ -147,6 +151,52 @@ const Sidebar = () => {
           </div>
         )}
       </div>
+
+      {/* --- MOBILE INSTALLATION GUIDE MODAL (FOR IPHONE & CHROME FALLBACK) --- */}
+      {showInstallGuide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 text-gray-800">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 relative space-y-4 animate-fadeIn">
+            <button 
+              onClick={() => setShowInstallGuide(false)}
+              className="absolute top-3 right-3 text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-gray-100 transition cursor-pointer"
+            >
+              <XMarkIcon className="h-5 w-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <span className="text-3xl">📱</span>
+              <h3 className="font-bold text-lg text-gray-900">Install NIPDA BPMS</h3>
+              <p className="text-xs text-gray-500">Access archived permits directly from your phone's home screen.</p>
+            </div>
+
+            {/* iOS Safari Guide */}
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 space-y-2 text-xs text-blue-900">
+              <p className="font-bold border-b border-blue-200 pb-1">iPhone / iOS (Safari):</p>
+              <ol className="list-decimal pl-4 space-y-1">
+                <li>Tap the <strong>Share button</strong> (square with up arrow).</li>
+                <li>Scroll down and select <strong>"Add to Home Screen"</strong>.</li>
+                <li>Tap <strong>Add</strong> at the top right.</li>
+              </ol>
+            </div>
+
+            {/* Android / Chrome Guide */}
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-2 text-xs text-gray-800">
+              <p className="font-bold border-b border-gray-200 pb-1">Android / Chrome:</p>
+              <ol className="list-decimal pl-4 space-y-1">
+                <li>Tap the <strong>3 dots menu</strong> (top right).</li>
+                <li>Tap <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.</li>
+              </ol>
+            </div>
+
+            <button
+              onClick={() => setShowInstallGuide(false)}
+              className="w-full bg-blue-600 text-white font-semibold py-2.5 rounded-md hover:bg-blue-700 text-xs transition cursor-pointer"
+            >
+              Got it!
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );
