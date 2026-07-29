@@ -2,11 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 
 const Dashboard = () => {
-  // --- JWT OFFICER / ADMIN CHECK ---
-  const token = localStorage.getItem('token');
-  const savedUser = localStorage.getItem('user');
+  // --- JWT OFFICER / ADMIN CHECK (USING SESSION STORAGE) ---
+  const token = sessionStorage.getItem('token');
+  const savedUser = sessionStorage.getItem('user');
   const user = savedUser ? JSON.parse(savedUser) : null;
-  const isUploader = Boolean(token && user && (user.role === 'uploader' || user.role === 'admin'));
+  
+  const roleStr = (user?.role || '').toLowerCase();
+  const isUploader = Boolean(
+    token && user && (
+      !user.role || 
+      roleStr === 'uploader' || 
+      roleStr === 'admin' || 
+      roleStr === 'officer' || 
+      roleStr === 'staff'
+    )
+  );
 
   const [totalPermits, setTotalPermits] = useState(0);
   const [recentPermits, setRecentPermits] = useState([]);
@@ -26,12 +36,12 @@ const Dashboard = () => {
         const permitsData = await permitsRes.json();
         
         if (statsData.success) {
-          setTotalPermits(statsData.total);
+          setTotalPermits(statsData.total || (Array.isArray(permitsData.data) ? permitsData.data.length : 0));
         } else {
           setError("Failed to load statistics.");
         }
 
-        if (permitsData.success) {
+        if (permitsData.success && Array.isArray(permitsData.data)) {
           // Grab only the latest 5 records for the recent upload section
           setRecentPermits(permitsData.data.slice(0, 5));
         }
@@ -100,7 +110,7 @@ const Dashboard = () => {
             <span className="text-2xl font-bold text-gray-900">{isUploader ? 'Authenticated' : 'Public Access'}</span>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            {isUploader ? `Officer: ${user?.name}` : 'Public view mode'}
+            {isUploader ? `Officer: ${user?.name || user?.email || 'Active Session'}` : 'Public view mode'}
           </p>
         </div>
       </div>
@@ -165,27 +175,30 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody className="divide-y text-sm text-gray-700">
-                {recentPermits.map(permit => (
-                  <tr key={permit.id} className="hover:bg-gray-50 transition">
-                    <td className="py-3 px-4 font-bold text-gray-900">{permit.permit_number}</td>
-                    <td className="py-3 px-4 uppercase">{permit.applicant_name}</td>
-                    <td className="py-3 px-4">
-                      <span className="bg-gray-100 text-gray-800 text-xs px-2.5 py-1 rounded-md font-medium">
-                        {permit.purpose || 'RESIDENTIAL'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 uppercase">{permit.location}</td>
-                    <td className="py-3 px-4">
-                      <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
-                        permit.upload_status === 'completed' 
-                          ? 'bg-green-100 text-green-700' 
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {permit.upload_status === 'completed' ? 'Synced' : 'Processing'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {recentPermits.map(permit => {
+                  const isSynced = permit.status === 'Synced' || permit.upload_status === 'completed';
+                  return (
+                    <tr key={permit.id} className="hover:bg-gray-50 transition">
+                      <td className="py-3 px-4 font-bold text-gray-900">{permit.permit_number}</td>
+                      <td className="py-3 px-4 uppercase">{permit.applicant_name}</td>
+                      <td className="py-3 px-4">
+                        <span className="bg-gray-100 text-gray-800 text-xs px-2.5 py-1 rounded-md font-medium">
+                          {permit.purpose || 'RESIDENTIAL'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 uppercase">{permit.location}</td>
+                      <td className="py-3 px-4">
+                        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                          isSynced 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {isSynced ? 'Synced' : 'Processing'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

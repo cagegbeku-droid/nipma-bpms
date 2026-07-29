@@ -1,15 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 
 const PermitList = () => {
-  // --- JWT OFFICER CHECK ---
-  const token = localStorage.getItem('token');
-  const savedUser = localStorage.getItem('user');
+  // --- JWT OFFICER CHECK (USING SESSION STORAGE) ---
+  const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+  const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
   const user = savedUser ? JSON.parse(savedUser) : null;
-  const isOfficer = Boolean(token && user && (user.role === 'uploader' || user.role === 'admin'));
+  
+  const roleStr = (user?.role || '').toLowerCase();
+  const isOfficer = Boolean(
+    token && user && (
+      !user.role || 
+      roleStr === 'uploader' || 
+      roleStr === 'admin' || 
+      roleStr === 'officer' || 
+      roleStr === 'staff'
+    )
+  );
 
   const [permits, setPermits] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState('ALL');
+  const [selectedYear, setSelectedYear] = useState('ALL');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -18,6 +30,9 @@ const PermitList = () => {
   const [editingPermit, setEditingPermit] = useState(null);   
   const [editFormData, setEditFormData] = useState({});       
   const [isSaving, setIsSaving] = useState(false);            
+
+  // Document Viewer Modal State
+  const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
 
   useEffect(() => {
     fetchPermits();
@@ -71,6 +86,54 @@ const PermitList = () => {
     }
     return cleanVal;
   };
+
+  // --- DYNAMIC YEAR OPTIONS ---
+  const availableYears = useMemo(() => {
+    const years = new Set();
+    permits.forEach(p => {
+      if (p.date_issued) {
+        const cleanDateStr = p.date_issued.split('T')[0];
+        const year = cleanDateStr.split('-')[0];
+        if (year && !isNaN(year)) {
+          years.add(year);
+        }
+      }
+    });
+    return Array.from(years).sort((a, b) => b - a);
+  }, [permits]);
+
+  // --- FILTER PERMITS BY SEARCH, MONTH & YEAR ---
+  const filteredPermits = useMemo(() => {
+    return permits.filter(permit => {
+      const search = searchTerm.toLowerCase().trim();
+      const applicantName = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`;
+
+      // Date Parsing for Filters
+      let permitMonth = '';
+      let permitYear = '';
+      if (permit.date_issued) {
+        const cleanDateStr = permit.date_issued.split('T')[0];
+        const parts = cleanDateStr.split('-');
+        if (parts.length >= 2) {
+          permitYear = parts[0];
+          permitMonth = parts[1]; // Format: '01' to '12'
+        }
+      }
+
+      const matchesMonth = selectedMonth === 'ALL' || permitMonth === selectedMonth;
+      const matchesYear = selectedYear === 'ALL' || permitYear === selectedYear;
+
+      const matchesSearch = !search || (
+        permit.permit_number?.toLowerCase().includes(search) ||
+        applicantName.toLowerCase().includes(search) ||
+        permit.purpose?.toLowerCase().includes(search) ||
+        permit.location?.toLowerCase().includes(search) ||
+        permit.phone?.includes(search)
+      );
+
+      return matchesMonth && matchesYear && matchesSearch;
+    });
+  }, [permits, searchTerm, selectedMonth, selectedYear]);
 
   // --- EXPORT TO CSV FUNCTION ---
   const exportToCSV = () => {
@@ -173,27 +236,32 @@ const PermitList = () => {
     }
   };
 
-  // --- SEARCH FILTER ---
-  const filteredPermits = permits.filter(permit => {
-    const search = searchTerm.toLowerCase();
-    const applicantName = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`;
-    return (
-      permit.permit_number?.toLowerCase().includes(search) ||
-      applicantName.toLowerCase().includes(search) ||
-      permit.purpose?.toLowerCase().includes(search) ||
-      permit.location?.toLowerCase().includes(search) ||
-      permit.phone?.includes(search)
-    );
-  });
+  // --- OPEN IN-APP DOCUMENT VIEWER ---
+  const handleOpenDocViewer = (url, title) => {
+    if (!url) return;
+    setViewerDoc({ isOpen: true, url, title });
+  };
+
+  // Convert Google Drive view link to embed frame link
+  const getEmbedUrl = (url) => {
+    if (!url) return '';
+    if (url.includes('drive.google.com')) {
+      return url.replace(/\/view(\?.*)?$/, '/preview').replace(/\/edit(\?.*)?$/, '/preview');
+    }
+    return url;
+  };
 
   const renderLinks = (linkString, label) => {
     if (!linkString) return null;
     const links = linkString.split(',').map(link => link.trim());
     if (links.length === 1) {
       return (
-        <a href={links[0]} target="_blank" rel="noopener noreferrer" className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline font-medium">
+        <button 
+          onClick={() => handleOpenDocViewer(links[0], `${label} - ${selectedPermit?.permit_number}`)}
+          className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline font-medium text-left cursor-pointer"
+        >
           📄 View {label}
-        </a>
+        </button>
       );
     }
     return (
@@ -201,9 +269,13 @@ const PermitList = () => {
         <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
         <div className="flex flex-wrap gap-2 mt-2">
           {links.map((link, index) => (
-            <a key={index} href={link} target="_blank" rel="noopener noreferrer" className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded text-sm hover:underline border border-blue-100 font-medium">
+            <button 
+              key={index} 
+              onClick={() => handleOpenDocViewer(link, `${label} Part ${index + 1} - ${selectedPermit?.permit_number}`)}
+              className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded text-sm hover:underline border border-blue-100 font-medium cursor-pointer"
+            >
               Part {index + 1}
-            </a>
+            </button>
           ))}
         </div>
       </div>
@@ -211,8 +283,8 @@ const PermitList = () => {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+    <div className="p-8 max-w-7xl mx-auto space-y-6">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Archive Vault Records</h1>
           <p className="text-sm text-gray-500 mt-1">Search, update, and retrieve historical building permits.</p>
@@ -233,20 +305,64 @@ const PermitList = () => {
               + Add New Permit
             </Link>
           )}
-
-          <div className="w-72">
-            <input 
-              type="text" 
-              placeholder="Search permit #, name, location..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-            />
-          </div>
         </div>
       </div>
 
-      {error && <div className="bg-red-100 text-red-700 p-4 rounded-md mb-6">{error}</div>}
+      {/* --- MONTH, YEAR & SEARCH FILTER BAR --- */}
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Search Query */}
+        <div className="md:col-span-2">
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Search Keywords</label>
+          <input 
+            type="text" 
+            placeholder="Search permit #, applicant name, location..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+          />
+        </div>
+
+        {/* Month Filter */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Filter by Month</label>
+          <select 
+            value={selectedMonth} 
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+          >
+            <option value="ALL">All Months (Jan - Dec)</option>
+            <option value="01">January</option>
+            <option value="02">February</option>
+            <option value="03">March</option>
+            <option value="04">April</option>
+            <option value="05">May</option>
+            <option value="06">June</option>
+            <option value="07">July</option>
+            <option value="08">August</option>
+            <option value="09">September</option>
+            <option value="10">October</option>
+            <option value="11">November</option>
+            <option value="12">December</option>
+          </select>
+        </div>
+
+        {/* Year Filter */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1">Filter by Year</label>
+          <select 
+            value={selectedYear} 
+            onChange={(e) => setSelectedYear(e.target.value)}
+            className="w-full p-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+          >
+            <option value="ALL">All Years</option>
+            {availableYears.map(year => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {error && <div className="bg-red-100 text-red-700 p-4 rounded-md">{error}</div>}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
@@ -263,7 +379,7 @@ const PermitList = () => {
               {isLoading ? (
                 <tr><td colSpan="4" className="p-8 text-center text-gray-500">Loading secure records...</td></tr>
               ) : filteredPermits.length === 0 ? (
-                <tr><td colSpan="4" className="p-8 text-center text-gray-500">No records found matching your search.</td></tr>
+                <tr><td colSpan="4" className="p-8 text-center text-gray-500">No records found matching your filters.</td></tr>
               ) : (
                 filteredPermits.map((permit) => {
                   const displayName = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`.trim();
@@ -318,8 +434,8 @@ const PermitList = () => {
         const modalPurpose = selectedPermit.purpose || 'RESIDENTIAL';
 
         return (
-          <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
               <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
                 <div>
                   <h3 className="text-xl font-bold text-gray-900">Archived Documents & Details</h3>
@@ -374,10 +490,65 @@ const PermitList = () => {
         );
       })()}
 
-      {/* --- MODAL 2: EDIT DATA --- */}
+      {/* --- MODAL 2: IN-APP DOCUMENT VIEWER --- */}
+      {viewerDoc.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-gray-200">
+            {/* Viewer Header */}
+            <div className="flex justify-between items-center px-6 py-4 bg-gray-900 text-white border-b border-gray-800">
+              <div className="flex items-center space-x-2 truncate">
+                <span className="text-xl">📄</span>
+                <h3 className="font-bold text-lg truncate text-gray-100">
+                  {viewerDoc.title || 'Document Preview'}
+                </h3>
+              </div>
+              
+              <div className="flex items-center space-x-3">
+                <a 
+                  href={viewerDoc.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-3 py-1.5 rounded border border-gray-700 transition"
+                >
+                  Open External ↗
+                </a>
+                <button 
+                  onClick={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
+                  className="text-gray-400 hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition cursor-pointer"
+                >
+                  &times;
+                </button>
+              </div>
+            </div>
+
+            {/* Embedded iFrame Body */}
+            <div className="flex-1 bg-gray-100 relative">
+              <iframe 
+                src={getEmbedUrl(viewerDoc.url)} 
+                className="w-full h-full border-0"
+                title={viewerDoc.title || 'Document Preview'}
+                allow="autoplay"
+              />
+            </div>
+            
+            {/* Viewer Footer */}
+            <div className="bg-white px-6 py-2.5 border-t border-gray-200 text-xs text-gray-500 flex justify-between items-center">
+              <span>NIPDA BPMS Secure Document Vault</span>
+              <button 
+                onClick={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
+                className="px-4 py-1.5 bg-gray-200 text-gray-800 font-semibold rounded hover:bg-gray-300 transition cursor-pointer"
+              >
+                Close Viewer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 3: EDIT DATA --- */}
       {editingPermit && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
               <h3 className="text-xl font-bold text-gray-900">Edit Permit Record</h3>
               <button onClick={() => setEditingPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer">
