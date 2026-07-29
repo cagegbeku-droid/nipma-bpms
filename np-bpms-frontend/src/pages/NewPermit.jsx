@@ -5,8 +5,9 @@ const NewPermit = () => {
   const [currentUser, setCurrentUser] = useState(null);
 
   useEffect(() => {
-    const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+    // Read STRICTLY from sessionStorage (dies on tab/browser close)
+    const savedUser = sessionStorage.getItem('user');
+    const token = sessionStorage.getItem('token');
     if (savedUser && token) {
       try {
         setCurrentUser(JSON.parse(savedUser));
@@ -109,7 +110,7 @@ const NewPermit = () => {
     setUploadProgress(0);
 
     try {
-      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+      const token = sessionStorage.getItem('token');
       if (!token) {
         handleLogout();
         return;
@@ -135,7 +136,7 @@ const NewPermit = () => {
         body: JSON.stringify({
           permitNumber: formattedPermitNumber,
           applicantName: formData.applicantName,
-          categories: activeCategories // <--- ONLY PASS CATEGORIES WITH FILES
+          categories: activeCategories
         })
       });
 

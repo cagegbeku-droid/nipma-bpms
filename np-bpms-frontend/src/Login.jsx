@@ -23,16 +23,14 @@ const Login = ({ onLoginSuccess }) => {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        const twelveHoursFromNow = Date.now() + 12 * 60 * 60 * 1000;
+        // 1. Clear any old lingering tokens from local storage
+        localStorage.clear();
 
-        // Save to BOTH sessionStorage and localStorage so all app components find the session
+        // 2. Save session strictly to sessionStorage (wiped on tab/browser close)
+        const twelveHoursFromNow = Date.now() + 12 * 60 * 60 * 1000;
         sessionStorage.setItem('token', data.token);
         sessionStorage.setItem('user', JSON.stringify(data.user));
         sessionStorage.setItem('token_expiry', twelveHoursFromNow.toString());
-
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        localStorage.setItem('token_expiry', twelveHoursFromNow.toString());
 
         if (onLoginSuccess) {
           onLoginSuccess(data.user);
