@@ -160,7 +160,20 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
     // A. Create/Fetch Exactly ONE Master Permit Folder
     const masterFolderId = await getOrCreateFolder(masterFolderName, rootFolderId);
 
-    // B. Map of category keys to human-readable subfolder names
+    // B. Set Public View Permissions on Master Folder ("Anyone with the link can view")
+    try {
+      await drive.permissions.create({
+        fileId: masterFolderId,
+        requestBody: {
+          role: 'reader',
+          type: 'anyone'
+        }
+      });
+    } catch (permErr) {
+      console.warn("Notice: Master folder permission setting skipped or already public:", permErr.message);
+    }
+
+    // C. Map of category keys to human-readable subfolder names
     const categoryMap = {
       certificate: '1. Permit Certificates',
       drawings: '2. Architectural Drawings',
@@ -168,7 +181,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
       receipts: '4. Receipts & Bills'
     };
 
-    // C. Create ONLY the subfolders that were requested in categories array
+    // D. Create ONLY the subfolders that were requested in categories array
     const subfolders = {};
     const requestedCategories = Array.isArray(categories) && categories.length > 0 
       ? categories 
