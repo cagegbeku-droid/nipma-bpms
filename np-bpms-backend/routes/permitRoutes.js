@@ -3,7 +3,6 @@ const router = express.Router();
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { google } = require('googleapis');
-const fs = require('fs');
 const db = require('../config/db');
 
 // Imports ALL 7 original controller functions
@@ -27,45 +26,24 @@ const archivalUploads = upload.fields([
   { name: 'receipts', maxCount: 10 }
 ]);
 
-// --- GOOGLE SERVICE ACCOUNT AUTHENTICATION HELPER ---
-const getGoogleAuth = () => {
-  const secretPath = '/etc/secrets/google-key.json';
+// --- GOOGLE OAUTH 2.0 USER AUTHENTICATION HELPER ---
+const getGoogleDriveClient = () => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
-  // Method 1: Render Secret File (100% immune to env var string formatting issues)
-  if (fs.existsSync(secretPath)) {
-    return new google.auth.GoogleAuth({
-      keyFile: secretPath,
-      scopes: [
-        'https://www.googleapis.com/auth/drive',
-        'https://www.googleapis.com/auth/drive.file'
-      ],
-    });
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error('Missing Google OAuth environment variables (CLIENT_ID, CLIENT_SECRET, or REFRESH_TOKEN) on Render.');
   }
 
-  // Method 2: Render Environment Variables (with strict key cleaning)
-  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
-  let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+  const oauth2Client = new google.auth.OAuth2(
+    clientId,
+    clientSecret,
+    process.env.GOOGLE_REDIRECT_URI || 'https://developers.google.com/oauthplayground'
+  );
 
-  if (!clientEmail || !privateKey) {
-    throw new Error('Google Service Account credentials missing on Render (No secret file or environment variables found).');
-  }
-
-  // Sanitize private key: Strip quotes and convert escaped '\\n' to true line breaks
-  privateKey = privateKey
-    .trim()
-    .replace(/^["']|["']$/g, '') // Remove wrapping single or double quotes
-    .replace(/\\n/g, '\n');       // Unescape literal '\n' into actual newlines
-
-  return new google.auth.GoogleAuth({
-    credentials: {
-      client_email: clientEmail,
-      private_key: privateKey,
-    },
-    scopes: [
-      'https://www.googleapis.com/auth/drive',
-      'https://www.googleapis.com/auth/drive.file'
-    ],
-  });
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+  return { oauth2Client, drive: google.drive({ version: 'v3', auth: oauth2Client }) };
 };
 
 // --- ENSURE SUPABASE PERMITS TABLE & AUTO-FIX STATUS ---
@@ -95,7 +73,6 @@ const ensureTablesExist = async () => {
     await db.query(`ALTER TABLE permits ADD COLUMN IF NOT EXISTS upload_status text DEFAULT 'completed';`);
     await db.query(`ALTER TABLE permits ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Synced';`);
 
-    // Convert any legacy pending/processing records to Synced
     await db.query(`
       UPDATE permits 
       SET status = 'Synced', upload_status = 'completed' 
@@ -132,7 +109,7 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. DYNAMIC SUBFOLDER CREATOR (SERVICE ACCOUNT ENABLED)
+// 1. DYNAMIC SUBFOLDER CREATOR (USER OAUTH ENABLED)
 // ==========================================
 router.post('/create-permit-folders', requireAuth, async (req, res) => {
   try {
@@ -146,8 +123,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
       });
     }
 
-    const auth = getGoogleAuth();
-    const drive = google.drive({ version: 'v3', auth });
+    const { drive } = getGoogleDriveClient();
 
     // Helper: Find or create Google Drive Folder with strict quote escaping
     const getOrCreateFolder = async (folderName, parentId) => {
@@ -181,7 +157,6 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
       return createRes.data.id;
     };
 
-    // Format single master folder name: NIPDA_TSOP_26_02 - Applicant Name
     const cleanPermitNum = (permitNumber || '').replace(/[\/\\]/g, '_').trim();
     const cleanApplicant = (applicantName || '').replace(/[\/\\]/g, '-').trim();
 
@@ -192,7 +167,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
     // A. Create/Fetch Exactly ONE Master Permit Folder
     const masterFolderId = await getOrCreateFolder(masterFolderName, rootFolderId);
 
-    // B. Set Public View Permissions on Master Folder ("Anyone with the link can view")
+    // B. Set Public View Permissions on Master Folder
     try {
       await drive.permissions.create({
         fileId: masterFolderId,
@@ -213,7 +188,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
       receipts: '4. Receipts & Bills'
     };
 
-    // D. Create ONLY the subfolders that were requested in categories array
+    // D. Create subfolders
     const subfolders = {};
     const requestedCategories = Array.isArray(categories) && categories.length > 0 
       ? categories 
@@ -238,7 +213,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 2. DIRECT DRIVE UPLOAD SESSION ROUTE (SERVICE ACCOUNT ENABLED)
+// 2. DIRECT DRIVE UPLOAD SESSION ROUTE (USER OAUTH ENABLED)
 // ==========================================
 router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
   try {
@@ -251,9 +226,8 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
       });
     }
 
-    const auth = getGoogleAuth();
-    const authClient = await auth.getClient();
-    const tokenResponse = await authClient.getAccessToken();
+    const { oauth2Client } = getGoogleDriveClient();
+    const tokenResponse = await oauth2Client.getAccessToken();
     const accessToken = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
 
     const clientOrigin = req.headers.origin || req.headers.referer || '*';
