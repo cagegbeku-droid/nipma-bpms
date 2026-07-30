@@ -1,5 +1,13 @@
 {
   "appId": "f6ee29bb",
-  "appName": "NIPDA BPMS",
-  "webDir": "dist"
+  "appName": "NiPMA BPMS",
+  "webDir": "dist",
+  "plugins": {
+    "LiveUpdates": {
+      "appId": "f6ee29bb",
+      "channel": "Production",
+      "autoUpdateMethod": "background",
+      "maxVersions": 2
+    }
+  }
 }
