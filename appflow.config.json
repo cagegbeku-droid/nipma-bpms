@@ -1,5 +1,8 @@
 {
-  "appId": "cf6ee29bb",
-  "appName": "NIPDA BPMS",
-  "webDir": "dist"
+  "apps": [
+    {
+      "appId": "f6ee29bb",
+      "root": "np-bpms-frontend"
+    }
+  ]
 }
