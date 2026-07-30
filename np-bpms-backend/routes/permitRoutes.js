@@ -26,6 +26,32 @@ const archivalUploads = upload.fields([
   { name: 'receipts', maxCount: 10 }
 ]);
 
+// --- GOOGLE SERVICE ACCOUNT AUTHENTICATION HELPER ---
+const getGoogleAuth = () => {
+  const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
+  let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+
+  if (!clientEmail || !privateKey) {
+    throw new Error('Google Service Account credentials missing in environment variables.');
+  }
+
+  // Handle line breaks if private key is formatted as a single line with \n in Render
+  if (privateKey.includes('\\n')) {
+    privateKey = privateKey.replace(/\\n/g, '\n');
+  }
+
+  return new google.auth.GoogleAuth({
+    credentials: {
+      client_email: clientEmail,
+      private_key: privateKey,
+    },
+    scopes: [
+      'https://www.googleapis.com/auth/drive',
+      'https://www.googleapis.com/auth/drive.file'
+    ],
+  });
+};
+
 // --- ENSURE SUPABASE PERMITS TABLE & AUTO-FIX STATUS ---
 const ensureTablesExist = async () => {
   try {
@@ -90,32 +116,22 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. DYNAMIC SUBFOLDER CREATOR (ONLY CREATES FOLDERS FOR ATTACHED FILES)
+// 1. DYNAMIC SUBFOLDER CREATOR (SERVICE ACCOUNT ENABLED)
 // ==========================================
 router.post('/create-permit-folders', requireAuth, async (req, res) => {
   try {
     const { permitNumber, applicantName, categories } = req.body;
-
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
     const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
-    if (!clientId || !clientSecret || !refreshToken || !rootFolderId) {
+    if (!rootFolderId) {
       return res.status(500).json({ 
         success: false, 
-        message: 'Server Configuration Error: Google OAuth keys missing on Render.' 
+        message: 'Server Configuration Error: GOOGLE_DRIVE_FOLDER_ID missing on Render.' 
       });
     }
 
-    const oauth2Client = new google.auth.OAuth2(
-      clientId,
-      clientSecret,
-      process.env.GOOGLE_REDIRECT_URI || 'https://developers.google.com/oauthplayground'
-    );
-
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-    const drive = google.drive({ version: 'v3', auth: oauth2Client });
+    const auth = getGoogleAuth();
+    const drive = google.drive({ version: 'v3', auth });
 
     // Helper: Find or create Google Drive Folder with strict quote escaping
     const getOrCreateFolder = async (folderName, parentId) => {
@@ -206,32 +222,22 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 2. DIRECT DRIVE UPLOAD SESSION ROUTE
+// 2. DIRECT DRIVE UPLOAD SESSION ROUTE (SERVICE ACCOUNT ENABLED)
 // ==========================================
 router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
   try {
     const { targetFolderId, fileName, mimeType, fileSize } = req.body;
 
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
-
-    if (!clientId || !clientSecret || !refreshToken || !targetFolderId) {
-      return res.status(500).json({ 
+    if (!targetFolderId) {
+      return res.status(400).json({ 
         success: false, 
-        message: 'Missing target subfolder ID or Google OAuth keys.' 
+        message: 'Missing target subfolder ID.' 
       });
     }
 
-    const oauth2Client = new google.auth.OAuth2(
-      clientId,
-      clientSecret,
-      process.env.GOOGLE_REDIRECT_URI || 'https://developers.google.com/oauthplayground'
-    );
-
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-
-    const tokenResponse = await oauth2Client.getAccessToken();
+    const auth = getGoogleAuth();
+    const authClient = await auth.getClient();
+    const tokenResponse = await authClient.getAccessToken();
     const accessToken = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse?.token;
 
     const clientOrigin = req.headers.origin || req.headers.referer || '*';
