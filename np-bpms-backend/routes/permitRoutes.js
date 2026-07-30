@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { google } = require('googleapis');
+const fs = require('fs');
 const db = require('../config/db');
 
 // Imports ALL 7 original controller functions
@@ -28,17 +29,32 @@ const archivalUploads = upload.fields([
 
 // --- GOOGLE SERVICE ACCOUNT AUTHENTICATION HELPER ---
 const getGoogleAuth = () => {
+  const secretPath = '/etc/secrets/google-key.json';
+
+  // Method 1: Render Secret File (100% immune to env var string formatting issues)
+  if (fs.existsSync(secretPath)) {
+    return new google.auth.GoogleAuth({
+      keyFile: secretPath,
+      scopes: [
+        'https://www.googleapis.com/auth/drive',
+        'https://www.googleapis.com/auth/drive.file'
+      ],
+    });
+  }
+
+  // Method 2: Render Environment Variables (with strict key cleaning)
   const clientEmail = process.env.GOOGLE_CLIENT_EMAIL;
   let privateKey = process.env.GOOGLE_PRIVATE_KEY;
 
   if (!clientEmail || !privateKey) {
-    throw new Error('Google Service Account credentials missing in environment variables.');
+    throw new Error('Google Service Account credentials missing on Render (No secret file or environment variables found).');
   }
 
-  // Handle line breaks if private key is formatted as a single line with \n in Render
-  if (privateKey.includes('\\n')) {
-    privateKey = privateKey.replace(/\\n/g, '\n');
-  }
+  // Sanitize private key: Strip quotes and convert escaped '\\n' to true line breaks
+  privateKey = privateKey
+    .trim()
+    .replace(/^["']|["']$/g, '') // Remove wrapping single or double quotes
+    .replace(/\\n/g, '\n');       // Unescape literal '\n' into actual newlines
 
   return new google.auth.GoogleAuth({
     credentials: {
