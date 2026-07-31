@@ -7,7 +7,7 @@ const VerifyPermit = () => {
 
   const [permit, setPermit] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMessage, setLoadingLoadingMessage] = useState('Connecting to verification server...');
+  const [loadingMessage, setLoadingMessage] = useState('Connecting to verification server...');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -22,16 +22,15 @@ const VerifyPermit = () => {
       const encodedNum = encodeURIComponent(cleanPermitNum);
       const BACKEND_URL = 'https://nipma-bpms-backend.onrender.com/api/permits';
 
-      // Helper function to fetch with retry for Render cold starts
       const fetchWithRetry = async (url, retries = 2) => {
         for (let attempt = 0; attempt <= retries; attempt++) {
           try {
             if (attempt > 0) {
-              setLoadingLoadingMessage(`Waking up archive server (attempt ${attempt + 1}/${retries + 1})...`);
+              setLoadingMessage(`Waking up archive server (attempt ${attempt + 1}/${retries + 1})...`);
             }
 
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
 
             const res = await fetch(url, {
               method: 'GET',
@@ -47,25 +46,24 @@ const VerifyPermit = () => {
           } catch (err) {
             console.warn(`Attempt ${attempt + 1} failed:`, err.message);
             if (attempt === retries) throw err;
-            await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+            await new Promise(r => setTimeout(r, 2000));
           }
         }
         throw new Error('Server unreachable');
       };
 
       try {
-        setLoadingLoadingMessage('Verifying permit credentials against official records...');
+        setLoadingMessage('Verifying permit credentials against official records...');
 
-        // 1. Primary endpoint (Query Parameter)
         let data;
         try {
           data = await fetchWithRetry(`${BACKEND_URL}/verify-record?permitNumber=${encodedNum}`);
         } catch (e) {
-          // 2. Fallback endpoint (Wildcard Path)
           data = await fetchWithRetry(`${BACKEND_URL}/verify/${encodedNum}`);
         }
 
         if (data && data.success && data.data) {
+          console.log("Verified Permit Record Received:", data.data);
           setPermit(data.data);
         } else {
           setError((data && data.message) || `Permit "${cleanPermitNum}" not found in official archives.`);
@@ -73,7 +71,7 @@ const VerifyPermit = () => {
 
       } catch (err) {
         console.error('Verification Fetch Error:', err);
-        setError('Unable to connect to verification server. Please ensure you have internet access and try again.');
+        setError('Unable to connect to verification server. Please check your network connection and try again.');
       } finally {
         setLoading(false);
       }
@@ -82,13 +80,13 @@ const VerifyPermit = () => {
     verifyRecord();
   }, [rawPermitNum]);
 
-  // Extract field values safely with dual key fallbacks
-  const permitNumber = permit ? (permit.permit_number || permit.permitNumber || 'N/A') : '';
-  const applicantName = permit ? (permit.applicant_name || permit.applicantName || 'N/A') : '';
-  const dateIssued = permit ? (permit.date_issued || permit.dateIssued || 'N/A') : '';
-  const purpose = permit ? (permit.purpose || 'N/A') : '';
-  const location = permit ? (permit.location || 'N/A') : '';
-  const address = permit ? (permit.address || 'N/A') : '';
+  // Safely extract values checking both camelCase and snake_case properties
+  const permitNumber = permit?.permit_number || permit?.permitNumber || 'N/A';
+  const applicantName = permit?.applicant_name || permit?.applicantName || 'N/A';
+  const dateIssued = permit?.date_issued || permit?.dateIssued || 'N/A';
+  const purpose = permit?.purpose || 'N/A';
+  const location = permit?.location || 'N/A';
+  const address = permit?.address || 'N/A';
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-4">
@@ -122,7 +120,7 @@ const VerifyPermit = () => {
               </div>
               <button 
                 onClick={() => window.location.reload()} 
-                className="mt-2 text-xs bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg transition"
+                className="mt-2 text-xs bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg transition cursor-pointer"
               >
                 🔄 Retry Connection
               </button>
