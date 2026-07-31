@@ -117,7 +117,7 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 0. SERVER HEALTH CHECK ENDPOINT (For Keep-Alive Pings)
+// 0. SERVER HEALTH CHECK ENDPOINT
 // ==========================================
 router.get('/health', (req, res) => {
   res.status(200).json({
@@ -284,7 +284,7 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 3. METADATA SAVER ROUTE (SUPABASE)
+// 3. METADATA SAVER ROUTE
 // ==========================================
 router.post('/archive-metadata', requireAuth, async (req, res) => {
   try {
@@ -408,7 +408,7 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
 });
 
 // ==========================================
-// 6. PUBLIC PERMIT VERIFICATION (Key Normalizer & Case-Insensitive)
+// 6. PUBLIC PERMIT VERIFICATION ROUTE
 // ==========================================
 const getValue = (obj, ...keys) => {
   if (!obj || typeof obj !== 'object') return null;
