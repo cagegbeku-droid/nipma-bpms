@@ -402,7 +402,7 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
     res.status(500).json({ success: false, message: `OCR Extraction Error: ${err.message}` });
   } finally {
     if (worker) {
-      await worker.terminate(); // Prevent RAM leaks on Render
+      await worker.terminate(); // Properly close OCR thread
     }
   }
 });
