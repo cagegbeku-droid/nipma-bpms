@@ -7,7 +7,7 @@ const QRCode = require('qrcode');
 const { createWorker } = require('tesseract.js');
 const db = require('../config/db');
 
-// Imports ALL 7 original controller functions
+// Imports ALL original controller functions
 const { 
   getPermitStats, 
   getMonthlyStats, 
@@ -117,7 +117,7 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
-// 1. DYNAMIC SUBFOLDER CREATOR (USER OAUTH ENABLED)
+// 1. DYNAMIC SUBFOLDER CREATOR
 // ==========================================
 router.post('/create-permit-folders', requireAuth, async (req, res) => {
   try {
@@ -272,7 +272,7 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 3. METADATA SAVER ROUTE (SUPABASE PERMITS TABLE ONLY)
+// 3. METADATA SAVER ROUTE (SUPABASE)
 // ==========================================
 router.post('/archive-metadata', requireAuth, async (req, res) => {
   try {
@@ -325,9 +325,8 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 router.get('/qr/:permitNumber', async (req, res) => {
   try {
     const permitNum = req.params.permitNumber;
-    const verificationUrl = process.env.CLIENT_URL 
-      ? `${process.env.CLIENT_URL}/verify-permit?id=${encodeURIComponent(permitNum)}`
-      : `https://nipda.gov.gh/verify-permit?id=${encodeURIComponent(permitNum)}`;
+    const clientBaseUrl = process.env.CLIENT_URL || 'https://nipma-bpms.onrender.com';
+    const verificationUrl = `${clientBaseUrl}/verify-permit?id=${encodeURIComponent(permitNum)}`;
 
     const qrImageBase64 = await QRCode.toDataURL(verificationUrl, {
       errorCorrectionLevel: 'H',
@@ -380,15 +379,42 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
 });
 
 // ==========================================
-// PUBLIC ROUTES
+// 6. PUBLIC PERMIT VERIFICATION (No auth required)
+// ==========================================
+router.get('/verify/:permitNumber', async (req, res) => {
+  try {
+    const permitNum = req.params.permitNumber;
+    
+    const query = `
+      SELECT permit_number, applicant_name, date_issued, purpose, location, address, status 
+      FROM permits 
+      WHERE LOWER(TRIM(permit_number)) = LOWER(TRIM($1));
+    `;
+    
+    const dbResponse = await db.query(query, [permitNum]);
+    const rows = Array.isArray(dbResponse) ? dbResponse : (dbResponse && dbResponse.rows ? dbResponse.rows : []);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Permit record not found in official NIPDA archives.' 
+      });
+    }
+
+    res.json({ success: true, data: rows[0] });
+  } catch (err) {
+    console.error("Verification Database Error:", err);
+    res.status(500).json({ success: false, message: 'Server error during permit verification.' });
+  }
+});
+
+// ==========================================
+// CONTROLLER ROUTES
 // ==========================================
 router.get('/stats', getPermitStats);
 router.get('/monthly-stats', getMonthlyStats); 
 router.get('/', getPermits);
 
-// ==========================================
-// PROTECTED ROUTES
-// ==========================================
 router.post('/archive', requireAuth, archivalUploads, archivePermit);
 router.delete('/:id', requireAuth, deletePermit);
 router.put('/:id', requireAuth, updatePermit);
