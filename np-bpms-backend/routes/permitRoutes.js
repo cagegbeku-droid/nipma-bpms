@@ -408,7 +408,7 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
 });
 
 // ==========================================
-// 6. PUBLIC PERMIT VERIFICATION ROUTE
+// 6. PUBLIC PERMIT VERIFICATION ROUTE (Robust Matching + Logging)
 // ==========================================
 const handlePermitVerification = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -422,14 +422,19 @@ const handlePermitVerification = async (req, res) => {
     }
 
     const permitNum = decodeURIComponent(rawPermitNum).trim();
+    console.log(`🔍 [VERIFY REQUEST] Searching for permit number: "${permitNum}"`);
 
-    // Flexible query matching exact string OR stripped alphanumeric equivalent
+    // Strict SQL Query: Strips slashes/dashes and orders by newest ID to avoid picking blank test records
     const query = `
       SELECT * 
       FROM permits 
-      WHERE LOWER(TRIM(permit_number)) = LOWER(TRIM($1))
-         OR REGEXP_REPLACE(LOWER(permit_number), '[^a-z0-9]', '', 'g') = REGEXP_REPLACE(LOWER($1), '[^a-z0-9]', '', 'g')
-         OR LOWER(permit_number) LIKE LOWER('%' || $1 || '%')
+      WHERE (
+        LOWER(TRIM(permit_number)) = LOWER(TRIM($1))
+        OR REGEXP_REPLACE(LOWER(permit_number), '[^a-z0-9]', '', 'g') = REGEXP_REPLACE(LOWER($1), '[^a-z0-9]', '', 'g')
+      )
+      AND permit_number IS NOT NULL 
+      AND TRIM(permit_number) != ''
+      ORDER BY id DESC 
       LIMIT 1;
     `;
     
@@ -437,6 +442,7 @@ const handlePermitVerification = async (req, res) => {
     const rows = Array.isArray(dbResponse) ? dbResponse : (dbResponse && dbResponse.rows ? dbResponse.rows : []);
 
     if (rows.length === 0) {
+      console.warn(`⚠️ [VERIFY FAILED] No DB match found for permit number: "${permitNum}"`);
       return res.status(404).json({ 
         success: false, 
         message: `Permit "${permitNum}" not found in official archives.` 
@@ -444,27 +450,41 @@ const handlePermitVerification = async (req, res) => {
     }
 
     const row = rows[0];
+    console.log("✅ [VERIFY SUCCESS] Raw Database Row Found:", JSON.stringify(row, null, 2));
 
-    // Safe direct property extraction with fallbacks
-    const permit_number = row.permit_number || row.permitNumber || row.permit_num || permitNum;
-    const applicant_name = row.applicant_name || row.applicantName || row.applicant || 
-      (row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : null) || 'N/A';
-    const date_issued = row.date_issued || row.dateIssued || row.issued_date || row.created_at || 'N/A';
-    const purpose = row.purpose || row.building_purpose || row.purpose_use || 'RESIDENTIAL';
-    const location = row.location || row.community || row.site_location || 'N/A';
-    const address = row.address || row.site_address || row.plot_address || 'N/A';
-    const phone = row.phone || row.telephone || row.mobile || 'N/A';
+    // Helper to safely extract first non-empty value
+    const pickFirstValid = (...vals) => {
+      for (const v of vals) {
+        if (v !== undefined && v !== null && String(v).trim() !== '') {
+          return String(v).trim();
+        }
+      }
+      return 'N/A';
+    };
+
+    // Combine first_name + last_name if applicant_name is missing
+    const combinedFullName = (row.first_name || row.last_name) 
+      ? `${row.first_name || ''} ${row.last_name || ''}`.trim() 
+      : null;
+
+    const permit_number = pickFirstValid(row.permit_number, row.permitnumber, row.permit_num, permitNum);
+    const applicant_name = pickFirstValid(row.applicant_name, row.applicantname, row.applicant, combinedFullName);
+    const date_issued = pickFirstValid(row.date_issued, row.dateissued, row.issued_date, row.created_at);
+    const purpose = pickFirstValid(row.purpose, row.building_purpose, row.purpose_use, 'RESIDENTIAL');
+    const location = pickFirstValid(row.location, row.community, row.site_location);
+    const address = pickFirstValid(row.address, row.site_address, row.plot_address);
+    const phone = pickFirstValid(row.phone, row.telephone, row.mobile);
 
     const formattedData = {
       permit_number,
       permitNumber: permit_number,
-      applicant_name,
-      applicantName: applicant_name,
+      applicant_name: applicant_name.toUpperCase(),
+      applicantName: applicant_name.toUpperCase(),
       date_issued,
       dateIssued: date_issued,
-      purpose,
-      location,
-      address,
+      purpose: purpose.toUpperCase(),
+      location: location.toUpperCase(),
+      address: address.toUpperCase(),
       phone,
       status: row.status || 'Synced'
     };
@@ -472,27 +492,10 @@ const handlePermitVerification = async (req, res) => {
     res.json({ success: true, data: formattedData });
 
   } catch (err) {
-    console.error("Verification Database Error:", err);
+    console.error("❌ Verification Database Error:", err);
     res.status(500).json({ success: false, message: 'Server error during permit verification.' });
   }
 };
 
 router.get('/verify-record', handlePermitVerification);
 router.get('/verify/*', handlePermitVerification);
-
-// ==========================================
-// 7. CONTROLLER ROUTES
-// ==========================================
-router.get('/stats', getPermitStats);
-router.get('/monthly-stats', getMonthlyStats); 
-router.get('/', getPermits);
-
-router.post('/archive', requireAuth, archivalUploads, archivePermit);
-router.delete('/:id', requireAuth, deletePermit);
-router.put('/:id', requireAuth, updatePermit);
-router.put('/:id/remove-file', requireAuth, removePermitFile);
-
-// ==========================================
-// EXPORT ROUTER
-// ==========================================
-module.exports = router;
