@@ -410,19 +410,6 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
 // ==========================================
 // 6. PUBLIC PERMIT VERIFICATION ROUTE
 // ==========================================
-const getValue = (obj, ...keys) => {
-  if (!obj || typeof obj !== 'object') return null;
-  const objKeys = Object.keys(obj);
-  for (const key of keys) {
-    if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
-    const matchedKey = objKeys.find(k => k.toLowerCase() === key.toLowerCase());
-    if (matchedKey && obj[matchedKey] !== undefined && obj[matchedKey] !== null && obj[matchedKey] !== '') {
-      return obj[matchedKey];
-    }
-  }
-  return null;
-};
-
 const handlePermitVerification = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -436,10 +423,14 @@ const handlePermitVerification = async (req, res) => {
 
     const permitNum = decodeURIComponent(rawPermitNum).trim();
 
+    // Flexible query matching exact string OR stripped alphanumeric equivalent
     const query = `
       SELECT * 
       FROM permits 
-      WHERE LOWER(TRIM(permit_number)) = LOWER(TRIM($1));
+      WHERE LOWER(TRIM(permit_number)) = LOWER(TRIM($1))
+         OR REGEXP_REPLACE(LOWER(permit_number), '[^a-z0-9]', '', 'g') = REGEXP_REPLACE(LOWER($1), '[^a-z0-9]', '', 'g')
+         OR LOWER(permit_number) LIKE LOWER('%' || $1 || '%')
+      LIMIT 1;
     `;
     
     const dbResponse = await db.query(query, [permitNum]);
@@ -454,26 +445,28 @@ const handlePermitVerification = async (req, res) => {
 
     const row = rows[0];
 
-    const permitNumVal = getValue(row, 'permit_number', 'permitnumber', 'permitNumber') || permitNum;
-    const applicantVal = getValue(row, 'applicant_name', 'applicantname', 'applicantName', 'name') || 
+    // Safe direct property extraction with fallbacks
+    const permit_number = row.permit_number || row.permitNumber || row.permit_num || permitNum;
+    const applicant_name = row.applicant_name || row.applicantName || row.applicant || 
       (row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : null) || 'N/A';
-    const dateVal = getValue(row, 'date_issued', 'dateissued', 'dateIssued', 'created_at') || 'N/A';
-    const purposeVal = getValue(row, 'purpose', 'building_purpose', 'buildingPurpose') || 'RESIDENTIAL';
-    const locationVal = getValue(row, 'location', 'community', 'site_location') || 'N/A';
-    const addressVal = getValue(row, 'address', 'plot_address', 'site_address') || 'N/A';
+    const date_issued = row.date_issued || row.dateIssued || row.issued_date || row.created_at || 'N/A';
+    const purpose = row.purpose || row.building_purpose || row.purpose_use || 'RESIDENTIAL';
+    const location = row.location || row.community || row.site_location || 'N/A';
+    const address = row.address || row.site_address || row.plot_address || 'N/A';
+    const phone = row.phone || row.telephone || row.mobile || 'N/A';
 
     const formattedData = {
-      permit_number: permitNumVal,
-      permitNumber: permitNumVal,
-      applicant_name: applicantVal,
-      applicantName: applicantVal,
-      date_issued: dateVal,
-      dateIssued: dateVal,
-      purpose: purposeVal,
-      location: locationVal,
-      address: addressVal,
-      phone: getValue(row, 'phone', 'telephone', 'mobile') || 'N/A',
-      status: getValue(row, 'status', 'upload_status') || 'Synced'
+      permit_number,
+      permitNumber: permit_number,
+      applicant_name,
+      applicantName: applicant_name,
+      date_issued,
+      dateIssued: date_issued,
+      purpose,
+      location,
+      address,
+      phone,
+      status: row.status || 'Synced'
     };
 
     res.json({ success: true, data: formattedData });
