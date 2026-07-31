@@ -3,6 +3,8 @@ const router = express.Router();
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { google } = require('googleapis');
+const QRCode = require('qrcode');
+const { createWorker } = require('tesseract.js');
 const db = require('../config/db');
 
 // Imports ALL 7 original controller functions
@@ -25,6 +27,12 @@ const archivalUploads = upload.fields([
   { name: 'permitForm', maxCount: 20 },
   { name: 'receipts', maxCount: 10 }
 ]);
+
+// Helper function to extract regex matches safely from OCR text
+const extractPattern = (text, regex) => {
+  const match = text.match(regex);
+  return match && match[1] ? match[1].trim() : '';
+};
 
 // --- GOOGLE OAUTH 2.0 USER AUTHENTICATION HELPER ---
 const getGoogleDriveClient = () => {
@@ -125,7 +133,6 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
 
     const { drive } = getGoogleDriveClient();
 
-    // Helper: Find or create Google Drive Folder with strict quote escaping
     const getOrCreateFolder = async (folderName, parentId) => {
       const escapedName = folderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
       const q = `mimeType='application/vnd.google-apps.folder' and name='${escapedName}' and '${parentId}' in parents and trashed=false`;
@@ -164,10 +171,8 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
       ? `${cleanPermitNum} - ${cleanApplicant}` 
       : cleanPermitNum;
 
-    // A. Create/Fetch Exactly ONE Master Permit Folder
     const masterFolderId = await getOrCreateFolder(masterFolderName, rootFolderId);
 
-    // B. Set Public View Permissions on Master Folder
     try {
       await drive.permissions.create({
         fileId: masterFolderId,
@@ -180,7 +185,6 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
       console.warn("Notice: Master folder permission setting skipped or already public:", permErr.message);
     }
 
-    // C. Map of category keys to human-readable subfolder names
     const categoryMap = {
       certificate: '1. Permit Certificates',
       drawings: '2. Architectural Drawings',
@@ -188,7 +192,6 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
       receipts: '4. Receipts & Bills'
     };
 
-    // D. Create subfolders
     const subfolders = {};
     const requestedCategories = Array.isArray(categories) && categories.length > 0 
       ? categories 
@@ -213,7 +216,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 2. DIRECT DRIVE UPLOAD SESSION ROUTE (USER OAUTH ENABLED)
+// 2. DIRECT DRIVE UPLOAD SESSION ROUTE
 // ==========================================
 router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
   try {
@@ -313,6 +316,66 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
       success: false, 
       message: `Database Insert Error: ${err.message}` 
     });
+  }
+});
+
+// ==========================================
+// 4. PRINTABLE QR CODE GENERATOR ROUTE
+// ==========================================
+router.get('/qr/:permitNumber', async (req, res) => {
+  try {
+    const permitNum = req.params.permitNumber;
+    const verificationUrl = process.env.CLIENT_URL 
+      ? `${process.env.CLIENT_URL}/verify-permit?id=${encodeURIComponent(permitNum)}`
+      : `https://nipda.gov.gh/verify-permit?id=${encodeURIComponent(permitNum)}`;
+
+    const qrImageBase64 = await QRCode.toDataURL(verificationUrl, {
+      errorCorrectionLevel: 'H',
+      width: 300,
+      margin: 2,
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff'
+      }
+    });
+
+    res.json({ success: true, permitNumber: permitNum, qrCode: qrImageBase64 });
+  } catch (err) {
+    console.error('QR Code Generation Error:', err);
+    res.status(500).json({ success: false, message: 'Failed to generate QR code' });
+  }
+});
+
+// ==========================================
+// 5. OCR DOCUMENT AUTO-FILL EXTRACTION ROUTE
+// ==========================================
+router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No document file uploaded for OCR.' });
+    }
+
+    const worker = await createWorker('eng');
+    const { data: { text } } = await worker.recognize(req.file.buffer);
+    await worker.terminate();
+
+    const extractedData = {
+      permitNumber: extractPattern(text, /(?:Permit|Cert|Licence)\s*(?:No|Number|#)?[\s:]*([A-Za-z0-9_\-\/]+)/i),
+      applicantName: extractPattern(text, /(?:Applicant|Issued To|Name)[\s:]*([A-Za-z\s]{3,30})/i),
+      dateIssued: extractPattern(text, /(?:Date|Issued)[\s:]*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})/i),
+      purpose: extractPattern(text, /(?:Purpose|Development|Type)[\s:]*([A-Za-z0-9\s]{3,40})/i),
+      address: extractPattern(text, /(?:Address|Location|Site)[\s:]*([A-Za-z0-9\s,.-]{3,50})/i),
+      rawText: text
+    };
+
+    res.json({
+      success: true,
+      data: extractedData
+    });
+
+  } catch (err) {
+    console.error('OCR Processing Error:', err);
+    res.status(500).json({ success: false, message: `OCR Extraction Error: ${err.message}` });
   }
 });
 
