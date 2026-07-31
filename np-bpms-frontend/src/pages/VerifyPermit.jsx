@@ -3,14 +3,14 @@ import { useSearchParams, Link } from 'react-router-dom';
 
 const VerifyPermit = () => {
   const [searchParams] = useSearchParams();
-  const permitNumFromUrl = searchParams.get('id') || searchParams.get('permitNumber');
+  const rawPermitNum = searchParams.get('id') || searchParams.get('permitNumber');
 
   const [permit, setPermit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!permitNumFromUrl) {
+    if (!rawPermitNum) {
       setError('No permit number provided in verification URL.');
       setLoading(false);
       return;
@@ -18,16 +18,27 @@ const VerifyPermit = () => {
 
     const verifyRecord = async () => {
       try {
-        // Query param endpoint prevents Express path route splitting on slashes
-        const response = await fetch(
-          `https://nipma-bpms-backend.onrender.com/api/permits/verify-record?permitNumber=${encodeURIComponent(permitNumFromUrl)}`
+        const cleanPermitNum = decodeURIComponent(rawPermitNum).trim();
+
+        // 1. Primary Attempt: Call slash-safe query parameter endpoint
+        let response = await fetch(
+          `https://nipma-bpms-backend.onrender.com/api/permits/verify-record?permitNumber=${encodeURIComponent(cleanPermitNum)}`
         );
-        const data = await response.json();
+        
+        let data = await response.json();
+
+        // 2. Fallback Attempt: Call direct path route if query endpoint is warming up
+        if (!data.success) {
+          const fallbackResponse = await fetch(
+            `https://nipma-bpms-backend.onrender.com/api/permits/verify/${encodeURIComponent(cleanPermitNum)}`
+          );
+          data = await fallbackResponse.json();
+        }
 
         if (data.success && data.data) {
           setPermit(data.data);
         } else {
-          setError(data.message || 'Permit not found in official archives.');
+          setError(data.message || `Permit "${cleanPermitNum}" not found in official archives.`);
         }
       } catch (err) {
         console.error('Verification Fetch Error:', err);
@@ -38,7 +49,15 @@ const VerifyPermit = () => {
     };
 
     verifyRecord();
-  }, [permitNumFromUrl]);
+  }, [rawPermitNum]);
+
+  // Extract field values safely with dual key fallbacks
+  const permitNumber = permit ? (permit.permit_number || permit.permitNumber || 'N/A') : '';
+  const applicantName = permit ? (permit.applicant_name || permit.applicantName || 'N/A') : '';
+  const dateIssued = permit ? (permit.date_issued || permit.dateIssued || 'N/A') : '';
+  const purpose = permit ? (permit.purpose || 'N/A') : '';
+  const location = permit ? (permit.location || 'N/A') : '';
+  const address = permit ? (permit.address || 'N/A') : '';
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-4">
@@ -86,32 +105,32 @@ const VerifyPermit = () => {
               <div className="space-y-3 text-xs bg-slate-900/60 p-4 rounded-xl border border-slate-700/60">
                 <div className="flex justify-between border-b border-slate-800 pb-2">
                   <span className="text-slate-400">Permit Number:</span>
-                  <span className="font-mono font-bold text-blue-400 text-sm">{permit.permit_number}</span>
+                  <span className="font-mono font-bold text-blue-400 text-sm">{permitNumber}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-800 pb-2">
                   <span className="text-slate-400">Applicant / Owner:</span>
-                  <span className="font-bold text-slate-200 uppercase">{permit.applicant_name}</span>
+                  <span className="font-bold text-slate-200 uppercase">{applicantName}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-800 pb-2">
                   <span className="text-slate-400">Date Issued:</span>
-                  <span className="font-medium text-slate-300">{permit.date_issued}</span>
+                  <span className="font-medium text-slate-300">{dateIssued}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-800 pb-2">
                   <span className="text-slate-400">Purpose / Use:</span>
-                  <span className="font-bold text-emerald-400 uppercase">{permit.purpose}</span>
+                  <span className="font-bold text-emerald-400 uppercase">{purpose}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-800 pb-2">
                   <span className="text-slate-400">Location:</span>
-                  <span className="font-medium text-slate-300 uppercase">{permit.location}</span>
+                  <span className="font-medium text-slate-300 uppercase">{location}</span>
                 </div>
 
                 <div className="flex justify-between">
                   <span className="text-slate-400">Site Address:</span>
-                  <span className="font-medium text-slate-300 uppercase">{permit.address}</span>
+                  <span className="font-medium text-slate-300 uppercase">{address}</span>
                 </div>
               </div>
             </div>
