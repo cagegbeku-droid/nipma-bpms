@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import PermitQRBadge from '../components/PermitQRBadge';
 
 const PermitList = () => {
-  // --- JWT OFFICER CHECK (USING SESSION STORAGE) ---
   const token = sessionStorage.getItem('token') || localStorage.getItem('token');
   const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
   const user = savedUser ? JSON.parse(savedUser) : null;
@@ -25,16 +25,12 @@ const PermitList = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // Modal States
   const [selectedPermit, setSelectedPermit] = useState(null); 
   const [editingPermit, setEditingPermit] = useState(null);   
   const [editFormData, setEditFormData] = useState({});       
   const [isSaving, setIsSaving] = useState(false);            
 
-  // Document Viewer Modal State
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
-
-  // QR Badge Modal State
   const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
 
   useEffect(() => {
@@ -79,7 +75,6 @@ const PermitList = () => {
     }
   };
 
-  // --- FETCH & SHOW QR BADGE MODAL ---
   const handleShowQrBadge = async (permit) => {
     try {
       const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(permit.permit_number)}`);
@@ -331,6 +326,7 @@ const PermitList = () => {
         </div>
       </div>
 
+      {/* FILTER BAR */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="md:col-span-2">
           <label className="block text-xs font-semibold text-gray-600 mb-1">Search Keywords</label>
@@ -383,6 +379,7 @@ const PermitList = () => {
 
       {error && <div className="bg-red-100 text-red-700 p-4 rounded-md">{error}</div>}
 
+      {/* TABLE */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -469,7 +466,7 @@ const PermitList = () => {
         </div>
       </div>
 
-      {/* --- MODAL 1: VIEW FILES & DETAILS WITH MAP LINK --- */}
+      {/* VIEW DOCUMENTS MODAL */}
       {selectedPermit && (() => {
         const modalName = selectedPermit.applicant_name || `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim();
         const modalPurpose = selectedPermit.purpose || 'RESIDENTIAL';
@@ -552,7 +549,7 @@ const PermitList = () => {
         );
       })()}
 
-      {/* --- MODAL 2: IN-APP DOCUMENT VIEWER --- */}
+      {/* DOCUMENT VIEWER MODAL */}
       {viewerDoc.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-gray-200">
@@ -604,38 +601,27 @@ const PermitList = () => {
         </div>
       )}
 
-      {/* --- MODAL 3: PRINTABLE QR BADGE MODAL --- */}
+      {/* PRINTABLE & DOWNLOADABLE QR BADGE MODAL */}
       {qrModal.isOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full text-center relative animate-fadeIn">
+          <div className="relative max-w-sm w-full">
             <button 
               onClick={() => setQrModal({ isOpen: false, code: '', permitNum: '', applicantName: '' })}
-              className="absolute top-3 right-3 text-gray-400 hover:text-red-500 font-bold text-xl cursor-pointer"
+              className="absolute -top-3 -right-3 z-10 bg-white text-gray-700 hover:text-red-500 rounded-full w-8 h-8 font-bold text-lg flex items-center justify-center shadow-lg border border-gray-200 cursor-pointer print:hidden"
             >
               &times;
             </button>
 
-            <h3 className="font-bold text-sm uppercase text-gray-800">NIPDA Municipal Assembly</h3>
-            <p className="text-xs text-gray-500 mb-3">Official Verification Badge</p>
-
-            <div className="flex justify-center my-3 border p-2 rounded bg-white">
-              <img src={qrModal.code} alt="Permit QR Code" className="w-48 h-48" />
-            </div>
-
-            <p className="font-mono font-bold text-blue-900 text-sm">{qrModal.permitNum}</p>
-            <p className="font-semibold text-gray-700 text-xs mt-1 uppercase">{qrModal.applicantName}</p>
-
-            <button 
-              onClick={() => window.print()} 
-              className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-sm transition cursor-pointer"
-            >
-              🖨️ Print Sticker Badge
-            </button>
+            <PermitQRBadge 
+              permitNumber={qrModal.permitNum}
+              applicantName={qrModal.applicantName}
+              qrCodeBase64={qrModal.code}
+            />
           </div>
         </div>
       )}
 
-      {/* --- MODAL 4: EDIT DATA --- */}
+      {/* EDIT MODAL */}
       {editingPermit && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
