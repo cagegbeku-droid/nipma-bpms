@@ -397,11 +397,14 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
   }
 });
 // ==========================================
-// 6. PUBLIC PERMIT VERIFICATION (Slash-Safe Query Endpoint)
+// 6. PUBLIC PERMIT VERIFICATION (Slash-Safe & CORS Enabled)
 // ==========================================
 const handlePermitVerification = async (req, res) => {
+  // Explicitly allow cross-origin requests for public QR scanning
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+
   try {
-    // Safely extract permit number from query parameter or path parameter
     const rawPermitNum = req.query.permitNumber || req.query.id || req.params.permitNumber || req.params[0];
 
     if (!rawPermitNum) {
@@ -409,7 +412,6 @@ const handlePermitVerification = async (req, res) => {
     }
 
     const permitNum = decodeURIComponent(rawPermitNum).trim();
-    console.log("🔍 Verifying permit in DB:", permitNum);
 
     const query = `
       SELECT * 
@@ -423,13 +425,12 @@ const handlePermitVerification = async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ 
         success: false, 
-        message: `Permit "${permitNum}" not found in official NIPDA archives.` 
+        message: `Permit "${permitNum}" not found in official archives.` 
       });
     }
 
     const row = rows[0];
 
-    // Safely format name with explicit parenthesis to fix precedence bug
     const computedName = row.applicant_name || row.applicantName || 
       (row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : '');
 
@@ -444,7 +445,6 @@ const handlePermitVerification = async (req, res) => {
       status: row.status || 'Synced'
     };
 
-    console.log("✅ Permit record verified:", formattedData.permit_number);
     res.json({ success: true, data: formattedData });
 
   } catch (err) {
@@ -453,6 +453,5 @@ const handlePermitVerification = async (req, res) => {
   }
 };
 
-// Register route to handle query params and wildcard paths
 router.get('/verify-record', handlePermitVerification);
 router.get('/verify/:permitNumber(*)', handlePermitVerification);
