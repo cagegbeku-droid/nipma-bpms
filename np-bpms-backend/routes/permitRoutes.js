@@ -334,10 +334,13 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 // ==========================================
 // 4. PRINTABLE QR CODE GENERATOR ROUTE
 // ==========================================
-router.get('/qr/:permitNumber(*)', async (req, res) => {
+const handleQrGeneration = async (req, res) => {
   try {
-    // Capture permit number whether passed via params or query
     const permitNum = req.query.id || req.query.permitNumber || req.params.permitNumber || req.params[0];
+
+    if (!permitNum) {
+      return res.status(400).json({ success: false, message: 'Missing permit number for QR generation.' });
+    }
     
     const clientBaseUrl = process.env.CLIENT_URL || req.headers.origin || 'https://nipma-bpms.vercel.app';
     const verificationUrl = `${clientBaseUrl.replace(/\/$/, '')}/verify-permit?id=${encodeURIComponent(permitNum)}`;
@@ -362,20 +365,23 @@ router.get('/qr/:permitNumber(*)', async (req, res) => {
     console.error('QR Code Generation Error:', err);
     res.status(500).json({ success: false, message: 'Failed to generate QR code' });
   }
-});
+};
+
+router.get('/qr', handleQrGeneration);
+router.get('/qr/*', handleQrGeneration);
 
 // ==========================================
 // 5. OCR DOCUMENT AUTO-FILL EXTRACTION ROUTE
 // ==========================================
 router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, res) => {
+  let worker = null;
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No document file uploaded for OCR.' });
     }
 
-    const worker = await createWorker('eng');
+    worker = await createWorker('eng');
     const { data: { text } } = await worker.recognize(req.file.buffer);
-    await worker.terminate();
 
     const extractedData = {
       permitNumber: extractPattern(text, /(?:Permit|Cert|Licence)\s*(?:No|Number|#)?[\s:]*([A-Za-z0-9_\-\/]+)/i),
@@ -394,13 +400,17 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
   } catch (err) {
     console.error('OCR Processing Error:', err);
     res.status(500).json({ success: false, message: `OCR Extraction Error: ${err.message}` });
+  } finally {
+    if (worker) {
+      await worker.terminate(); // Prevent RAM leaks on Render
+    }
   }
 });
+
 // ==========================================
 // 6. PUBLIC PERMIT VERIFICATION (Slash-Safe & CORS Enabled)
 // ==========================================
 const handlePermitVerification = async (req, res) => {
-  // Explicitly allow cross-origin requests for public QR scanning
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 
@@ -454,4 +464,21 @@ const handlePermitVerification = async (req, res) => {
 };
 
 router.get('/verify-record', handlePermitVerification);
-router.get('/verify/:permitNumber(*)', handlePermitVerification);
+router.get('/verify/*', handlePermitVerification);
+
+// ==========================================
+// 7. CONTROLLER ROUTES
+// ==========================================
+router.get('/stats', getPermitStats);
+router.get('/monthly-stats', getMonthlyStats); 
+router.get('/', getPermits);
+
+router.post('/archive', requireAuth, archivalUploads, archivePermit);
+router.delete('/:id', requireAuth, deletePermit);
+router.put('/:id', requireAuth, updatePermit);
+router.put('/:id/remove-file', requireAuth, removePermitFile);
+
+// ==========================================
+// EXPORT ROUTER
+// ==========================================
+module.exports = router;
