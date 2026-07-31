@@ -334,11 +334,11 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 // ==========================================
 // 4. PRINTABLE QR CODE GENERATOR ROUTE
 // ==========================================
-router.get('/qr/:permitNumber', async (req, res) => {
+router.get('/qr/:permitNumber(*)', async (req, res) => {
   try {
-    const permitNum = req.params.permitNumber;
+    // Capture permit number whether passed via params or query
+    const permitNum = req.query.id || req.query.permitNumber || req.params.permitNumber || req.params[0];
     
-    // Fallback directly to your Vercel frontend URL
     const clientBaseUrl = process.env.CLIENT_URL || req.headers.origin || 'https://nipma-bpms.vercel.app';
     const verificationUrl = `${clientBaseUrl.replace(/\/$/, '')}/verify-permit?id=${encodeURIComponent(permitNum)}`;
 
@@ -397,12 +397,20 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
   }
 });
 // ==========================================
-// 6. PUBLIC PERMIT VERIFICATION (Normalized Data Keys)
+// 6. PUBLIC PERMIT VERIFICATION (Slash-Safe Query Endpoint)
 // ==========================================
-router.get('/verify/:permitNumber', async (req, res) => {
+const handlePermitVerification = async (req, res) => {
   try {
-    const permitNum = req.params.permitNumber;
-    
+    // Safely extract permit number from query parameter or path parameter
+    const rawPermitNum = req.query.permitNumber || req.query.id || req.params.permitNumber || req.params[0];
+
+    if (!rawPermitNum) {
+      return res.status(400).json({ success: false, message: 'Missing permit number parameter.' });
+    }
+
+    const permitNum = decodeURIComponent(rawPermitNum).trim();
+    console.log("🔍 Verifying permit in DB:", permitNum);
+
     const query = `
       SELECT * 
       FROM permits 
@@ -415,29 +423,36 @@ router.get('/verify/:permitNumber', async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Permit record not found in official NIPDA archives.' 
+        message: `Permit "${permitNum}" not found in official NIPDA archives.` 
       });
     }
 
     const row = rows[0];
 
-    // Normalize payload to support both snake_case and camelCase
+    // Safely format name with explicit parenthesis to fix precedence bug
+    const computedName = row.applicant_name || row.applicantName || 
+      (row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : '');
+
     const formattedData = {
-      permit_number: row.permit_number || row.permitNumber || '',
-      permitNumber: row.permit_number || row.permitNumber || '',
-      applicant_name: row.applicant_name || row.applicantName || row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : '',
-      applicantName: row.applicant_name || row.applicantName || row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : '',
-      date_issued: row.date_issued || row.dateIssued || '',
-      dateIssued: row.date_issued || row.dateIssued || '',
+      permit_number: row.permit_number || row.permitNumber || permitNum,
+      applicant_name: computedName || 'N/A',
+      date_issued: row.date_issued || row.dateIssued || 'N/A',
       purpose: row.purpose || 'RESIDENTIAL',
-      location: row.location || '',
-      address: row.address || '',
+      location: row.location || 'N/A',
+      address: row.address || 'N/A',
+      phone: row.phone || 'N/A',
       status: row.status || 'Synced'
     };
 
+    console.log("✅ Permit record verified:", formattedData.permit_number);
     res.json({ success: true, data: formattedData });
+
   } catch (err) {
     console.error("Verification Database Error:", err);
     res.status(500).json({ success: false, message: 'Server error during permit verification.' });
   }
-});
+};
+
+// Register route to handle query params and wildcard paths
+router.get('/verify-record', handlePermitVerification);
+router.get('/verify/:permitNumber(*)', handlePermitVerification);
