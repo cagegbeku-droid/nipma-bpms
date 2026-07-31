@@ -336,7 +336,7 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 // ==========================================
 const handleQrGeneration = async (req, res) => {
   try {
-    const permitNum = req.query.id || req.query.permitNumber || req.params.permitNumber || req.params[0];
+    const permitNum = req.query.id || req.query.permitNumber || req.params.permitNumber;
 
     if (!permitNum) {
       return res.status(400).json({ success: false, message: 'Missing permit number for QR generation.' });
@@ -368,7 +368,7 @@ const handleQrGeneration = async (req, res) => {
 };
 
 router.get('/qr', handleQrGeneration);
-router.get('/qr/*', handleQrGeneration);
+router.get('/qr/:permitNumber', handleQrGeneration);
 
 // ==========================================
 // 5. OCR DOCUMENT AUTO-FILL EXTRACTION ROUTE
@@ -415,7 +415,7 @@ const handlePermitVerification = async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
 
   try {
-    const rawPermitNum = req.query.permitNumber || req.query.id || req.params.permitNumber || req.params[0];
+    const rawPermitNum = req.query.permitNumber || req.query.id || req.params.permitNumber;
 
     if (!rawPermitNum) {
       return res.status(400).json({ success: false, message: 'Missing permit number parameter.' });
@@ -495,7 +495,8 @@ const handlePermitVerification = async (req, res) => {
 };
 
 router.get('/verify-record', handlePermitVerification);
-router.get('/verify/*', handlePermitVerification);
+router.get('/verify', handlePermitVerification);
+router.get('/verify/:permitNumber', handlePermitVerification);
 
 // ==========================================
 // 7. CONTROLLER ROUTES
