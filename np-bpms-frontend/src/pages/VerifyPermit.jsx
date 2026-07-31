@@ -7,6 +7,7 @@ const VerifyPermit = () => {
 
   const [permit, setPermit] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMessage, setLoadingLoadingMessage] = useState('Connecting to verification server...');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -17,32 +18,62 @@ const VerifyPermit = () => {
     }
 
     const verifyRecord = async () => {
+      const cleanPermitNum = decodeURIComponent(rawPermitNum).trim();
+      const encodedNum = encodeURIComponent(cleanPermitNum);
+      const BACKEND_URL = 'https://nipma-bpms-backend.onrender.com/api/permits';
+
+      // Helper function to fetch with retry for Render cold starts
+      const fetchWithRetry = async (url, retries = 2) => {
+        for (let attempt = 0; attempt <= retries; attempt++) {
+          try {
+            if (attempt > 0) {
+              setLoadingLoadingMessage(`Waking up archive server (attempt ${attempt + 1}/${retries + 1})...`);
+            }
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+            const res = await fetch(url, {
+              method: 'GET',
+              headers: { 'Accept': 'application/json' },
+              signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+              return await res.json();
+            }
+          } catch (err) {
+            console.warn(`Attempt ${attempt + 1} failed:`, err.message);
+            if (attempt === retries) throw err;
+            await new Promise(r => setTimeout(r, 2000)); // Wait 2s before retry
+          }
+        }
+        throw new Error('Server unreachable');
+      };
+
       try {
-        const cleanPermitNum = decodeURIComponent(rawPermitNum).trim();
+        setLoadingLoadingMessage('Verifying permit credentials against official records...');
 
-        // 1. Primary Attempt: Call slash-safe query parameter endpoint
-        let response = await fetch(
-          `https://nipma-bpms-backend.onrender.com/api/permits/verify-record?permitNumber=${encodeURIComponent(cleanPermitNum)}`
-        );
-        
-        let data = await response.json();
-
-        // 2. Fallback Attempt: Call direct path route if query endpoint is warming up
-        if (!data.success) {
-          const fallbackResponse = await fetch(
-            `https://nipma-bpms-backend.onrender.com/api/permits/verify/${encodeURIComponent(cleanPermitNum)}`
-          );
-          data = await fallbackResponse.json();
+        // 1. Primary endpoint (Query Parameter)
+        let data;
+        try {
+          data = await fetchWithRetry(`${BACKEND_URL}/verify-record?permitNumber=${encodedNum}`);
+        } catch (e) {
+          // 2. Fallback endpoint (Wildcard Path)
+          data = await fetchWithRetry(`${BACKEND_URL}/verify/${encodedNum}`);
         }
 
-        if (data.success && data.data) {
+        if (data && data.success && data.data) {
           setPermit(data.data);
         } else {
-          setError(data.message || `Permit "${cleanPermitNum}" not found in official archives.`);
+          setError((data && data.message) || `Permit "${cleanPermitNum}" not found in official archives.`);
         }
+
       } catch (err) {
         console.error('Verification Fetch Error:', err);
-        setError('Unable to connect to verification server. Please try again later.');
+        setError('Unable to connect to verification server. Please ensure you have internet access and try again.');
       } finally {
         setLoading(false);
       }
@@ -77,7 +108,7 @@ const VerifyPermit = () => {
           {loading ? (
             <div className="text-center py-10 space-y-3">
               <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="text-sm text-slate-400">Verifying permit credentials against official records...</p>
+              <p className="text-sm text-slate-400 font-medium animate-pulse">{loadingMessage}</p>
             </div>
           ) : error ? (
             <div className="text-center py-6 space-y-4">
@@ -89,6 +120,12 @@ const VerifyPermit = () => {
               <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-lg text-xs text-red-300">
                 ⚠️ Warning: This document or QR code does not match any active record in the NIPDA Building Permit Management System.
               </div>
+              <button 
+                onClick={() => window.location.reload()} 
+                className="mt-2 text-xs bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg transition"
+              >
+                🔄 Retry Connection
+              </button>
             </div>
           ) : (
             <div className="space-y-6">
