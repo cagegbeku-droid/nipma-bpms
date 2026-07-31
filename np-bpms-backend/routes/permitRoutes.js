@@ -449,40 +449,48 @@ const handlePermitVerification = async (req, res) => {
     }
 
     const row = rows[0];
-    console.log("✅ [VERIFY SUCCESS] Raw Database Row Found:", JSON.stringify(row, null, 2));
+    console.log("✅ [VERIFY SUCCESS] Database Row Found:", row);
 
-    const pickFirstValid = (...vals) => {
-      for (const v of vals) {
-        if (v !== undefined && v !== null && String(v).trim() !== '') {
-          return String(v).trim();
+    // Fuzzy Keyword Value Finder
+    const findValueByKeywords = (obj, keywords, defaultValue = 'N/A') => {
+      if (!obj || typeof obj !== 'object') return defaultValue;
+      const lowerKeys = Object.keys(obj).map(k => ({ original: k, lower: k.toLowerCase() }));
+      
+      for (const kw of keywords) {
+        const match = lowerKeys.find(k => k.lower.includes(kw.toLowerCase()));
+        if (match) {
+          const val = obj[match.original];
+          if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim().toUpperCase() !== 'NULL') {
+            return String(val).trim();
+          }
         }
       }
-      return 'N/A';
+      return defaultValue;
     };
 
-    const combinedFullName = (row.first_name || row.last_name) 
-      ? `${row.first_name || ''} ${row.last_name || ''}`.trim() 
-      : null;
+    const firstName = findValueByKeywords(row, ['first_name', 'firstname'], '');
+    const lastName = findValueByKeywords(row, ['last_name', 'lastname'], '');
+    const combinedName = (firstName || lastName) ? `${firstName} ${lastName}`.trim() : '';
 
-    const permitNumFinal = pickFirstValid(row.permit_number, row.permitnumber, row.permit_num, permitNum);
-    const applicantNameFinal = pickFirstValid(row.applicant_name, row.applicantname, row.applicant, combinedFullName);
-    const dateIssuedFinal = pickFirstValid(row.date_issued, row.dateissued, row.issued_date, row.created_at);
-    const purposeFinal = pickFirstValid(row.purpose, row.building_purpose, row.purpose_use, 'RESIDENTIAL');
-    const locationFinal = pickFirstValid(row.location, row.community, row.site_location);
-    const addressFinal = pickFirstValid(row.address, row.site_address, row.plot_address);
-    const phoneFinal = pickFirstValid(row.phone, row.telephone, row.mobile);
+    const permit_number = findValueByKeywords(row, ['permit_number', 'permitnum', 'permit', 'number'], permitNum);
+    const applicant_name = findValueByKeywords(row, ['applicant_name', 'applicantname', 'applicant', 'owner', 'client', 'name'], combinedName || 'N/A');
+    const date_issued = findValueByKeywords(row, ['date_issued', 'dateissued', 'issued', 'date', 'created_at'], 'N/A');
+    const purpose = findValueByKeywords(row, ['purpose', 'use', 'type', 'building'], 'RESIDENTIAL');
+    const location = findValueByKeywords(row, ['location', 'community', 'area', 'town', 'city'], 'N/A');
+    const address = findValueByKeywords(row, ['address', 'site', 'plot'], 'N/A');
+    const phone = findValueByKeywords(row, ['phone', 'tel', 'mobile', 'contact'], 'N/A');
 
     const formattedData = {
-      permit_number: permitNumFinal,
-      permitNumber: permitNumFinal,
-      applicant_name: applicantNameFinal.toUpperCase(),
-      applicantName: applicantNameFinal.toUpperCase(),
-      date_issued: dateIssuedFinal,
-      dateIssued: dateIssuedFinal,
-      purpose: purposeFinal.toUpperCase(),
-      location: locationFinal.toUpperCase(),
-      address: addressFinal.toUpperCase(),
-      phone: phoneFinal,
+      permit_number,
+      permitNumber: permit_number,
+      applicant_name: applicant_name.toUpperCase(),
+      applicantName: applicant_name.toUpperCase(),
+      date_issued,
+      dateIssued: date_issued,
+      purpose: purpose.toUpperCase(),
+      location: location.toUpperCase(),
+      address: address.toUpperCase(),
+      phone,
       status: row.status || 'Synced'
     };
 
