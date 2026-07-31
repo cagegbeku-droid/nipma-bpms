@@ -117,6 +117,18 @@ const requireAuth = (req, res, next) => {
 };
 
 // ==========================================
+// 0. SERVER HEALTH CHECK ENDPOINT (For Keep-Alive Pings)
+// ==========================================
+router.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'UP',
+    message: 'NIPDA BPMS Backend is active and healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+// ==========================================
 // 1. DYNAMIC SUBFOLDER CREATOR
 // ==========================================
 router.post('/create-permit-folders', requireAuth, async (req, res) => {
@@ -325,8 +337,10 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 router.get('/qr/:permitNumber', async (req, res) => {
   try {
     const permitNum = req.params.permitNumber;
-    const clientBaseUrl = process.env.CLIENT_URL || 'https://nipma-bpms.onrender.com';
-    const verificationUrl = `${clientBaseUrl}/verify-permit?id=${encodeURIComponent(permitNum)}`;
+    
+    // Fallback directly to your Vercel frontend URL
+    const clientBaseUrl = process.env.CLIENT_URL || req.headers.origin || 'https://nipma-bpms.vercel.app';
+    const verificationUrl = `${clientBaseUrl.replace(/\/$/, '')}/verify-permit?id=${encodeURIComponent(permitNum)}`;
 
     const qrImageBase64 = await QRCode.toDataURL(verificationUrl, {
       errorCorrectionLevel: 'H',
@@ -338,7 +352,12 @@ router.get('/qr/:permitNumber', async (req, res) => {
       }
     });
 
-    res.json({ success: true, permitNumber: permitNum, qrCode: qrImageBase64 });
+    res.json({ 
+      success: true, 
+      permitNumber: permitNum, 
+      qrCode: qrImageBase64,
+      verificationUrl: verificationUrl 
+    });
   } catch (err) {
     console.error('QR Code Generation Error:', err);
     res.status(500).json({ success: false, message: 'Failed to generate QR code' });
