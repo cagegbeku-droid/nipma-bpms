@@ -402,14 +402,27 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
     res.status(500).json({ success: false, message: `OCR Extraction Error: ${err.message}` });
   } finally {
     if (worker) {
-      await worker.terminate(); // Properly close OCR thread
+      await worker.terminate();
     }
   }
 });
 
 // ==========================================
-// 6. PUBLIC PERMIT VERIFICATION (Slash-Safe & CORS Enabled)
+// 6. PUBLIC PERMIT VERIFICATION (Key Normalizer & Case-Insensitive)
 // ==========================================
+const getValue = (obj, ...keys) => {
+  if (!obj || typeof obj !== 'object') return null;
+  const objKeys = Object.keys(obj);
+  for (const key of keys) {
+    if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
+    const matchedKey = objKeys.find(k => k.toLowerCase() === key.toLowerCase());
+    if (matchedKey && obj[matchedKey] !== undefined && obj[matchedKey] !== null && obj[matchedKey] !== '') {
+      return obj[matchedKey];
+    }
+  }
+  return null;
+};
+
 const handlePermitVerification = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -441,18 +454,26 @@ const handlePermitVerification = async (req, res) => {
 
     const row = rows[0];
 
-    const computedName = row.applicant_name || row.applicantName || 
-      (row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : '');
+    const permitNumVal = getValue(row, 'permit_number', 'permitnumber', 'permitNumber') || permitNum;
+    const applicantVal = getValue(row, 'applicant_name', 'applicantname', 'applicantName', 'name') || 
+      (row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : null) || 'N/A';
+    const dateVal = getValue(row, 'date_issued', 'dateissued', 'dateIssued', 'created_at') || 'N/A';
+    const purposeVal = getValue(row, 'purpose', 'building_purpose', 'buildingPurpose') || 'RESIDENTIAL';
+    const locationVal = getValue(row, 'location', 'community', 'site_location') || 'N/A';
+    const addressVal = getValue(row, 'address', 'plot_address', 'site_address') || 'N/A';
 
     const formattedData = {
-      permit_number: row.permit_number || row.permitNumber || permitNum,
-      applicant_name: computedName || 'N/A',
-      date_issued: row.date_issued || row.dateIssued || 'N/A',
-      purpose: row.purpose || 'RESIDENTIAL',
-      location: row.location || 'N/A',
-      address: row.address || 'N/A',
-      phone: row.phone || 'N/A',
-      status: row.status || 'Synced'
+      permit_number: permitNumVal,
+      permitNumber: permitNumVal,
+      applicant_name: applicantVal,
+      applicantName: applicantVal,
+      date_issued: dateVal,
+      dateIssued: dateVal,
+      purpose: purposeVal,
+      location: locationVal,
+      address: addressVal,
+      phone: getValue(row, 'phone', 'telephone', 'mobile') || 'N/A',
+      status: getValue(row, 'status', 'upload_status') || 'Synced'
     };
 
     res.json({ success: true, data: formattedData });
