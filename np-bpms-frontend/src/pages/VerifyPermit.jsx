@@ -63,7 +63,7 @@ const VerifyPermit = () => {
         }
 
         if (data && data.success && data.data) {
-          console.log("Verified Permit Record Received:", data.data);
+          console.log("Verified Record Data Received:", data.data);
           setPermit(data.data);
         } else {
           setError((data && data.message) || `Permit "${cleanPermitNum}" not found in official archives.`);
@@ -80,13 +80,21 @@ const VerifyPermit = () => {
     verifyRecord();
   }, [rawPermitNum]);
 
-  // Safely extract values checking both camelCase and snake_case properties
-  const permitNumber = permit?.permit_number || permit?.permitNumber || 'N/A';
-  const applicantName = permit?.applicant_name || permit?.applicantName || 'N/A';
-  const dateIssued = permit?.date_issued || permit?.dateIssued || 'N/A';
-  const purpose = permit?.purpose || 'N/A';
-  const location = permit?.location || 'N/A';
-  const address = permit?.address || 'N/A';
+  // Helper to ensure non-empty display string
+  const getDisplayVal = (val1, val2) => {
+    const val = val1 || val2;
+    if (val && String(val).trim() !== '' && String(val).trim().toUpperCase() !== 'UNDEFINED') {
+      return String(val).trim();
+    }
+    return 'N/A';
+  };
+
+  const permitNumber = getDisplayVal(permit?.permit_number, permit?.permitNumber);
+  const applicantName = getDisplayVal(permit?.applicant_name, permit?.applicantName);
+  const dateIssued = getDisplayVal(permit?.date_issued, permit?.dateIssued);
+  const purpose = getDisplayVal(permit?.purpose);
+  const location = getDisplayVal(permit?.location);
+  const address = getDisplayVal(permit?.address);
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-4">
