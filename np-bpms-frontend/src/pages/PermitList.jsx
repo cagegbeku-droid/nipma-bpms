@@ -34,6 +34,9 @@ const PermitList = () => {
   // Document Viewer Modal State
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
 
+  // QR Badge Modal State
+  const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
+
   useEffect(() => {
     fetchPermits();
   }, []);
@@ -76,7 +79,27 @@ const PermitList = () => {
     }
   };
 
-  // --- GOOGLE MAPS DIRECT NAVIGATION LINK HELPER ---
+  // --- FETCH & SHOW QR BADGE MODAL ---
+  const handleShowQrBadge = async (permit) => {
+    try {
+      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(permit.permit_number)}`);
+      const data = await res.json();
+      if (data.success && data.qrCode) {
+        setQrModal({
+          isOpen: true,
+          code: data.qrCode,
+          permitNum: permit.permit_number,
+          applicantName: permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`.trim()
+        });
+      } else {
+        alert("Could not generate QR Badge.");
+      }
+    } catch (err) {
+      console.error("QR Code Fetch Error:", err);
+      alert("Error generating QR Badge.");
+    }
+  };
+
   const getGoogleMapsUrl = (address, location) => {
     if (!address) return '#';
     const cleanAddress = address.trim();
@@ -85,7 +108,6 @@ const PermitList = () => {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullSearchQuery)}`;
   };
 
-  // --- AUTO-FORMATTER HELPER FOR PERMIT NUMBER ---
   const formatPermitNumberInput = (value) => {
     const cleanVal = (value || '').trim().toUpperCase();
     const shorthandMatch = cleanVal.match(/^([A-Z]{3,4})(\d{2})(\d{1,4})$/);
@@ -96,7 +118,6 @@ const PermitList = () => {
     return cleanVal;
   };
 
-  // --- DYNAMIC YEAR OPTIONS ---
   const availableYears = useMemo(() => {
     const years = new Set();
     permits.forEach(p => {
@@ -111,7 +132,6 @@ const PermitList = () => {
     return Array.from(years).sort((a, b) => b - a);
   }, [permits]);
 
-  // --- FILTER PERMITS BY SEARCH, MONTH & YEAR ---
   const filteredPermits = useMemo(() => {
     return permits.filter(permit => {
       const search = searchTerm.toLowerCase().trim();
@@ -144,7 +164,6 @@ const PermitList = () => {
     });
   }, [permits, searchTerm, selectedMonth, selectedYear]);
 
-  // --- EXPORT TO CSV FUNCTION ---
   const exportToCSV = () => {
     if (filteredPermits.length === 0) return;
 
@@ -172,7 +191,6 @@ const PermitList = () => {
     document.body.removeChild(link);
   };
 
-  // --- EDIT FUNCTIONS ---
   const handleEditClick = (permit) => {
     const standardPurposes = ['RESIDENTIAL', 'COMMERCIAL', 'INSTITUTION', 'ORGANIZATION', 'MIXED USE', 'FENCE WALL'];
     const currentPurpose = permit.purpose ? permit.purpose.toUpperCase() : 'RESIDENTIAL';
@@ -245,7 +263,6 @@ const PermitList = () => {
     }
   };
 
-  // --- OPEN IN-APP DOCUMENT VIEWER ---
   const handleOpenDocViewer = (url, title) => {
     if (!url) return;
     setViewerDoc({ isOpen: true, url, title });
@@ -314,7 +331,6 @@ const PermitList = () => {
         </div>
       </div>
 
-      {/* --- MONTH, YEAR & SEARCH FILTER BAR --- */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="md:col-span-2">
           <label className="block text-xs font-semibold text-gray-600 mb-1">Search Keywords</label>
@@ -404,7 +420,6 @@ const PermitList = () => {
                           <span className="font-semibold text-gray-500">Location:</span> {permit.location || 'N/A'}
                         </div>
 
-                        {/* CLICKABLE GOOGLE MAPS LINK */}
                         <div className="text-sm uppercase mt-1">
                           <span className="font-semibold text-gray-500">Address:</span>{' '}
                           {permit.address ? (
@@ -427,6 +442,10 @@ const PermitList = () => {
                         <div className="flex items-center justify-center space-x-2">
                           <button onClick={() => setSelectedPermit(permit)} className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="View Documents">
                             👁️ View
+                          </button>
+
+                          <button onClick={() => handleShowQrBadge(permit)} className="bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Print QR Badge">
+                            🖨️ Badge
                           </button>
                           
                           {isOfficer && (
@@ -518,6 +537,15 @@ const PermitList = () => {
                     {renderLinks(selectedPermit.receipts_links, "Receipt") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
                   </div>
                 </div>
+
+                <div className="pt-2 flex justify-end">
+                  <button 
+                    onClick={() => handleShowQrBadge(selectedPermit)}
+                    className="bg-purple-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-purple-700 transition text-xs flex items-center space-x-1.5 shadow"
+                  >
+                    <span>🖨️ Print Verification Badge Sticker</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -576,7 +604,38 @@ const PermitList = () => {
         </div>
       )}
 
-      {/* --- MODAL 3: EDIT DATA --- */}
+      {/* --- MODAL 3: PRINTABLE QR BADGE MODAL --- */}
+      {qrModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full text-center relative animate-fadeIn">
+            <button 
+              onClick={() => setQrModal({ isOpen: false, code: '', permitNum: '', applicantName: '' })}
+              className="absolute top-3 right-3 text-gray-400 hover:text-red-500 font-bold text-xl cursor-pointer"
+            >
+              &times;
+            </button>
+
+            <h3 className="font-bold text-sm uppercase text-gray-800">NIPDA Municipal Assembly</h3>
+            <p className="text-xs text-gray-500 mb-3">Official Verification Badge</p>
+
+            <div className="flex justify-center my-3 border p-2 rounded bg-white">
+              <img src={qrModal.code} alt="Permit QR Code" className="w-48 h-48" />
+            </div>
+
+            <p className="font-mono font-bold text-blue-900 text-sm">{qrModal.permitNum}</p>
+            <p className="font-semibold text-gray-700 text-xs mt-1 uppercase">{qrModal.applicantName}</p>
+
+            <button 
+              onClick={() => window.print()} 
+              className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-sm transition cursor-pointer"
+            >
+              🖨️ Print Sticker Badge
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL 4: EDIT DATA --- */}
       {editingPermit && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">

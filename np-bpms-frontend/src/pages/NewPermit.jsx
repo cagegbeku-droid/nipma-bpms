@@ -40,6 +40,11 @@ const NewPermit = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
+  // --- OCR & QR STATES ---
+  const [isOcrScanning, setIsOcrScanning] = useState(false);
+  const [ocrSuccess, setOcrSuccess] = useState(false);
+  const [qrCodeData, setQrCodeData] = useState({ isOpen: false, code: '', permitNum: '' });
+
   const formatPermitNumberInput = (value) => {
     const cleanVal = (value || '').trim().toUpperCase();
     if (cleanVal.startsWith('NIPDA/')) {
@@ -60,6 +65,50 @@ const NewPermit = () => {
       ...prev, 
       [name]: name === 'dateIssued' || name === 'phone' ? value : value.toUpperCase() 
     }));
+  };
+
+  // --- OCR EXTRACTION HANDLER ---
+  const handleOcrUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const token = sessionStorage.getItem('token');
+    setIsOcrScanning(true);
+    setOcrSuccess(false);
+
+    const ocrFormData = new FormData();
+    ocrFormData.append('document', file);
+
+    try {
+      const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/extract-ocr", {
+        method: "POST",
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: ocrFormData
+      });
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        setFormData(prev => ({
+          ...prev,
+          permitNumber: result.data.permitNumber ? formatPermitNumberInput(result.data.permitNumber) : prev.permitNumber,
+          applicantName: result.data.applicantName || prev.applicantName,
+          dateIssued: result.data.dateIssued || prev.dateIssued,
+          purpose: result.data.purpose || prev.purpose,
+          address: result.data.address || prev.address
+        }));
+        setOcrSuccess(true);
+      } else {
+        alert(result.message || "Could not extract text. Please enter details manually.");
+      }
+    } catch (err) {
+      console.error("OCR Scan Error:", err);
+      alert("OCR processing failed. Please enter permit details manually.");
+    } finally {
+      setIsOcrScanning(false);
+    }
   };
 
   const checkDuplicateRecord = async (permitNum, date) => {
@@ -103,7 +152,6 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  // --- DYNAMIC SUBFOLDERS BASED ON SELECTED FILES ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -118,14 +166,12 @@ const NewPermit = () => {
 
       const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
 
-      // 1. Detect which document categories actually have attached files
       const activeCategories = [];
       if (files.certificate.length > 0) activeCategories.push('certificate');
       if (files.drawings.length > 0) activeCategories.push('drawings');
       if (files.permitForm.length > 0) activeCategories.push('permitForm');
       if (files.receipts.length > 0) activeCategories.push('receipts');
 
-      // STEP 1: Create Master Folder & ONLY necessary subfolders
       setMessage("Creating Google Drive permit folder...");
       const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
         method: "POST",
@@ -153,7 +199,6 @@ const NewPermit = () => {
 
       const subfolders = folderData.subfolders;
 
-      // Helper function: Direct Upload using specific target subfolder ID
       const uploadFileDirectToDrive = async (file, targetFolderId) => {
         const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
           method: "POST",
@@ -204,7 +249,6 @@ const NewPermit = () => {
         });
       };
 
-      // STEP 2: Parallel direct uploads into only the created subfolders
       setMessage("Uploading documents to Google Drive subfolders...");
 
       const certPromise = (files.certificate.length > 0 && subfolders.certificate) 
@@ -230,7 +274,6 @@ const NewPermit = () => {
         Promise.all(receiptsPromises)
       ]);
 
-      // STEP 3: Save metadata to Supabase database
       setMessage("Saving permit record metadata...");
       const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
 
@@ -260,11 +303,27 @@ const NewPermit = () => {
       const metaData = await metaRes.json();
 
       if (metaRes.ok && metaData.success) {
-        setMessage("Success! Permit folder created with active subfolders and documents archived cleanly.");
+        setMessage("Success! Permit archived cleanly.");
+        
+        // --- FETCH GENERATED QR CODE FOR PRINTING ---
+        try {
+          const qrRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(formattedPermitNumber)}`);
+          const qrJson = await qrRes.json();
+          if (qrJson.success && qrJson.qrCode) {
+            setQrCodeData({
+              isOpen: true,
+              code: qrJson.qrCode,
+              permitNum: formattedPermitNumber
+            });
+          }
+        } catch (qrErr) {
+          console.error("Failed to load QR badge:", qrErr);
+        }
+
         setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
         setDuplicateWarning('');
-        setTimeout(() => setMessage(''), 4000);
+        setOcrSuccess(false);
       } else {
         setMessage(metaData.message || "Failed to save record metadata.");
       }
@@ -371,7 +430,38 @@ const NewPermit = () => {
           </div>
         </div>
       )}
-      
+
+      {/* --- OCR SCANNER DROPZONE --- */}
+      <div className="mb-6 p-4 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 hover:bg-blue-50 transition">
+        <label className="block text-sm font-semibold text-blue-900 mb-1 cursor-pointer">
+          ✨ Auto-Fill Form from Scanned Permit (OCR)
+        </label>
+        <p className="text-xs text-blue-700 mb-3">
+          Select or drop a scanned PDF or photo of an old permit certificate to extract text automatically.
+        </p>
+        
+        <input 
+          type="file" 
+          accept="image/*,.pdf"
+          onChange={handleOcrUpload}
+          disabled={isOcrScanning || isSubmitting}
+          className="text-xs text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer disabled:opacity-50"
+        />
+
+        {isOcrScanning && (
+          <div className="flex items-center space-x-2 mt-3 text-xs font-semibold text-blue-800 animate-pulse">
+            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <span>Scanning document text via OCR...</span>
+          </div>
+        )}
+
+        {ocrSuccess && (
+          <p className="mt-2 text-xs font-bold text-emerald-600">
+            ✓ Form auto-filled from document! Please verify inputs below.
+          </p>
+        )}
+      </div>
+
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-6 space-y-8 border border-gray-100">
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">1. Permit Data</h2>
@@ -519,6 +609,37 @@ const NewPermit = () => {
           )}
         </button>
       </form>
+
+      {/* --- PRINTABLE QR BADGE MODAL --- */}
+      {qrCodeData.isOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full text-center relative animate-fadeIn">
+            <button 
+              onClick={() => setQrCodeData({ isOpen: false, code: '', permitNum: '' })}
+              className="absolute top-3 right-3 text-gray-400 hover:text-red-500 font-bold text-xl"
+            >
+              &times;
+            </button>
+
+            <h3 className="font-bold text-sm uppercase text-gray-800">NIPDA Municipal Assembly</h3>
+            <p className="text-xs text-gray-500 mb-3">Official Verification Sticker</p>
+
+            <div className="flex justify-center my-3 border p-2 rounded bg-white">
+              <img src={qrCodeData.code} alt="Permit QR Code" className="w-48 h-48" />
+            </div>
+
+            <p className="font-mono font-bold text-blue-900 text-sm">{qrCodeData.permitNum}</p>
+
+            <button 
+              onClick={() => window.print()} 
+              className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-sm transition"
+            >
+              🖨️ Print Badge Sticker
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
