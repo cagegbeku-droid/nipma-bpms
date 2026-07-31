@@ -408,7 +408,7 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
 });
 
 // ==========================================
-// 6. PUBLIC PERMIT VERIFICATION ROUTE (Robust Matching + Logging)
+// 6. PUBLIC PERMIT VERIFICATION ROUTE
 // ==========================================
 const handlePermitVerification = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -424,7 +424,6 @@ const handlePermitVerification = async (req, res) => {
     const permitNum = decodeURIComponent(rawPermitNum).trim();
     console.log(`🔍 [VERIFY REQUEST] Searching for permit number: "${permitNum}"`);
 
-    // Strict SQL Query: Strips slashes/dashes and orders by newest ID to avoid picking blank test records
     const query = `
       SELECT * 
       FROM permits 
@@ -452,7 +451,6 @@ const handlePermitVerification = async (req, res) => {
     const row = rows[0];
     console.log("✅ [VERIFY SUCCESS] Raw Database Row Found:", JSON.stringify(row, null, 2));
 
-    // Helper to safely extract first non-empty value
     const pickFirstValid = (...vals) => {
       for (const v of vals) {
         if (v !== undefined && v !== null && String(v).trim() !== '') {
@@ -462,30 +460,29 @@ const handlePermitVerification = async (req, res) => {
       return 'N/A';
     };
 
-    // Combine first_name + last_name if applicant_name is missing
     const combinedFullName = (row.first_name || row.last_name) 
       ? `${row.first_name || ''} ${row.last_name || ''}`.trim() 
       : null;
 
-    const permit_number = pickFirstValid(row.permit_number, row.permitnumber, row.permit_num, permitNum);
-    const applicant_name = pickFirstValid(row.applicant_name, row.applicantname, row.applicant, combinedFullName);
-    const date_issued = pickFirstValid(row.date_issued, row.dateissued, row.issued_date, row.created_at);
-    const purpose = pickFirstValid(row.purpose, row.building_purpose, row.purpose_use, 'RESIDENTIAL');
-    const location = pickFirstValid(row.location, row.community, row.site_location);
-    const address = pickFirstValid(row.address, row.site_address, row.plot_address);
-    const phone = pickFirstValid(row.phone, row.telephone, row.mobile);
+    const permitNumFinal = pickFirstValid(row.permit_number, row.permitnumber, row.permit_num, permitNum);
+    const applicantNameFinal = pickFirstValid(row.applicant_name, row.applicantname, row.applicant, combinedFullName);
+    const dateIssuedFinal = pickFirstValid(row.date_issued, row.dateissued, row.issued_date, row.created_at);
+    const purposeFinal = pickFirstValid(row.purpose, row.building_purpose, row.purpose_use, 'RESIDENTIAL');
+    const locationFinal = pickFirstValid(row.location, row.community, row.site_location);
+    const addressFinal = pickFirstValid(row.address, row.site_address, row.plot_address);
+    const phoneFinal = pickFirstValid(row.phone, row.telephone, row.mobile);
 
     const formattedData = {
-      permit_number,
-      permitNumber: permit_number,
-      applicant_name: applicant_name.toUpperCase(),
-      applicantName: applicant_name.toUpperCase(),
-      date_issued,
-      dateIssued: date_issued,
-      purpose: purpose.toUpperCase(),
-      location: location.toUpperCase(),
-      address: address.toUpperCase(),
-      phone,
+      permit_number: permitNumFinal,
+      permitNumber: permitNumFinal,
+      applicant_name: applicantNameFinal.toUpperCase(),
+      applicantName: applicantNameFinal.toUpperCase(),
+      date_issued: dateIssuedFinal,
+      dateIssued: dateIssuedFinal,
+      purpose: purposeFinal.toUpperCase(),
+      location: locationFinal.toUpperCase(),
+      address: addressFinal.toUpperCase(),
+      phone: phoneFinal,
       status: row.status || 'Synced'
     };
 
@@ -499,3 +496,20 @@ const handlePermitVerification = async (req, res) => {
 
 router.get('/verify-record', handlePermitVerification);
 router.get('/verify/*', handlePermitVerification);
+
+// ==========================================
+// 7. CONTROLLER ROUTES
+// ==========================================
+router.get('/stats', getPermitStats);
+router.get('/monthly-stats', getMonthlyStats); 
+router.get('/', getPermits);
+
+router.post('/archive', requireAuth, archivalUploads, archivePermit);
+router.delete('/:id', requireAuth, deletePermit);
+router.put('/:id', requireAuth, updatePermit);
+router.put('/:id/remove-file', requireAuth, removePermitFile);
+
+// ==========================================
+// EXPORT ROUTER
+// ==========================================
+module.exports = router;
