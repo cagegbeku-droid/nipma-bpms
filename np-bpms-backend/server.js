@@ -25,6 +25,16 @@ const permitRoutes = require('./routes/permitRoutes');
 const authRoutes = require('./routes/auth');
 const { triggerBackup } = require('./controllers/backupController'); 
 
+// --- HEALTH CHECK ENDPOINT (For UptimeRobot Keep-Alive) ---
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'UP',
+    message: 'NIPDA BPMS Archival API is active and healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
 // Mount Routes
 app.use('/api/permits', permitRoutes);
 app.use('/api/auth', authRoutes);

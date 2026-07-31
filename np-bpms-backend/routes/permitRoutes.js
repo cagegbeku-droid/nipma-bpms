@@ -396,16 +396,15 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
     res.status(500).json({ success: false, message: `OCR Extraction Error: ${err.message}` });
   }
 });
-
 // ==========================================
-// 6. PUBLIC PERMIT VERIFICATION (No auth required)
+// 6. PUBLIC PERMIT VERIFICATION (Normalized Data Keys)
 // ==========================================
 router.get('/verify/:permitNumber', async (req, res) => {
   try {
     const permitNum = req.params.permitNumber;
     
     const query = `
-      SELECT permit_number, applicant_name, date_issued, purpose, location, address, status 
+      SELECT * 
       FROM permits 
       WHERE LOWER(TRIM(permit_number)) = LOWER(TRIM($1));
     `;
@@ -420,23 +419,25 @@ router.get('/verify/:permitNumber', async (req, res) => {
       });
     }
 
-    res.json({ success: true, data: rows[0] });
+    const row = rows[0];
+
+    // Normalize payload to support both snake_case and camelCase
+    const formattedData = {
+      permit_number: row.permit_number || row.permitNumber || '',
+      permitNumber: row.permit_number || row.permitNumber || '',
+      applicant_name: row.applicant_name || row.applicantName || row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : '',
+      applicantName: row.applicant_name || row.applicantName || row.first_name ? `${row.first_name || ''} ${row.last_name || ''}`.trim() : '',
+      date_issued: row.date_issued || row.dateIssued || '',
+      dateIssued: row.date_issued || row.dateIssued || '',
+      purpose: row.purpose || 'RESIDENTIAL',
+      location: row.location || '',
+      address: row.address || '',
+      status: row.status || 'Synced'
+    };
+
+    res.json({ success: true, data: formattedData });
   } catch (err) {
     console.error("Verification Database Error:", err);
     res.status(500).json({ success: false, message: 'Server error during permit verification.' });
   }
 });
-
-// ==========================================
-// CONTROLLER ROUTES
-// ==========================================
-router.get('/stats', getPermitStats);
-router.get('/monthly-stats', getMonthlyStats); 
-router.get('/', getPermits);
-
-router.post('/archive', requireAuth, archivalUploads, archivePermit);
-router.delete('/:id', requireAuth, deletePermit);
-router.put('/:id', requireAuth, updatePermit);
-router.put('/:id/remove-file', requireAuth, removePermitFile);
-
-module.exports = router;
