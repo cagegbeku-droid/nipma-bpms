@@ -4,28 +4,7 @@ const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { google } = require('googleapis');
 const QRCode = require('qrcode');
-const { createWorker } = require('tesseract.js');
 const db = require('../config/db');
-
-// --- 1. DOM POLYFILLS FOR PDF-PARSE (PREVENTS DOMMatrix CRASHES IN NODE 22/24) ---
-if (typeof globalThis.DOMMatrix === 'undefined') {
-  globalThis.DOMMatrix = class DOMMatrix {};
-}
-if (typeof globalThis.ImageData === 'undefined') {
-  globalThis.ImageData = class ImageData {};
-}
-if (typeof globalThis.Path2D === 'undefined') {
-  globalThis.Path2D = class Path2D {};
-}
-
-// --- 2. CLEAN PDF-PARSE MODULE RESOLVER ---
-let pdfParse = null;
-try {
-  const loadedPdf = require('pdf-parse');
-  pdfParse = typeof loadedPdf === 'function' ? loadedPdf : (loadedPdf && loadedPdf.default ? loadedPdf.default : null);
-} catch (err) {
-  console.warn('⚠️ Notice: pdf-parse initial load warning:', err.message);
-}
 
 // Imports ALL original controller functions
 const { 
@@ -48,12 +27,6 @@ const archivalUploads = upload.fields([
   { name: 'receipts', maxCount: 10 }
 ]);
 
-// Helper function to extract regex matches safely from OCR text
-const extractPattern = (text, regex) => {
-  const match = text.match(regex);
-  return match && match[1] ? match[1].trim() : '';
-};
-
 // --- GOOGLE OAUTH 2.0 USER AUTHENTICATION HELPER ---
 const getGoogleDriveClient = () => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -61,7 +34,7 @@ const getGoogleDriveClient = () => {
   const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
   if (!clientId || !clientSecret || !refreshToken) {
-    throw new Error('Missing Google OAuth environment variables (CLIENT_ID, CLIENT_SECRET, or REFRESH_TOKEN) on Render.');
+    throw new Error('Missing Google OAuth environment variables on Render.');
   }
 
   const oauth2Client = new google.auth.OAuth2(
@@ -74,7 +47,7 @@ const getGoogleDriveClient = () => {
   return { oauth2Client, drive: google.drive({ version: 'v3', auth: oauth2Client }) };
 };
 
-// --- ENSURE SUPABASE PERMITS TABLE & AUTO-FIX STATUS ---
+// --- ENSURE SUPABASE PERMITS TABLE ---
 const ensureTablesExist = async () => {
   try {
     await db.query(`
@@ -97,16 +70,6 @@ const ensureTablesExist = async () => {
         constraint permits_pkey primary key (id)
       );
     `);
-
-    await db.query(`ALTER TABLE permits ADD COLUMN IF NOT EXISTS upload_status text DEFAULT 'completed';`);
-    await db.query(`ALTER TABLE permits ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Synced';`);
-
-    await db.query(`
-      UPDATE permits 
-      SET status = 'Synced', upload_status = 'completed' 
-      WHERE status IS NULL OR LOWER(status) = 'processing' OR LOWER(upload_status) = 'pending';
-    `);
-
   } catch (err) {
     console.error("Error verifying Supabase permits table structure:", err);
   }
@@ -125,7 +88,7 @@ const requireAuth = (req, res, next) => {
     } catch (err) {
       return res.status(401).json({ 
         success: false, 
-        message: "Unauthorized: Invalid or expired session token. Please log in again." 
+        message: "Unauthorized: Invalid or expired session token." 
       });
     }
   }
@@ -159,7 +122,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
     if (!rootFolderId) {
       return res.status(500).json({ 
         success: false, 
-        message: 'Server Configuration Error: GOOGLE_DRIVE_FOLDER_ID missing on Render.' 
+        message: 'Server Configuration Error: GOOGLE_DRIVE_FOLDER_ID missing.' 
       });
     }
 
@@ -208,13 +171,10 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
     try {
       await drive.permissions.create({
         fileId: masterFolderId,
-        requestBody: {
-          role: 'reader',
-          type: 'anyone'
-        }
+        requestBody: { role: 'reader', type: 'anyone' }
       });
     } catch (permErr) {
-      console.warn("Notice: Master folder permission setting skipped or already public:", permErr.message);
+      console.warn("Notice: Master folder permission setting skipped:", permErr.message);
     }
 
     const categoryMap = {
@@ -235,11 +195,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
       }
     }
 
-    res.json({
-      success: true,
-      masterFolderId,
-      subfolders
-    });
+    res.json({ success: true, masterFolderId, subfolders });
 
   } catch (err) {
     console.error("Folder structure creation error:", err);
@@ -255,10 +211,7 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
     const { targetFolderId, fileName, mimeType, fileSize } = req.body;
 
     if (!targetFolderId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Missing target subfolder ID.' 
-      });
+      return res.status(400).json({ success: false, message: 'Missing target subfolder ID.' });
     }
 
     const { oauth2Client } = getGoogleDriveClient();
@@ -285,21 +238,13 @@ router.post('/get-drive-upload-url', requireAuth, async (req, res) => {
     const uploadUrl = googleRes.headers.get('location');
 
     if (!uploadUrl) {
-      const errText = await googleRes.text();
-      console.error('Google Drive session creation failed:', errText);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Google Drive rejected upload session creation.' 
-      });
+      return res.status(500).json({ success: false, message: 'Google Drive rejected upload session creation.' });
     }
 
     res.json({ success: true, uploadUrl });
   } catch (err) {
     console.error('Error generating Google Drive upload URL:', err);
-    res.status(500).json({ 
-      success: false, 
-      message: `Google Drive Session Error: ${err.message}` 
-    });
+    res.status(500).json({ success: false, message: `Google Drive Session Error: ${err.message}` });
   }
 });
 
@@ -324,30 +269,19 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
     `;
     
     const values = [
-      permitNumber, 
-      dateIssued, 
-      purpose, 
-      applicantName, 
-      phone || null, 
-      address, 
-      location, 
-      certificateLink || null, 
-      drawingsLinks || null, 
-      permitFormLink || null, 
-      receiptsLinks || null
+      permitNumber, dateIssued, purpose, applicantName, 
+      phone || null, address, location, 
+      certificateLink || null, drawingsLinks || null, 
+      permitFormLink || null, receiptsLinks || null
     ];
 
     const dbResponse = await db.query(query, values);
     const rows = Array.isArray(dbResponse) ? dbResponse : (dbResponse && dbResponse.rows ? dbResponse.rows : []);
-    const savedRecord = rows.length > 0 ? rows[0] : null;
 
-    res.json({ success: true, data: savedRecord });
+    res.json({ success: true, data: rows[0] || null });
   } catch (err) {
     console.error("Database metadata insert error:", err);
-    res.status(500).json({ 
-      success: false, 
-      message: `Database Insert Error: ${err.message}` 
-    });
+    res.status(500).json({ success: false, message: `Database Insert Error: ${err.message}` });
   }
 });
 
@@ -369,10 +303,7 @@ const handleQrGeneration = async (req, res) => {
       errorCorrectionLevel: 'H',
       width: 300,
       margin: 2,
-      color: {
-        dark: '#0f172a',
-        light: '#ffffff'
-      }
+      color: { dark: '#0f172a', light: '#ffffff' }
     });
 
     res.json({ 
@@ -391,88 +322,7 @@ router.get('/qr', handleQrGeneration);
 router.get('/qr/:permitNumber', handleQrGeneration);
 
 // ==========================================
-// 5. OCR & PDF DOCUMENT TEXT EXTRACTION ROUTE (Safely Wrapped)
-// ==========================================
-router.post('/extract-ocr', requireAuth, (req, res, next) => {
-  upload.single('document')(req, res, (err) => {
-    if (err) {
-      if (err.message === 'Request aborted') {
-        return res.status(400).json({ success: false, message: 'Upload stream was interrupted. Please try uploading again.' });
-      }
-      return res.status(400).json({ success: false, message: err.message });
-    }
-    next();
-  });
-}, async (req, res) => {
-  let worker = null;
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No document file uploaded for text extraction.' });
-    }
-
-    const mimeType = req.file.mimetype || '';
-    const originalName = (req.file.originalname || '').toLowerCase();
-    const isPdf = mimeType === 'application/pdf' || originalName.endsWith('.pdf');
-
-    let extractedText = '';
-
-    if (isPdf) {
-      if (typeof pdfParse !== 'function') {
-        return res.status(500).json({
-          success: false,
-          message: 'PDF parser component is missing or unavailable on the server.'
-        });
-      }
-
-      try {
-        const pdfData = await pdfParse(req.file.buffer);
-        extractedText = (pdfData && pdfData.text) ? pdfData.text.trim() : '';
-
-        if (!extractedText) {
-          return res.status(400).json({
-            success: false,
-            message: 'No embedded text found in this PDF. If this is a scanned document photo inside a PDF, please upload it as a JPG or PNG image instead.'
-          });
-        }
-      } catch (pdfErr) {
-        console.error('PDF Extraction Error:', pdfErr.message);
-        return res.status(400).json({
-          success: false,
-          message: 'Failed to extract text from PDF file.'
-        });
-      }
-    } else {
-      worker = await createWorker('eng');
-      const { data } = await worker.recognize(req.file.buffer);
-      extractedText = data.text || '';
-    }
-
-    const extractedData = {
-      permitNumber: extractPattern(extractedText, /(?:Permit|Cert|Licence)\s*(?:No|Number|#)?[\s:]*([A-Za-z0-9_\-\/]+)/i),
-      applicantName: extractPattern(extractedText, /(?:Applicant|Issued To|Name)[\s:]*([A-Za-z\s]{3,30})/i),
-      dateIssued: extractPattern(extractedText, /(?:Date|Issued)[\s:]*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})/i),
-      purpose: extractPattern(extractedText, /(?:Purpose|Development|Type)[\s:]*([A-Za-z0-9\s]{3,40})/i),
-      address: extractPattern(extractedText, /(?:Address|Location|Site)[\s:]*([A-Za-z0-9\s,.-]{3,50})/i),
-      rawText: extractedText
-    };
-
-    res.json({
-      success: true,
-      data: extractedData
-    });
-
-  } catch (err) {
-    console.error('Text Extraction Error:', err);
-    res.status(500).json({ success: false, message: `Text Extraction Error: ${err.message}` });
-  } finally {
-    if (worker) {
-      await worker.terminate();
-    }
-  }
-});
-
-// ==========================================
-// 6. PUBLIC PERMIT VERIFICATION ROUTE
+// 5. PUBLIC PERMIT VERIFICATION ROUTE
 // ==========================================
 const handlePermitVerification = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -486,7 +336,6 @@ const handlePermitVerification = async (req, res) => {
     }
 
     const permitNum = decodeURIComponent(rawPermitNum).trim();
-    console.log(`🔍 [VERIFY REQUEST] Searching for permit number: "${permitNum}"`);
 
     const query = `
       SELECT * 
@@ -505,20 +354,16 @@ const handlePermitVerification = async (req, res) => {
     let rows = Array.isArray(dbResponse) ? dbResponse : (dbResponse && dbResponse.rows ? dbResponse.rows : []);
     
     if (rows.length === 0) {
-      console.warn(`⚠️ [VERIFY FAILED] No DB match found for permit number: "${permitNum}"`);
       return res.status(404).json({ 
         success: false, 
         message: `Permit "${permitNum}" not found in official archives.` 
       });
     }
 
-    // Un-nest target record if wrapped inside nested array
     let record = rows[0];
     while (Array.isArray(record) && record.length > 0) {
       record = record[0];
     }
-
-    console.log("✅ [VERIFY SUCCESS] Unwrapped Record Object:", record);
 
     const permit_number = record.permit_number || record.permitNumber || permitNum;
     const applicant_name = record.applicant_name || record.applicantName || 'N/A';
@@ -555,7 +400,7 @@ router.get('/verify', handlePermitVerification);
 router.get('/verify/:permitNumber', handlePermitVerification);
 
 // ==========================================
-// 7. CONTROLLER ROUTES
+// 6. CONTROLLER ROUTES
 // ==========================================
 router.get('/stats', getPermitStats);
 router.get('/monthly-stats', getMonthlyStats); 
@@ -566,7 +411,4 @@ router.delete('/:id', requireAuth, deletePermit);
 router.put('/:id', requireAuth, updatePermit);
 router.put('/:id/remove-file', requireAuth, removePermitFile);
 
-// ==========================================
-// EXPORT ROUTER
-// ==========================================
 module.exports = router;
