@@ -3,5 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "backup": "git add . && git commit -m \"Automated backup\" && git push origin main"
+  },
+  "dependencies": {
+    "pdf-parse": "^2.4.5"
   }
 }
