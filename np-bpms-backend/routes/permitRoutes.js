@@ -7,7 +7,7 @@ const QRCode = require('qrcode');
 const { createWorker } = require('tesseract.js');
 const db = require('../config/db');
 
-// --- 1. DOM POLYFILLS FOR PDF-PARSE ON NODE 22/24 ---
+// --- 1. DOM POLYFILLS FOR PDF-PARSE (PREVENTS DOMMatrix CRASHES IN NODE 22/24) ---
 if (typeof globalThis.DOMMatrix === 'undefined') {
   globalThis.DOMMatrix = class DOMMatrix {};
 }
@@ -18,23 +18,13 @@ if (typeof globalThis.Path2D === 'undefined') {
   globalThis.Path2D = class Path2D {};
 }
 
-// --- 2. MULTI-PATH PDF-PARSE RESOLVER ---
+// --- 2. CLEAN PDF-PARSE MODULE RESOLVER ---
 let pdfParse = null;
 try {
   const loadedPdf = require('pdf-parse');
-  if (typeof loadedPdf === 'function') {
-    pdfParse = loadedPdf;
-  } else if (loadedPdf && typeof loadedPdf.default === 'function') {
-    pdfParse = loadedPdf.default;
-  } else {
-    pdfParse = require('pdf-parse/lib/pdf-parse.js');
-  }
+  pdfParse = typeof loadedPdf === 'function' ? loadedPdf : (loadedPdf && loadedPdf.default ? loadedPdf.default : null);
 } catch (err) {
-  try {
-    pdfParse = require('pdf-parse/lib/pdf-parse.js');
-  } catch (subErr) {
-    console.warn('⚠️ Notice: pdf-parse direct core file load attempted:', subErr.message);
-  }
+  console.warn('⚠️ Notice: pdf-parse initial load warning:', err.message);
 }
 
 // Imports ALL original controller functions
@@ -420,7 +410,7 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
       if (typeof pdfParse !== 'function') {
         return res.status(500).json({
           success: false,
-          message: 'PDF parser component failed to load on the server. Please upload a PNG or JPG image instead.'
+          message: 'PDF parser component is missing or unavailable on the server.'
         });
       }
 
@@ -431,14 +421,14 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
         if (!extractedText) {
           return res.status(400).json({
             success: false,
-            message: 'No text layer found in this PDF. If this is a scanned photo inside a PDF, please upload it as a PNG or JPG image.'
+            message: 'No embedded text found in this PDF. If this is a scanned document photo inside a PDF, please upload it as a JPG or PNG image instead.'
           });
         }
       } catch (pdfErr) {
         console.error('PDF Extraction Error:', pdfErr.message);
         return res.status(400).json({
           success: false,
-          message: 'Failed to read PDF. Please ensure the file is unencrypted and readable.'
+          message: 'Failed to extract text from PDF file.'
         });
       }
     } else {
