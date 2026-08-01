@@ -391,9 +391,19 @@ router.get('/qr', handleQrGeneration);
 router.get('/qr/:permitNumber', handleQrGeneration);
 
 // ==========================================
-// 5. OCR & PDF DOCUMENT TEXT EXTRACTION ROUTE
+// 5. OCR & PDF DOCUMENT TEXT EXTRACTION ROUTE (Safely Wrapped)
 // ==========================================
-router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, res) => {
+router.post('/extract-ocr', requireAuth, (req, res, next) => {
+  upload.single('document')(req, res, (err) => {
+    if (err) {
+      if (err.message === 'Request aborted') {
+        return res.status(400).json({ success: false, message: 'Upload stream was interrupted. Please try uploading again.' });
+      }
+      return res.status(400).json({ success: false, message: err.message });
+    }
+    next();
+  });
+}, async (req, res) => {
   let worker = null;
   try {
     if (!req.file) {
@@ -502,6 +512,7 @@ const handlePermitVerification = async (req, res) => {
       });
     }
 
+    // Un-nest target record if wrapped inside nested array
     let record = rows[0];
     while (Array.isArray(record) && record.length > 0) {
       record = record[0];
