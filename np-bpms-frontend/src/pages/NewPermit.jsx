@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Login from '../Login';
 
 const NewPermit = () => {
   const [currentUser, setCurrentUser] = useState(null);
+
+  // References to abort ongoing fetch & XHR direct uploads
+  const activeXhrsRef = useRef([]);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => {
     // Read STRICTLY from sessionStorage (dies on tab/browser close)
@@ -40,13 +44,12 @@ const NewPermit = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  // --- OCR & QR STATES ---
-  const [isOcrScanning, setIsOcrScanning] = useState(false);
-  const [ocrSuccess, setOcrSuccess] = useState(false);
+  // --- QR MODAL STATE ---
   const [qrCodeData, setQrCodeData] = useState({ isOpen: false, code: '', permitNum: '' });
 
   const formatPermitNumberInput = (value) => {
     const cleanVal = (value || '').trim().toUpperCase();
+    if (!cleanVal) return '';
     if (cleanVal.startsWith('NIPDA/')) {
       return cleanVal;
     }
@@ -59,55 +62,27 @@ const NewPermit = () => {
     return cleanVal;
   };
 
+  // Smooth typing handler (preserves cursor position)
   const handleTextChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ 
       ...prev, 
-      [name]: name === 'dateIssued' || name === 'phone' ? value : value.toUpperCase() 
+      [name]: value 
     }));
   };
 
-  // --- OCR EXTRACTION HANDLER ---
-  const handleOcrUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const token = sessionStorage.getItem('token');
-    setIsOcrScanning(true);
-    setOcrSuccess(false);
-
-    const ocrFormData = new FormData();
-    ocrFormData.append('document', file);
-
-    try {
-      const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/extract-ocr", {
-        method: "POST",
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: ocrFormData
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.data) {
-        setFormData(prev => ({
-          ...prev,
-          permitNumber: result.data.permitNumber ? formatPermitNumberInput(result.data.permitNumber) : prev.permitNumber,
-          applicantName: result.data.applicantName || prev.applicantName,
-          dateIssued: result.data.dateIssued || prev.dateIssued,
-          purpose: result.data.purpose || prev.purpose,
-          address: result.data.address || prev.address
-        }));
-        setOcrSuccess(true);
-      } else {
-        alert(result.message || "Could not extract text. Please enter details manually.");
-      }
-    } catch (err) {
-      console.error("OCR Scan Error:", err);
-      alert("OCR processing failed. Please enter permit details manually.");
-    } finally {
-      setIsOcrScanning(false);
+  // Capitalize on Blur & format permit numbers cleanly
+  const handleInputBlur = (e) => {
+    const { name, value } = e.target;
+    
+    if (name === 'permitNumber') {
+      const formatted = formatPermitNumberInput(value);
+      setFormData(prev => ({ ...prev, permitNumber: formatted }));
+      checkDuplicateRecord(formatted, formData.dateIssued);
+    } else if (name === 'dateIssued') {
+      checkDuplicateRecord(formatPermitNumberInput(formData.permitNumber), value);
+    } else if (name !== 'phone') {
+      setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
     }
   };
 
@@ -135,12 +110,6 @@ const NewPermit = () => {
     }
   };
 
-  const handlePermitBlurOrDateChange = () => {
-    const formatted = formatPermitNumberInput(formData.permitNumber);
-    setFormData(prev => ({ ...prev, permitNumber: formatted }));
-    checkDuplicateRecord(formatted, formData.dateIssued);
-  };
-
   const handleFileChange = (e) => {
     const fieldName = e.target.name;
     const newFiles = Array.from(e.target.files);
@@ -152,10 +121,30 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
+  // --- CANCEL UPLOAD HANDLER ---
+  const handleCancelUpload = () => {
+    // Abort active fetch requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    // Abort active direct Google Drive XHR uploads
+    activeXhrsRef.current.forEach(xhr => {
+      if (xhr && xhr.readyState !== 4) {
+        xhr.abort();
+      }
+    });
+    activeXhrsRef.current = [];
+    setIsSubmitting(false);
+    setUploadProgress(0);
+    setMessage("⏹️ Upload process was stopped by user.");
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     setUploadProgress(0);
+    activeXhrsRef.current = [];
+    abortControllerRef.current = new AbortController();
 
     try {
       const token = sessionStorage.getItem('token');
@@ -179,9 +168,10 @@ const NewPermit = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
+        signal: abortControllerRef.current.signal,
         body: JSON.stringify({
           permitNumber: formattedPermitNumber,
-          applicantName: formData.applicantName,
+          applicantName: formData.applicantName.toUpperCase(),
           categories: activeCategories
         })
       });
@@ -206,6 +196,7 @@ const NewPermit = () => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
+          signal: abortControllerRef.current.signal,
           body: JSON.stringify({ 
             targetFolderId: targetFolderId,
             fileName: file.name, 
@@ -221,6 +212,8 @@ const NewPermit = () => {
 
         return new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
+          activeXhrsRef.current.push(xhr);
+
           xhr.open("PUT", sessionData.uploadUrl, true);
 
           xhr.upload.onprogress = (event) => {
@@ -245,6 +238,8 @@ const NewPermit = () => {
           };
 
           xhr.onerror = () => reject(new Error("Network connection error during Google Drive upload."));
+          xhr.onabort = () => reject(new Error("CANCELLED_BY_USER"));
+          
           xhr.send(file);
         });
       };
@@ -280,11 +275,11 @@ const NewPermit = () => {
       const metadataPayload = {
         permitNumber: formattedPermitNumber,
         dateIssued: formData.dateIssued,
-        purpose: finalPurposeValue,
-        applicantName: formData.applicantName,
+        purpose: finalPurposeValue.toUpperCase(),
+        applicantName: formData.applicantName.toUpperCase(),
         phone: formData.phone,
-        location: formData.location,
-        address: formData.address,
+        location: formData.location.toUpperCase(),
+        address: formData.address.toUpperCase(),
         certificateLink: certificateLink,
         drawingsLinks: drawingsLinks.join(','),
         permitFormLink: permitFormLink,
@@ -297,6 +292,7 @@ const NewPermit = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
+        signal: abortControllerRef.current.signal,
         body: JSON.stringify(metadataPayload)
       });
 
@@ -323,14 +319,15 @@ const NewPermit = () => {
         setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
         setDuplicateWarning('');
-        setOcrSuccess(false);
       } else {
         setMessage(metaData.message || "Failed to save record metadata.");
       }
 
     } catch (err) {
-      console.error("Direct Upload Error:", err);
-      if (err.message !== "Session expired") {
+      if (err.message === "CANCELLED_BY_USER" || err.name === "AbortError") {
+        console.log("Upload aborted by officer.");
+      } else {
+        console.error("Direct Upload Error:", err);
         setMessage("Upload Error: " + (err.message || "Failed to complete upload."));
       }
     } finally {
@@ -367,7 +364,7 @@ const NewPermit = () => {
                   type="button" 
                   onClick={() => removeFile(fieldName, index)} 
                   disabled={isSubmitting}
-                  className="text-red-500 font-bold px-2 py-1 hover:bg-red-50 rounded text-xs cursor-pointer"
+                  className="text-red-500 font-bold px-2 py-1 hover:bg-red-50 rounded text-xs cursor-pointer disabled:opacity-50"
                 >
                   Remove
                 </button>
@@ -414,53 +411,34 @@ const NewPermit = () => {
       )}
       
       {message && (
-        <div className={"p-4 mb-6 rounded-md font-medium transition-all shadow-sm " + (message.includes("Success") ? "bg-green-100 text-green-700 border border-green-200" : "bg-blue-100 text-blue-700 border border-blue-200")}> 
+        <div className={"p-4 mb-6 rounded-md font-medium transition-all shadow-sm " + (message.includes("Success") ? "bg-green-100 text-green-700 border border-green-200" : message.includes("stopped") ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-blue-100 text-blue-700 border border-blue-200")}> 
           {message} 
         </div>
       )}
 
+      {/* --- PROGRESS BAR WITH CANCEL BUTTON --- */}
       {isSubmitting && (
-        <div className="mb-6 bg-white p-4 rounded-xl border border-blue-200 shadow-sm space-y-2">
-          <div className="flex justify-between text-xs font-bold text-blue-800">
-            <span>Creating Active Folders & Archiving Files...</span>
-            <span>{uploadProgress}%</span>
+        <div className="mb-6 bg-white p-5 rounded-xl border border-blue-200 shadow-md space-y-3">
+          <div className="flex justify-between items-center text-xs font-bold text-blue-800">
+            <span>Creating Folders & Transferring Files to Archives...</span>
+            <span className="text-sm text-blue-900">{uploadProgress}%</span>
           </div>
+          
           <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
             <div className="bg-blue-600 h-3 rounded-full transition-all duration-200" style={{ width: `${uploadProgress}%` }}></div>
           </div>
+
+          <div className="flex justify-end pt-1">
+            <button 
+              type="button" 
+              onClick={handleCancelUpload}
+              className="bg-red-100 hover:bg-red-200 text-red-700 font-bold text-xs px-4 py-2 rounded-lg transition border border-red-300 cursor-pointer flex items-center space-x-1"
+            >
+              <span>⏹️ Cancel Upload</span>
+            </button>
+          </div>
         </div>
       )}
-
-      {/* --- OCR SCANNER DROPZONE --- */}
-      <div className="mb-6 p-4 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50 hover:bg-blue-50 transition">
-        <label className="block text-sm font-semibold text-blue-900 mb-1 cursor-pointer">
-          ✨ Auto-Fill Form from Scanned Permit (OCR)
-        </label>
-        <p className="text-xs text-blue-700 mb-3">
-          Select or drop a scanned PDF or photo of an old permit certificate to extract text automatically.
-        </p>
-        
-        <input 
-          type="file" 
-          accept="image/*,.pdf"
-          onChange={handleOcrUpload}
-          disabled={isOcrScanning || isSubmitting}
-          className="text-xs text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer disabled:opacity-50"
-        />
-
-        {isOcrScanning && (
-          <div className="flex items-center space-x-2 mt-3 text-xs font-semibold text-blue-800 animate-pulse">
-            <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            <span>Scanning document text via OCR...</span>
-          </div>
-        )}
-
-        {ocrSuccess && (
-          <p className="mt-2 text-xs font-bold text-emerald-600">
-            ✓ Form auto-filled from document! Please verify inputs below.
-          </p>
-        )}
-      </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-6 space-y-8 border border-gray-100">
         <div>
@@ -473,10 +451,10 @@ const NewPermit = () => {
                 name="permitNumber" 
                 value={formData.permitNumber} 
                 onChange={handleTextChange} 
-                onBlur={handlePermitBlurOrDateChange}
+                onBlur={handleInputBlur}
                 required 
                 disabled={isSubmitting}
-                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
+                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
                 placeholder="E.G., LAK-NIN2630 or NIPDA/LAK-NIN/26/30"
               />
             </div>
@@ -486,10 +464,11 @@ const NewPermit = () => {
                 type="date" 
                 name="dateIssued" 
                 value={formData.dateIssued} 
-                onChange={(e) => { handleTextChange(e); handlePermitBlurOrDateChange(); }} 
+                onChange={handleTextChange} 
+                onBlur={handleInputBlur}
                 required 
                 disabled={isSubmitting} 
-                className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm" 
+                className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
               />
             </div>
             <div className="md:col-span-2">
@@ -500,7 +479,7 @@ const NewPermit = () => {
                 onChange={handleTextChange} 
                 required 
                 disabled={isSubmitting}
-                className="w-full p-2 border border-gray-300 rounded-md bg-white uppercase disabled:bg-gray-50 text-sm"
+                className="w-full p-2 border border-gray-300 rounded-md bg-white uppercase disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
               >
                 <option value="RESIDENTIAL">RESIDENTIAL</option>
                 <option value="COMMERCIAL">COMMERCIAL</option>
@@ -520,9 +499,10 @@ const NewPermit = () => {
                   name="customPurpose" 
                   value={formData.customPurpose} 
                   onChange={handleTextChange} 
+                  onBlur={handleInputBlur}
                   required 
                   disabled={isSubmitting}
-                  className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
+                  className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
                   placeholder="E.G., INDUSTRIAL WAREHOUSE" 
                 />
               </div>
@@ -540,9 +520,10 @@ const NewPermit = () => {
                 name="applicantName" 
                 value={formData.applicantName} 
                 onChange={handleTextChange} 
+                onBlur={handleInputBlur}
                 required 
                 disabled={isSubmitting} 
-                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
+                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
                 placeholder="E.G., JOHN & MARY DOE / ST. PETER'S METHODIST CHURCH" 
               />
             </div>
@@ -554,7 +535,7 @@ const NewPermit = () => {
                 value={formData.phone} 
                 onChange={handleTextChange} 
                 disabled={isSubmitting} 
-                className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm" 
+                className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
                 placeholder="Optional" 
               />
             </div>
@@ -565,9 +546,10 @@ const NewPermit = () => {
                 name="location" 
                 value={formData.location} 
                 onChange={handleTextChange} 
+                onBlur={handleInputBlur}
                 required 
                 disabled={isSubmitting} 
-                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
+                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
                 placeholder="E.G., PRAMPRAM" 
               />
             </div>
@@ -578,9 +560,10 @@ const NewPermit = () => {
                 name="address" 
                 value={formData.address} 
                 onChange={handleTextChange} 
+                onBlur={handleInputBlur}
                 required 
                 disabled={isSubmitting} 
-                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm" 
+                className="w-full p-2 border border-gray-300 rounded-md uppercase disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
                 placeholder="E.G., PLOT 12, BLOCK B" 
               />
             </div>
@@ -616,7 +599,7 @@ const NewPermit = () => {
           <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full text-center relative animate-fadeIn">
             <button 
               onClick={() => setQrCodeData({ isOpen: false, code: '', permitNum: '' })}
-              className="absolute top-3 right-3 text-gray-400 hover:text-red-500 font-bold text-xl"
+              className="absolute top-3 right-3 text-gray-400 hover:text-red-500 font-bold text-xl cursor-pointer"
             >
               &times;
             </button>
@@ -632,7 +615,7 @@ const NewPermit = () => {
 
             <button 
               onClick={() => window.print()} 
-              className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-sm transition"
+              className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-sm transition cursor-pointer"
             >
               🖨️ Print Badge Sticker
             </button>
