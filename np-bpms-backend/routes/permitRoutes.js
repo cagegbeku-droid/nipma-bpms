@@ -392,10 +392,10 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
         const pdfData = await pdfParse(req.file.buffer);
         extractedText = pdfData.text || '';
       } catch (pdfErr) {
-        console.error('PDF Parsing Warning:', pdfErr.message);
+        console.warn('PDF parsing unavailable or module missing:', pdfErr.message);
         return res.status(400).json({
           success: false,
-          message: 'Failed to read PDF text natively. If this is a scanned document, please convert it to JPG/PNG image format before uploading.'
+          message: 'PDF reader module is installing or unavailable. Please upload a PNG/JPG image or try again in a moment.'
         });
       }
     } else {
