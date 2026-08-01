@@ -7,6 +7,17 @@ const QRCode = require('qrcode');
 const { createWorker } = require('tesseract.js');
 const db = require('../config/db');
 
+// --- DOM POLYFILLS FOR PDF-PARSE ON NODE 22/24 (PREVENTS DOMMatrix CRASHES) ---
+if (typeof globalThis.DOMMatrix === 'undefined') {
+  globalThis.DOMMatrix = class DOMMatrix {};
+}
+if (typeof globalThis.ImageData === 'undefined') {
+  globalThis.ImageData = class ImageData {};
+}
+if (typeof globalThis.Path2D === 'undefined') {
+  globalThis.Path2D = class Path2D {};
+}
+
 // Imports ALL original controller functions
 const { 
   getPermitStats, 
@@ -392,10 +403,10 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
         const pdfData = await pdfParse(req.file.buffer);
         extractedText = pdfData.text || '';
       } catch (pdfErr) {
-        console.warn('PDF parsing unavailable or module missing:', pdfErr.message);
+        console.error('PDF Parsing Error:', pdfErr.message);
         return res.status(400).json({
           success: false,
-          message: 'PDF reader module is installing or unavailable. Please upload a PNG/JPG image or try again in a moment.'
+          message: 'Failed to read text from PDF. If this is a scanned document without embedded text, please upload a PNG or JPG image instead.'
         });
       }
     } else {
@@ -469,7 +480,6 @@ const handlePermitVerification = async (req, res) => {
       });
     }
 
-    // Un-nest target record if wrapped inside a nested database array
     let record = rows[0];
     while (Array.isArray(record) && record.length > 0) {
       record = record[0];
