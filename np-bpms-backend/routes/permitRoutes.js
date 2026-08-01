@@ -399,8 +399,15 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
 
     if (isPdf) {
       try {
-        const pdfParse = require('pdf-parse');
-        const pdfData = await pdfParse(req.file.buffer);
+        const pdfModule = require('pdf-parse');
+        // Resolves default export across CJS/ESM interop in Node 24
+        const parsePdf = typeof pdfModule === 'function' ? pdfModule : (pdfModule.default || pdfModule);
+
+        if (typeof parsePdf !== 'function') {
+          throw new Error('PDF parsing function could not be resolved from module export.');
+        }
+
+        const pdfData = await parsePdf(req.file.buffer);
         extractedText = pdfData.text || '';
       } catch (pdfErr) {
         console.error('PDF Parsing Error:', pdfErr.message);
