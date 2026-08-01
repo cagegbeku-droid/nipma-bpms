@@ -7,7 +7,7 @@ const QRCode = require('qrcode');
 const { createWorker } = require('tesseract.js');
 const db = require('../config/db');
 
-// --- DOM POLYFILLS FOR PDF-PARSE ON NODE 22/24 (PREVENTS DOMMatrix CRASHES) ---
+// --- 1. DOM POLYFILLS FOR PDF-PARSE ON NODE 22/24 ---
 if (typeof globalThis.DOMMatrix === 'undefined') {
   globalThis.DOMMatrix = class DOMMatrix {};
 }
@@ -16,6 +16,25 @@ if (typeof globalThis.ImageData === 'undefined') {
 }
 if (typeof globalThis.Path2D === 'undefined') {
   globalThis.Path2D = class Path2D {};
+}
+
+// --- 2. MULTI-PATH PDF-PARSE RESOLVER ---
+let pdfParse = null;
+try {
+  const loadedPdf = require('pdf-parse');
+  if (typeof loadedPdf === 'function') {
+    pdfParse = loadedPdf;
+  } else if (loadedPdf && typeof loadedPdf.default === 'function') {
+    pdfParse = loadedPdf.default;
+  } else {
+    pdfParse = require('pdf-parse/lib/pdf-parse.js');
+  }
+} catch (err) {
+  try {
+    pdfParse = require('pdf-parse/lib/pdf-parse.js');
+  } catch (subErr) {
+    console.warn('⚠️ Notice: pdf-parse direct core file load attempted:', subErr.message);
+  }
 }
 
 // Imports ALL original controller functions
@@ -398,22 +417,28 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
     let extractedText = '';
 
     if (isPdf) {
+      if (typeof pdfParse !== 'function') {
+        return res.status(500).json({
+          success: false,
+          message: 'PDF parser component failed to load on the server. Please upload a PNG or JPG image instead.'
+        });
+      }
+
       try {
-        const pdfModule = require('pdf-parse');
-        // Resolves default export across CJS/ESM interop in Node 24
-        const parsePdf = typeof pdfModule === 'function' ? pdfModule : (pdfModule.default || pdfModule);
+        const pdfData = await pdfParse(req.file.buffer);
+        extractedText = (pdfData && pdfData.text) ? pdfData.text.trim() : '';
 
-        if (typeof parsePdf !== 'function') {
-          throw new Error('PDF parsing function could not be resolved from module export.');
+        if (!extractedText) {
+          return res.status(400).json({
+            success: false,
+            message: 'No text layer found in this PDF. If this is a scanned photo inside a PDF, please upload it as a PNG or JPG image.'
+          });
         }
-
-        const pdfData = await parsePdf(req.file.buffer);
-        extractedText = pdfData.text || '';
       } catch (pdfErr) {
-        console.error('PDF Parsing Error:', pdfErr.message);
+        console.error('PDF Extraction Error:', pdfErr.message);
         return res.status(400).json({
           success: false,
-          message: 'Failed to read text from PDF. If this is a scanned document without embedded text, please upload a PNG or JPG image instead.'
+          message: 'Failed to read PDF. Please ensure the file is unencrypted and readable.'
         });
       }
     } else {
