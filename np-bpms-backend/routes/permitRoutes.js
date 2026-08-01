@@ -371,25 +371,46 @@ router.get('/qr', handleQrGeneration);
 router.get('/qr/:permitNumber', handleQrGeneration);
 
 // ==========================================
-// 5. OCR DOCUMENT AUTO-FILL EXTRACTION ROUTE
+// 5. OCR & PDF DOCUMENT TEXT EXTRACTION ROUTE
 // ==========================================
 router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, res) => {
   let worker = null;
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No document file uploaded for OCR.' });
+      return res.status(400).json({ success: false, message: 'No document file uploaded for text extraction.' });
     }
 
-    worker = await createWorker('eng');
-    const { data: { text } } = await worker.recognize(req.file.buffer);
+    const mimeType = req.file.mimetype || '';
+    const originalName = (req.file.originalname || '').toLowerCase();
+    const isPdf = mimeType === 'application/pdf' || originalName.endsWith('.pdf');
+
+    let extractedText = '';
+
+    if (isPdf) {
+      try {
+        const pdfParse = require('pdf-parse');
+        const pdfData = await pdfParse(req.file.buffer);
+        extractedText = pdfData.text || '';
+      } catch (pdfErr) {
+        console.error('PDF Parsing Warning:', pdfErr.message);
+        return res.status(400).json({
+          success: false,
+          message: 'Failed to read PDF text natively. If this is a scanned document, please convert it to JPG/PNG image format before uploading.'
+        });
+      }
+    } else {
+      worker = await createWorker('eng');
+      const { data } = await worker.recognize(req.file.buffer);
+      extractedText = data.text || '';
+    }
 
     const extractedData = {
-      permitNumber: extractPattern(text, /(?:Permit|Cert|Licence)\s*(?:No|Number|#)?[\s:]*([A-Za-z0-9_\-\/]+)/i),
-      applicantName: extractPattern(text, /(?:Applicant|Issued To|Name)[\s:]*([A-Za-z\s]{3,30})/i),
-      dateIssued: extractPattern(text, /(?:Date|Issued)[\s:]*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})/i),
-      purpose: extractPattern(text, /(?:Purpose|Development|Type)[\s:]*([A-Za-z0-9\s]{3,40})/i),
-      address: extractPattern(text, /(?:Address|Location|Site)[\s:]*([A-Za-z0-9\s,.-]{3,50})/i),
-      rawText: text
+      permitNumber: extractPattern(extractedText, /(?:Permit|Cert|Licence)\s*(?:No|Number|#)?[\s:]*([A-Za-z0-9_\-\/]+)/i),
+      applicantName: extractPattern(extractedText, /(?:Applicant|Issued To|Name)[\s:]*([A-Za-z\s]{3,30})/i),
+      dateIssued: extractPattern(extractedText, /(?:Date|Issued)[\s:]*(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})/i),
+      purpose: extractPattern(extractedText, /(?:Purpose|Development|Type)[\s:]*([A-Za-z0-9\s]{3,40})/i),
+      address: extractPattern(extractedText, /(?:Address|Location|Site)[\s:]*([A-Za-z0-9\s,.-]{3,50})/i),
+      rawText: extractedText
     };
 
     res.json({
@@ -398,8 +419,8 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
     });
 
   } catch (err) {
-    console.error('OCR Processing Error:', err);
-    res.status(500).json({ success: false, message: `OCR Extraction Error: ${err.message}` });
+    console.error('Text Extraction Error:', err);
+    res.status(500).json({ success: false, message: `Text Extraction Error: ${err.message}` });
   } finally {
     if (worker) {
       await worker.terminate();
@@ -408,7 +429,7 @@ router.post('/extract-ocr', requireAuth, upload.single('document'), async (req, 
 });
 
 // ==========================================
-// 6. PUBLIC PERMIT VERIFICATION ROUTE (Unwrapped Record Object)
+// 6. PUBLIC PERMIT VERIFICATION ROUTE
 // ==========================================
 const handlePermitVerification = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -448,7 +469,7 @@ const handlePermitVerification = async (req, res) => {
       });
     }
 
-    // Un-nest target record if wrapped inside an array
+    // Un-nest target record if wrapped inside a nested database array
     let record = rows[0];
     while (Array.isArray(record) && record.length > 0) {
       record = record[0];
