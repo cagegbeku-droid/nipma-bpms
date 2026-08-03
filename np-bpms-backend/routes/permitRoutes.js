@@ -20,11 +20,11 @@ const {
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
+// Multer upload fields without receipts
 const archivalUploads = upload.fields([
   { name: 'certificate', maxCount: 1 }, 
   { name: 'drawings', maxCount: 100 },
-  { name: 'permitForm', maxCount: 20 },
-  { name: 'receipts', maxCount: 10 }
+  { name: 'permitForm', maxCount: 20 }
 ]);
 
 // --- GOOGLE OAUTH 2.0 USER AUTHENTICATION HELPER ---
@@ -64,7 +64,6 @@ const ensureTablesExist = async () => {
         certificate_link text null,
         drawings_links text null,
         permit_form_link text null,
-        receipts_links text null,
         upload_status text null default 'completed'::text,
         status character varying(50) null default 'Synced'::character varying,
         constraint permits_pkey primary key (id)
@@ -180,8 +179,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
     const categoryMap = {
       certificate: '1. Permit Certificates',
       drawings: '2. Architectural Drawings',
-      permitForm: '3. Permit Forms',
-      receipts: '4. Receipts & Bills'
+      permitForm: '3. Permit Forms'
     };
 
     const subfolders = {};
@@ -258,13 +256,13 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
     const { 
       permitNumber, dateIssued, purpose, applicantName, 
       phone, address, location, certificateLink, 
-      drawingsLinks, permitFormLink, receiptsLinks 
+      drawingsLinks, permitFormLink 
     } = req.body;
 
     const query = `
       INSERT INTO permits 
-      (permit_number, date_issued, purpose, applicant_name, phone, address, location, certificate_link, drawings_links, permit_form_link, receipts_links, upload_status, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'completed', 'Synced')
+      (permit_number, date_issued, purpose, applicant_name, phone, address, location, certificate_link, drawings_links, permit_form_link, upload_status, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed', 'Synced')
       RETURNING *;
     `;
     
@@ -272,7 +270,7 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
       permitNumber, dateIssued, purpose, applicantName, 
       phone || null, address, location, 
       certificateLink || null, drawingsLinks || null, 
-      permitFormLink || null, receiptsLinks || null
+      permitFormLink || null
     ];
 
     const dbResponse = await db.query(query, values);

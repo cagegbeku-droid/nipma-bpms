@@ -1,15 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Login from '../Login';
 
+const parseFlexibleDate = (inputStr) => {
+  if (!inputStr) return '';
+  const str = inputStr.trim();
+
+  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+  if (dmyMatch) {
+    const [, day, month, year] = dmyMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  const d8Match = str.match(/^(\d{2})(\d{2})(\d{4})$/);
+  if (d8Match) {
+    const [, day, month, year] = d8Match;
+    return `${year}-${month}-${day}`;
+  }
+
+  return str;
+};
+
 const NewPermit = () => {
   const [currentUser, setCurrentUser] = useState(null);
 
-  // References to abort ongoing fetch & XHR direct uploads
   const activeXhrsRef = useRef([]);
   const abortControllerRef = useRef(null);
 
   useEffect(() => {
-    // Read STRICTLY from sessionStorage (dies on tab/browser close)
     const savedUser = sessionStorage.getItem('user');
     const token = sessionStorage.getItem('token');
     if (savedUser && token) {
@@ -38,13 +55,13 @@ const NewPermit = () => {
     location: ''
   });
   
-  const [files, setFiles] = useState({ certificate: [], drawings: [], permitForm: [], receipts: [] });
+  // Clean file state without receipts
+  const [files, setFiles] = useState({ certificate: [], drawings: [], permitForm: [] });
   const [message, setMessage] = useState('');
   const [duplicateWarning, setDuplicateWarning] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  // --- QR MODAL STATE ---
   const [qrCodeData, setQrCodeData] = useState({ isOpen: false, code: '', permitNum: '' });
 
   const formatPermitNumberInput = (value) => {
@@ -62,16 +79,11 @@ const NewPermit = () => {
     return cleanVal;
   };
 
-  // Smooth typing handler (preserves cursor position)
   const handleTextChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ 
-      ...prev, 
-      [name]: value 
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Capitalize on Blur & format permit numbers cleanly
   const handleInputBlur = (e) => {
     const { name, value } = e.target;
     
@@ -121,13 +133,10 @@ const NewPermit = () => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
   };
 
-  // --- CANCEL UPLOAD HANDLER ---
   const handleCancelUpload = () => {
-    // Abort active fetch requests
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-    // Abort active direct Google Drive XHR uploads
     activeXhrsRef.current.forEach(xhr => {
       if (xhr && xhr.readyState !== 4) {
         xhr.abort();
@@ -159,7 +168,6 @@ const NewPermit = () => {
       if (files.certificate.length > 0) activeCategories.push('certificate');
       if (files.drawings.length > 0) activeCategories.push('drawings');
       if (files.permitForm.length > 0) activeCategories.push('permitForm');
-      if (files.receipts.length > 0) activeCategories.push('receipts');
 
       setMessage("Creating Google Drive permit folder...");
       const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
@@ -258,15 +266,10 @@ const NewPermit = () => {
         ? files.drawings.map(file => uploadFileDirectToDrive(file, subfolders.drawings)) 
         : [];
 
-      const receiptsPromises = (files.receipts.length > 0 && subfolders.receipts) 
-        ? files.receipts.map(file => uploadFileDirectToDrive(file, subfolders.receipts)) 
-        : [];
-
-      const [certificateLink, permitFormLink, drawingsLinks, receiptsLinks] = await Promise.all([
+      const [certificateLink, permitFormLink, drawingsLinks] = await Promise.all([
         certPromise,
         formPromise,
-        Promise.all(drawingsPromises),
-        Promise.all(receiptsPromises)
+        Promise.all(drawingsPromises)
       ]);
 
       setMessage("Saving permit record metadata...");
@@ -282,8 +285,7 @@ const NewPermit = () => {
         address: formData.address.toUpperCase(),
         certificateLink: certificateLink,
         drawingsLinks: drawingsLinks.join(','),
-        permitFormLink: permitFormLink,
-        receiptsLinks: receiptsLinks.join(',')
+        permitFormLink: permitFormLink
       };
 
       const metaRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive-metadata", {
@@ -301,7 +303,6 @@ const NewPermit = () => {
       if (metaRes.ok && metaData.success) {
         setMessage("Success! Permit archived cleanly.");
         
-        // --- FETCH GENERATED QR CODE FOR PRINTING ---
         try {
           const qrRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(formattedPermitNumber)}`);
           const qrJson = await qrRes.json();
@@ -317,7 +318,7 @@ const NewPermit = () => {
         }
 
         setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
-        setFiles({ certificate: [], drawings: [], permitForm: [], receipts: [] });
+        setFiles({ certificate: [], drawings: [], permitForm: [] });
         setDuplicateWarning('');
       } else {
         setMessage(metaData.message || "Failed to save record metadata.");
@@ -416,7 +417,6 @@ const NewPermit = () => {
         </div>
       )}
 
-      {/* --- PROGRESS BAR WITH CANCEL BUTTON --- */}
       {isSubmitting && (
         <div className="mb-6 bg-white p-5 rounded-xl border border-blue-200 shadow-md space-y-3">
           <div className="flex justify-between items-center text-xs font-bold text-blue-800">
@@ -459,13 +459,30 @@ const NewPermit = () => {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Date Issued</label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-sm font-medium text-gray-700">Date Issued</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const today = new Date().toISOString().split('T')[0];
+                    setFormData(prev => ({ ...prev, dateIssued: today }));
+                    checkDuplicateRecord(formData.permitNumber, today);
+                  }}
+                  className="text-xs bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
+                >
+                  📅 Set Today
+                </button>
+              </div>
               <input 
                 type="date" 
                 name="dateIssued" 
                 value={formData.dateIssued} 
                 onChange={handleTextChange} 
-                onBlur={handleInputBlur}
+                onBlur={(e) => {
+                  const parsedDate = parseFlexibleDate(e.target.value);
+                  setFormData(prev => ({ ...prev, dateIssued: parsedDate }));
+                  handleInputBlur(e);
+                }}
                 required 
                 disabled={isSubmitting} 
                 className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
@@ -572,11 +589,10 @@ const NewPermit = () => {
 
         <div>
           <h2 className="text-lg font-semibold text-gray-800 border-b pb-2 mb-4">3. Document Vault</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-lg border border-gray-200">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 p-6 rounded-lg border border-gray-200">
             {renderDocumentUpload("Permit Certificate", "certificate", false)}
             {renderDocumentUpload("Architectural Drawings", "drawings", true)}
             {renderDocumentUpload("Permit Form", "permitForm", true)}
-            {renderDocumentUpload("Receipts / Bill", "receipts", true)}
           </div>
         </div>
 
@@ -604,7 +620,7 @@ const NewPermit = () => {
               &times;
             </button>
 
-            <h3 className="font-bold text-sm uppercase text-gray-800">NIPDA Municipal Assembly</h3>
+            <h3 className="font-bold text-sm uppercase text-gray-800">NINGO PRAMPRAM Municipal Assembly</h3>
             <p className="text-xs text-gray-500 mb-3">Official Verification Sticker</p>
 
             <div className="flex justify-center my-3 border p-2 rounded bg-white">
