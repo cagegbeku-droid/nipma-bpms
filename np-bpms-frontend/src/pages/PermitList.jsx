@@ -529,10 +529,6 @@ const PermitList = () => {
                     <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Permit Form</h4>
                     {renderLinks(selectedPermit.permit_form_link, "Form") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
                   </div>
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                    <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Receipts</h4>
-                    {renderLinks(selectedPermit.receipts_links, "Receipt") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
-                  </div>
                 </div>
 
                 <div className="pt-2 flex justify-end">
