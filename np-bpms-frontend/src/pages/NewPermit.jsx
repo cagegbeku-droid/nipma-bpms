@@ -55,7 +55,6 @@ const NewPermit = () => {
     location: ''
   });
   
-  // Clean file state without receipts
   const [files, setFiles] = useState({ certificate: [], drawings: [], permitForm: [] });
   const [message, setMessage] = useState('');
   const [duplicateWarning, setDuplicateWarning] = useState('');
@@ -146,6 +145,75 @@ const NewPermit = () => {
     setIsSubmitting(false);
     setUploadProgress(0);
     setMessage("⏹️ Upload process was stopped by user.");
+  };
+
+  // --- BULK CSV IMPORT HANDLER ---
+  const handleBulkCsvUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target.result;
+        const lines = text.split('\n').filter(line => line.trim() !== '');
+        if (lines.length < 2) {
+          alert("CSV file is empty or missing headers.");
+          return;
+        }
+
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const records = lines.slice(1).map(line => {
+          const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+          const obj = {};
+          headers.forEach((header, index) => {
+            obj[header] = values[index] || '';
+          });
+          return {
+            permitNumber: obj['permit_number'] || obj['permitnumber'] || obj['permit_num'] || obj['permit'],
+            applicantName: obj['applicant_name'] || obj['applicantname'] || obj['applicant'] || obj['name'],
+            dateIssued: obj['date_issued'] || obj['dateissued'] || obj['date'] || '2026-01-01',
+            purpose: obj['purpose'] || 'RESIDENTIAL',
+            location: obj['location'] || 'N/A',
+            address: obj['address'] || 'N/A',
+            phone: obj['phone'] || ''
+          };
+        }).filter(r => r.permitNumber);
+
+        if (records.length === 0) {
+          alert("No valid records found in CSV file.");
+          return;
+        }
+
+        setIsSubmitting(true);
+        setMessage(`Importing ${records.length} historical records into Supabase...`);
+
+        const token = sessionStorage.getItem('token');
+        const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/bulk-import", {
+          method: "POST",
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ records })
+        });
+
+        const result = await response.json();
+        if (response.ok && result.success) {
+          setMessage(`🎉 ${result.message}`);
+        } else {
+          setMessage(`Bulk Import Error: ${result.message}`);
+        }
+      } catch (err) {
+        console.error("Bulk CSV Parse Error:", err);
+        alert("Failed to parse CSV file. Ensure it is formatted correctly.");
+      } finally {
+        setIsSubmitting(false);
+        e.target.value = '';
+      }
+    };
+
+    reader.readAsText(file);
   };
 
   const handleSubmit = async (e) => {
@@ -405,6 +473,25 @@ const NewPermit = () => {
         </button>
       </div>
 
+      {/* --- BULK CSV IMPORT BOX --- */}
+      <div className="mb-6 p-5 bg-emerald-50 rounded-xl border border-emerald-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+        <div>
+          <h3 className="font-bold text-sm text-emerald-900">📊 Bulk Import Historical Permits (CSV Spreadsheet)</h3>
+          <p className="text-xs text-emerald-700">Upload a `.csv` file containing permit numbers, dates, applicants, and locations to import hundreds of records instantly.</p>
+        </div>
+
+        <label className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg cursor-pointer transition shadow-sm whitespace-nowrap">
+          <span>📂 Upload CSV Spreadsheet</span>
+          <input 
+            type="file" 
+            accept=".csv" 
+            onChange={handleBulkCsvUpload} 
+            disabled={isSubmitting} 
+            className="hidden" 
+          />
+        </label>
+      </div>
+
       {duplicateWarning && (
         <div className="p-4 mb-6 rounded-md bg-amber-50 text-amber-800 border border-amber-300 font-medium shadow-sm text-sm">
           {duplicateWarning}
@@ -412,7 +499,7 @@ const NewPermit = () => {
       )}
       
       {message && (
-        <div className={"p-4 mb-6 rounded-md font-medium transition-all shadow-sm " + (message.includes("Success") ? "bg-green-100 text-green-700 border border-green-200" : message.includes("stopped") ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-blue-100 text-blue-700 border border-blue-200")}> 
+        <div className={"p-4 mb-6 rounded-md font-medium transition-all shadow-sm " + (message.includes("Success") || message.includes("Import complete") ? "bg-green-100 text-green-700 border border-green-200" : message.includes("stopped") ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-blue-100 text-blue-700 border border-blue-200")}> 
           {message} 
         </div>
       )}

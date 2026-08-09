@@ -28,7 +28,9 @@ const PermitList = () => {
   const [selectedPermit, setSelectedPermit] = useState(null); 
   const [editingPermit, setEditingPermit] = useState(null);   
   const [editFormData, setEditFormData] = useState({});       
+  const [editFiles, setEditFiles] = useState({ certificate: [], drawings: [], permitForm: [] });
   const [isSaving, setIsSaving] = useState(false);            
+  const [editStatusMsg, setEditStatusMsg] = useState('');
 
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
   const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
@@ -203,15 +205,22 @@ const PermitList = () => {
       address: permit.address || '',
       location: permit.location || ''
     });
+    setEditFiles({ certificate: [], drawings: [], permitForm: [] });
+    setEditStatusMsg('');
     setEditingPermit(permit);
   };
 
   const handleEditChange = (e) => {
     const { name, value } = e.target;
-    setEditFormData({ 
-      ...editFormData, 
+    setEditFormData(prev => ({ 
+      ...prev, 
       [name]: name === 'date_issued' || name === 'phone' ? value : value.toUpperCase() 
-    });
+    }));
+  };
+
+  const handleEditFileChange = (e) => {
+    const { name, files } = e.target;
+    setEditFiles(prev => ({ ...prev, [name]: Array.from(files) }));
   };
 
   const handlePermitNumberBlur = () => {
@@ -222,19 +231,104 @@ const PermitList = () => {
   const submitEdit = async (e) => {
     e.preventDefault();
     setIsSaving(true);
-    
+    setEditStatusMsg('Updating record...');
+
     const finalPurpose = editFormData.purpose === 'OTHER' ? editFormData.custom_purpose : editFormData.purpose;
-    const payload = {
-      permit_number: formatPermitNumberInput(editFormData.permit_number),
-      date_issued: editFormData.date_issued,
-      purpose: finalPurpose,
-      applicant_name: editFormData.applicant_name,
-      phone: editFormData.phone,
-      address: editFormData.address,
-      location: editFormData.location
-    };
-    
+    const formattedPermitNum = formatPermitNumberInput(editFormData.permit_number);
+
+    let certificateLink = editingPermit.certificate_link || '';
+    let permitFormLink = editingPermit.permit_form_link || '';
+    let drawingsLinks = editingPermit.drawings_links ? editingPermit.drawings_links.split(',') : [];
+
     try {
+      const hasNewFiles = editFiles.certificate.length > 0 || editFiles.drawings.length > 0 || editFiles.permitForm.length > 0;
+
+      if (hasNewFiles) {
+        setEditStatusMsg('Creating/accessing Google Drive subfolders...');
+        const activeCategories = [];
+        if (editFiles.certificate.length > 0) activeCategories.push('certificate');
+        if (editFiles.drawings.length > 0) activeCategories.push('drawings');
+        if (editFiles.permitForm.length > 0) activeCategories.push('permitForm');
+
+        const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
+          method: "POST",
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            permitNumber: formattedPermitNum,
+            applicantName: editFormData.applicant_name,
+            categories: activeCategories
+          })
+        });
+
+        const folderData = await folderRes.json();
+        const subfolders = folderData.subfolders || {};
+
+        const uploadDirectToDrive = async (file, folderId) => {
+          const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
+            method: "POST",
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              targetFolderId: folderId,
+              fileName: file.name,
+              mimeType: file.type || 'application/pdf',
+              fileSize: file.size
+            })
+          });
+          const sessionData = await sessionRes.json();
+
+          return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", sessionData.uploadUrl, true);
+            xhr.onload = () => {
+              if (xhr.status === 200 || xhr.status === 201) {
+                try {
+                  const resJson = JSON.parse(xhr.responseText);
+                  resolve(`https://drive.google.com/file/d/${resJson.id}/view`);
+                } catch (e) {
+                  resolve(sessionData.uploadUrl);
+                }
+              } else {
+                reject(new Error("Drive Upload Failed"));
+              }
+            };
+            xhr.onerror = () => reject(new Error("Upload Error"));
+            xhr.send(file);
+          });
+        };
+
+        setEditStatusMsg('Uploading new attached files to Google Drive...');
+        if (editFiles.certificate.length > 0 && subfolders.certificate) {
+          certificateLink = await uploadDirectToDrive(editFiles.certificate[0], subfolders.certificate);
+        }
+        if (editFiles.permitForm.length > 0 && subfolders.permitForm) {
+          permitFormLink = await uploadDirectToDrive(editFiles.permitForm[0], subfolders.permitForm);
+        }
+        if (editFiles.drawings.length > 0 && subfolders.drawings) {
+          const newDrawings = await Promise.all(editFiles.drawings.map(f => uploadDirectToDrive(f, subfolders.drawings)));
+          drawingsLinks = [...drawingsLinks, ...newDrawings];
+        }
+      }
+
+      setEditStatusMsg('Saving changes to Supabase...');
+      const payload = {
+        permit_number: formattedPermitNum,
+        date_issued: editFormData.date_issued,
+        purpose: finalPurpose,
+        applicant_name: editFormData.applicant_name,
+        phone: editFormData.phone,
+        address: editFormData.address,
+        location: editFormData.location,
+        certificate_link: certificateLink,
+        permit_form_link: permitFormLink,
+        drawings_links: drawingsLinks.filter(Boolean).join(',')
+      };
+
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${editingPermit.id}`, {
         method: 'PUT',
         headers: { 
@@ -252,7 +346,8 @@ const PermitList = () => {
         alert(data.message || "Failed to update record. Permission denied.");
       }
     } catch (err) {
-      alert("Server connection error.");
+      console.error("Edit Error:", err);
+      alert("Server connection error during update.");
     } finally {
       setIsSaving(false);
     }
@@ -447,7 +542,7 @@ const PermitList = () => {
                           
                           {isOfficer && (
                             <>
-                              <button onClick={() => handleEditClick(permit)} className="bg-gray-100 text-gray-700 hover:bg-gray-800 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Edit Details">
+                              <button onClick={() => handleEditClick(permit)} className="bg-gray-100 text-gray-700 hover:bg-gray-800 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Edit Details & Attach Files">
                                 ✏️ Edit
                               </button>
                               <button onClick={() => handleDelete(permit.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Delete Record">
@@ -516,7 +611,7 @@ const PermitList = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
                     <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Certificate</h4>
                     {renderLinks(selectedPermit.certificate_link, "Certificate") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
@@ -617,18 +712,24 @@ const PermitList = () => {
         </div>
       )}
 
-      {/* EDIT MODAL */}
+      {/* EDIT & ATTACH DOCUMENTS MODAL */}
       {editingPermit && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-              <h3 className="text-xl font-bold text-gray-900">Edit Permit Record</h3>
+              <h3 className="text-xl font-bold text-gray-900">Edit Permit & Attach Files</h3>
               <button onClick={() => setEditingPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer">
                 ✕
               </button>
             </div>
+
+            {editStatusMsg && (
+              <div className="mx-6 mt-4 p-3 bg-blue-50 text-blue-800 font-semibold text-xs rounded border border-blue-200">
+                {editStatusMsg}
+              </div>
+            )}
             
-            <form onSubmit={submitEdit} className="p-6 overflow-y-auto bg-white space-y-4">
+            <form onSubmit={submitEdit} className="p-6 overflow-y-auto bg-white space-y-4 text-sm">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Permit Number</label>
@@ -640,7 +741,7 @@ const PermitList = () => {
                     onBlur={handlePermitNumberBlur}
                     required 
                     className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" 
-                    placeholder="E.G., PRAM2517"
+                    placeholder="E.G., NIPDA/PRAM/25/17"
                   />
                 </div>
                 <div>
@@ -685,10 +786,29 @@ const PermitList = () => {
                 </div>
               </div>
 
+              {/* ATTACH MISSING DOCUMENTS SECTION */}
+              <div className="pt-4 border-t border-gray-200">
+                <h4 className="font-bold text-gray-800 mb-2">Attach Missing / New Documents</h4>
+                <div className="space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200 text-xs">
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Permit Certificate (PDF / Image)</label>
+                    <input type="file" name="certificate" accept=".pdf,image/*" onChange={handleEditFileChange} className="w-full text-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Architectural Drawings (Multiple Allowed)</label>
+                    <input type="file" name="drawings" multiple accept=".pdf,image/*" onChange={handleEditFileChange} className="w-full text-gray-600" />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-gray-700 mb-1">Permit Application Form (PDF / Image)</label>
+                    <input type="file" name="permitForm" accept=".pdf,image/*" onChange={handleEditFileChange} className="w-full text-gray-600" />
+                  </div>
+                </div>
+              </div>
+
               <div className="pt-4 border-t border-gray-100 flex justify-end space-x-3 mt-6">
                 <button type="button" onClick={() => setEditingPermit(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium cursor-pointer">Cancel</button>
                 <button type="submit" disabled={isSaving} className="px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm cursor-pointer">
-                  {isSaving ? 'Saving...' : 'Save Changes'}
+                  {isSaving ? 'Saving & Uploading...' : 'Save Changes'}
                 </button>
               </div>
             </form>

@@ -284,7 +284,95 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 4. PRINTABLE QR CODE GENERATOR ROUTE
+// 4. BULK PERMIT IMPORT ENDPOINT (COMPOSITE DUPLICATE SAFE)
+// ==========================================
+router.post('/bulk-import', requireAuth, async (req, res) => {
+  try {
+    await ensureTablesExist();
+    const { records } = req.body;
+
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No records provided for bulk import.' 
+      });
+    }
+
+    // 1. Fetch existing records for composite duplicate checking
+    const existingDbRes = await db.query(`
+      SELECT permit_number, date_issued, applicant_name 
+      FROM permits 
+      WHERE permit_number IS NOT NULL AND TRIM(permit_number) != ''
+    `);
+    
+    const existingRows = Array.isArray(existingDbRes) 
+      ? existingDbRes 
+      : (existingDbRes && existingDbRes.rows ? existingDbRes.rows : []);
+
+    const cleanStr = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanDate = (d) => String(d || '').split('T')[0].trim();
+
+    // Composite key: "permitnumber|date|applicantname"
+    const existingCompositeSet = new Set(
+      existingRows.map(r => `${cleanStr(r.permit_number)}|${cleanDate(r.date_issued)}|${cleanStr(r.applicant_name)}`)
+    );
+
+    let insertedCount = 0;
+    let skippedCount = 0;
+
+    for (const record of records) {
+      const rawPermitNum = record.permitNumber || record.permit_number;
+      const rawApplicant = record.applicantName || record.applicant_name;
+      const rawDate = record.dateIssued || record.date_issued || new Date().toISOString().split('T')[0];
+
+      if (!rawPermitNum) continue;
+
+      const compositeKey = `${cleanStr(rawPermitNum)}|${cleanDate(rawDate)}|${cleanStr(rawApplicant)}`;
+
+      if (existingCompositeSet.has(compositeKey)) {
+        skippedCount++;
+        continue;
+      }
+
+      const query = `
+        INSERT INTO permits 
+        (permit_number, date_issued, purpose, applicant_name, phone, address, location, upload_status, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'completed', 'Synced');
+      `;
+      
+      const values = [
+        String(rawPermitNum).trim().toUpperCase(),
+        cleanDate(rawDate),
+        String(record.purpose || 'RESIDENTIAL').trim().toUpperCase(),
+        String(rawApplicant || 'N/A').trim().toUpperCase(),
+        record.phone || null,
+        String(record.address || record.location || 'N/A').trim().toUpperCase(),
+        String(record.location || 'N/A').trim().toUpperCase()
+      ];
+
+      await db.query(query, values);
+      existingCompositeSet.add(compositeKey);
+      insertedCount++;
+    }
+
+    res.json({
+      success: true,
+      insertedCount,
+      skippedCount,
+      message: `Import complete! Added ${insertedCount} new permit(s). Skipped ${skippedCount} duplicate(s).`
+    });
+
+  } catch (err) {
+    console.error("Bulk Import Error:", err);
+    res.status(500).json({ 
+      success: false, 
+      message: `Bulk Import Error: ${err.message}` 
+    });
+  }
+});
+
+// ==========================================
+// 5. PRINTABLE QR CODE GENERATOR ROUTE
 // ==========================================
 const handleQrGeneration = async (req, res) => {
   try {
@@ -320,7 +408,7 @@ router.get('/qr', handleQrGeneration);
 router.get('/qr/:permitNumber', handleQrGeneration);
 
 // ==========================================
-// 5. PUBLIC PERMIT VERIFICATION ROUTE
+// 6. PUBLIC PERMIT VERIFICATION ROUTE
 // ==========================================
 const handlePermitVerification = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -398,7 +486,7 @@ router.get('/verify', handlePermitVerification);
 router.get('/verify/:permitNumber', handlePermitVerification);
 
 // ==========================================
-// 6. CONTROLLER ROUTES
+// 7. CONTROLLER ROUTES
 // ==========================================
 router.get('/stats', getPermitStats);
 router.get('/monthly-stats', getMonthlyStats); 
