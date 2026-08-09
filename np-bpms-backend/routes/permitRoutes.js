@@ -283,7 +283,7 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 4. BULK PERMIT IMPORT ENDPOINT (PURE METADATA, COMPOSITE DUPLICATE SAFE)
+// 4. BULK PERMIT IMPORT ENDPOINT (DUPLICATE-SAFE)
 // ==========================================
 router.post('/bulk-import', requireAuth, async (req, res) => {
   try {
@@ -297,7 +297,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       });
     }
 
-    // Fetch existing records for duplicate checking
+    // 1. Fetch existing records from Supabase
     const existingDbRes = await db.query(`
       SELECT permit_number, date_issued, applicant_name 
       FROM permits 
@@ -308,18 +308,34 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       ? existingDbRes 
       : (existingDbRes && existingDbRes.rows ? existingDbRes.rows : []);
 
-    // Clean helpers
+    // Robust property accessors to handle both snake_case and camelCase DB responses
+    const getPermitNum = (r) => r.permit_number || r.permitNumber || r.permit || '';
+    const getDateIssued = (r) => r.date_issued || r.dateIssued || r.date || '';
+    const getApplicantName = (r) => r.applicant_name || r.applicantName || r.applicant || '';
+
+    // Cleaning helpers (strips slashes, spaces, dashes, and casing)
     const cleanStr = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const cleanDate = (d) => String(d || '').split('T')[0].trim();
 
-    // Composite key lookup set
-    const existingCompositeSet = new Set(
-      existingRows.map(r => `${cleanStr(r.permit_number)}|${cleanDate(r.date_issued)}|${cleanStr(r.applicant_name)}`)
-    );
+    // 2. Build two lookup sets for maximum duplicate protection
+    const existingPermitNumSet = new Set();
+    const existingCompositeSet = new Set();
+
+    existingRows.forEach(r => {
+      const pNum = cleanStr(getPermitNum(r));
+      const pDate = cleanDate(getDateIssued(r));
+      const pName = cleanStr(getApplicantName(r));
+
+      if (pNum) {
+        existingPermitNumSet.add(pNum);
+        existingCompositeSet.add(`${pNum}|${pDate}|${pName}`);
+      }
+    });
 
     let insertedCount = 0;
     let skippedCount = 0;
 
+    // 3. Process records and insert ONLY non-duplicates
     for (const record of records) {
       const rawPermitNum = record.permitNumber || record.permit_number;
       const rawApplicant = record.applicantName || record.applicant_name;
@@ -327,9 +343,14 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
 
       if (!rawPermitNum) continue;
 
-      const compositeKey = `${cleanStr(rawPermitNum)}|${cleanDate(rawDate)}|${cleanStr(rawApplicant)}`;
+      const normPermitNum = cleanStr(rawPermitNum);
+      const normDate = cleanDate(rawDate);
+      const normApplicant = cleanStr(rawApplicant);
 
-      if (existingCompositeSet.has(compositeKey)) {
+      const compositeKey = `${normPermitNum}|${normDate}|${normApplicant}`;
+
+      // Skip if the Permit Number OR the Composite Key already exists in Supabase
+      if (existingPermitNumSet.has(normPermitNum) || existingCompositeSet.has(compositeKey)) {
         skippedCount++;
         continue;
       }
@@ -342,7 +363,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       
       const values = [
         String(rawPermitNum).trim().toUpperCase(),
-        cleanDate(rawDate),
+        normDate,
         String(record.purpose || 'RESIDENTIAL').trim().toUpperCase(),
         String(rawApplicant || 'N/A').trim().toUpperCase(),
         record.phone || null,
@@ -351,6 +372,9 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       ];
 
       await db.query(query, values);
+
+      // Add to sets to prevent duplicate rows within the same CSV file
+      existingPermitNumSet.add(normPermitNum);
       existingCompositeSet.add(compositeKey);
       insertedCount++;
     }
@@ -359,7 +383,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       success: true,
       insertedCount,
       skippedCount,
-      message: `Import complete! Added ${insertedCount} new record(s). Skipped ${skippedCount} duplicate(s).`
+      message: `Import complete! Successfully added ${insertedCount} new permit(s). Skipped ${skippedCount} duplicate(s).`
     });
 
   } catch (err) {
