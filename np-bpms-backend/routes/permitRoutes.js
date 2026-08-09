@@ -20,7 +20,6 @@ const {
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// Multer upload fields without receipts
 const archivalUploads = upload.fields([
   { name: 'certificate', maxCount: 1 }, 
   { name: 'drawings', maxCount: 100 },
@@ -284,7 +283,7 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 4. BULK PERMIT IMPORT ENDPOINT (COMPOSITE DUPLICATE SAFE)
+// 4. BULK PERMIT IMPORT ENDPOINT (PURE METADATA, COMPOSITE DUPLICATE SAFE)
 // ==========================================
 router.post('/bulk-import', requireAuth, async (req, res) => {
   try {
@@ -298,7 +297,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       });
     }
 
-    // 1. Fetch existing records for composite duplicate checking
+    // Fetch existing records for duplicate checking
     const existingDbRes = await db.query(`
       SELECT permit_number, date_issued, applicant_name 
       FROM permits 
@@ -309,10 +308,11 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       ? existingDbRes 
       : (existingDbRes && existingDbRes.rows ? existingDbRes.rows : []);
 
+    // Clean helpers
     const cleanStr = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const cleanDate = (d) => String(d || '').split('T')[0].trim();
 
-    // Composite key: "permitnumber|date|applicantname"
+    // Composite key lookup set
     const existingCompositeSet = new Set(
       existingRows.map(r => `${cleanStr(r.permit_number)}|${cleanDate(r.date_issued)}|${cleanStr(r.applicant_name)}`)
     );
@@ -359,7 +359,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       success: true,
       insertedCount,
       skippedCount,
-      message: `Import complete! Added ${insertedCount} new permit(s). Skipped ${skippedCount} duplicate(s).`
+      message: `Import complete! Added ${insertedCount} new record(s). Skipped ${skippedCount} duplicate(s).`
     });
 
   } catch (err) {

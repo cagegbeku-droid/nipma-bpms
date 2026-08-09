@@ -20,9 +20,47 @@ const parseFlexibleDate = (inputStr) => {
   return str;
 };
 
+// Robust CSV Parser that handles commas inside quoted fields
+const parseCSVText = (text) => {
+  const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
+  if (lines.length < 2) return [];
+
+  const parseLine = (line) => {
+    const values = [];
+    let insideQuote = false;
+    let currentValue = '';
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        insideQuote = !insideQuote;
+      } else if (char === ',' && !insideQuote) {
+        values.push(currentValue.trim().replace(/^"|"$/g, ''));
+        currentValue = '';
+      } else {
+        currentValue += char;
+      }
+    }
+    values.push(currentValue.trim().replace(/^"|"$/g, ''));
+    return values;
+  };
+
+  const headers = parseLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+
+  return lines.slice(1).map(line => {
+    const vals = parseLine(line);
+    const row = {};
+    headers.forEach((h, idx) => {
+      row[h] = vals[idx] || '';
+    });
+    return row;
+  });
+};
+
 const NewPermit = () => {
   const [currentUser, setCurrentUser] = useState(null);
 
+  const csvInputRef = useRef(null);
   const activeXhrsRef = useRef([]);
   const abortControllerRef = useRef(null);
 
@@ -147,8 +185,9 @@ const NewPermit = () => {
     setMessage("⏹️ Upload process was stopped by user.");
   };
 
-  // --- BULK CSV IMPORT HANDLER ---
+  // --- ISOLATED BULK CSV IMPORT HANDLER ---
   const handleBulkCsvUpload = async (e) => {
+    e.stopPropagation();
     const file = e.target.files[0];
     if (!file) return;
 
@@ -156,37 +195,30 @@ const NewPermit = () => {
     reader.onload = async (event) => {
       try {
         const text = event.target.result;
-        const lines = text.split('\n').filter(line => line.trim() !== '');
-        if (lines.length < 2) {
-          alert("CSV file is empty or missing headers.");
+        const parsedRows = parseCSVText(text);
+
+        if (parsedRows.length === 0) {
+          alert("CSV file is empty or formatted incorrectly. Please check column headers.");
           return;
         }
 
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        const records = lines.slice(1).map(line => {
-          const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-          const obj = {};
-          headers.forEach((header, index) => {
-            obj[header] = values[index] || '';
-          });
-          return {
-            permitNumber: obj['permit_number'] || obj['permitnumber'] || obj['permit_num'] || obj['permit'],
-            applicantName: obj['applicant_name'] || obj['applicantname'] || obj['applicant'] || obj['name'],
-            dateIssued: obj['date_issued'] || obj['dateissued'] || obj['date'] || '2026-01-01',
-            purpose: obj['purpose'] || 'RESIDENTIAL',
-            location: obj['location'] || 'N/A',
-            address: obj['address'] || 'N/A',
-            phone: obj['phone'] || ''
-          };
-        }).filter(r => r.permitNumber);
+        const records = parsedRows.map(obj => ({
+          permitNumber: obj['permit_number'] || obj['permitnumber'] || obj['permit_num'] || obj['permit'],
+          applicantName: obj['applicant_name'] || obj['applicantname'] || obj['applicant'] || obj['name'],
+          dateIssued: parseFlexibleDate(obj['date_issued'] || obj['dateissued'] || obj['date']) || new Date().toISOString().split('T')[0],
+          purpose: obj['purpose'] || 'RESIDENTIAL',
+          location: obj['location'] || 'N/A',
+          address: obj['address'] || obj['location'] || 'N/A',
+          phone: obj['phone'] || ''
+        })).filter(r => r.permitNumber);
 
         if (records.length === 0) {
-          alert("No valid records found in CSV file.");
+          alert("No valid permit records found in CSV file.");
           return;
         }
 
         setIsSubmitting(true);
-        setMessage(`Importing ${records.length} historical records into Supabase...`);
+        setMessage(`Processing ${records.length} historical records for import...`);
 
         const token = sessionStorage.getItem('token');
         const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/bulk-import", {
@@ -209,7 +241,7 @@ const NewPermit = () => {
         alert("Failed to parse CSV file. Ensure it is formatted correctly.");
       } finally {
         setIsSubmitting(false);
-        e.target.value = '';
+        if (csvInputRef.current) csvInputRef.current.value = '';
       }
     };
 
@@ -473,23 +505,29 @@ const NewPermit = () => {
         </button>
       </div>
 
-      {/* --- BULK CSV IMPORT BOX --- */}
+      {/* --- ISOLATED BULK CSV IMPORT BOX --- */}
       <div className="mb-6 p-5 bg-emerald-50 rounded-xl border border-emerald-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
           <h3 className="font-bold text-sm text-emerald-900">📊 Bulk Import Historical Permits (CSV Spreadsheet)</h3>
-          <p className="text-xs text-emerald-700">Upload a `.csv` file containing permit numbers, dates, applicants, and locations to import hundreds of records instantly.</p>
+          <p className="text-xs text-emerald-700">Upload a `.csv` file containing permit numbers, dates, applicants, and locations to import records directly to Supabase.</p>
         </div>
 
-        <label className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg cursor-pointer transition shadow-sm whitespace-nowrap">
-          <span>📂 Upload CSV Spreadsheet</span>
-          <input 
-            type="file" 
-            accept=".csv" 
-            onChange={handleBulkCsvUpload} 
-            disabled={isSubmitting} 
-            className="hidden" 
-          />
-        </label>
+        <button 
+          type="button"
+          onClick={() => csvInputRef.current && csvInputRef.current.click()}
+          disabled={isSubmitting}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm whitespace-nowrap cursor-pointer disabled:opacity-50"
+        >
+          📂 Upload CSV Spreadsheet
+        </button>
+        <input 
+          ref={csvInputRef}
+          type="file" 
+          accept=".csv" 
+          onChange={handleBulkCsvUpload} 
+          disabled={isSubmitting} 
+          className="hidden" 
+        />
       </div>
 
       {duplicateWarning && (
@@ -507,7 +545,7 @@ const NewPermit = () => {
       {isSubmitting && (
         <div className="mb-6 bg-white p-5 rounded-xl border border-blue-200 shadow-md space-y-3">
           <div className="flex justify-between items-center text-xs font-bold text-blue-800">
-            <span>Creating Folders & Transferring Files to Archives...</span>
+            <span>Transferring Records & Synchronizing Vault...</span>
             <span className="text-sm text-blue-900">{uploadProgress}%</span>
           </div>
           
@@ -521,7 +559,7 @@ const NewPermit = () => {
               onClick={handleCancelUpload}
               className="bg-red-100 hover:bg-red-200 text-red-700 font-bold text-xs px-4 py-2 rounded-lg transition border border-red-300 cursor-pointer flex items-center space-x-1"
             >
-              <span>⏹️ Cancel Upload</span>
+              <span>⏹️ Cancel Operation</span>
             </button>
           </div>
         </div>
