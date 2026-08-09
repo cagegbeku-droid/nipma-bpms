@@ -283,7 +283,7 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 4. BULK PERMIT IMPORT ENDPOINT (DUPLICATE-SAFE)
+// 4. BULK PERMIT IMPORT ENDPOINT (SQL DUPLICATE SAFE)
 // ==========================================
 router.post('/bulk-import', requireAuth, async (req, res) => {
   try {
@@ -297,73 +297,60 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       });
     }
 
-    // 1. Fetch existing records from Supabase
-    const existingDbRes = await db.query(`
-      SELECT permit_number, date_issued, applicant_name 
-      FROM permits 
-      WHERE permit_number IS NOT NULL AND TRIM(permit_number) != ''
-    `);
-    
-    const existingRows = Array.isArray(existingDbRes) 
-      ? existingDbRes 
-      : (existingDbRes && existingDbRes.rows ? existingDbRes.rows : []);
-
-    // Robust property accessors to handle both snake_case and camelCase DB responses
-    const getPermitNum = (r) => r.permit_number || r.permitNumber || r.permit || '';
-    const getDateIssued = (r) => r.date_issued || r.dateIssued || r.date || '';
-    const getApplicantName = (r) => r.applicant_name || r.applicantName || r.applicant || '';
-
-    // Cleaning helpers (strips slashes, spaces, dashes, and casing)
-    const cleanStr = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const cleanDate = (d) => String(d || '').split('T')[0].trim();
-
-    // 2. Build two lookup sets for maximum duplicate protection
-    const existingPermitNumSet = new Set();
-    const existingCompositeSet = new Set();
-
-    existingRows.forEach(r => {
-      const pNum = cleanStr(getPermitNum(r));
-      const pDate = cleanDate(getDateIssued(r));
-      const pName = cleanStr(getApplicantName(r));
-
-      if (pNum) {
-        existingPermitNumSet.add(pNum);
-        existingCompositeSet.add(`${pNum}|${pDate}|${pName}`);
-      }
-    });
-
     let insertedCount = 0;
     let skippedCount = 0;
+    const insertedInThisBatch = new Set();
 
-    // 3. Process records and insert ONLY non-duplicates
     for (const record of records) {
       const rawPermitNum = record.permitNumber || record.permit_number;
       const rawApplicant = record.applicantName || record.applicant_name;
       const rawDate = record.dateIssued || record.date_issued || new Date().toISOString().split('T')[0];
 
-      if (!rawPermitNum) continue;
+      if (!rawPermitNum || !String(rawPermitNum).trim()) continue;
 
-      const normPermitNum = cleanStr(rawPermitNum);
-      const normDate = cleanDate(rawDate);
-      const normApplicant = cleanStr(rawApplicant);
+      const cleanPermitNum = String(rawPermitNum).trim().toUpperCase();
+      // Normalize string: "NIPDA/TEST/26/01" -> "nipdatest2601"
+      const normKey = cleanPermitNum.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-      const compositeKey = `${normPermitNum}|${normDate}|${normApplicant}`;
-
-      // Skip if the Permit Number OR the Composite Key already exists in Supabase
-      if (existingPermitNumSet.has(normPermitNum) || existingCompositeSet.has(compositeKey)) {
+      // 1. Check if processed in this current CSV upload batch
+      if (insertedInThisBatch.has(normKey)) {
         skippedCount++;
         continue;
       }
 
-      const query = `
+      // 2. Check directly against Supabase database via SQL
+      const checkQuery = `
+        SELECT id 
+        FROM permits 
+        WHERE REGEXP_REPLACE(LOWER(permit_number), '[^a-z0-9]', '', 'g') = $1
+        LIMIT 1;
+      `;
+
+      const checkRes = await db.query(checkQuery, [normKey]);
+      
+      // Safely unwrap response nested arrays
+      let checkRows = Array.isArray(checkRes) ? checkRes : (checkRes && checkRes.rows ? checkRes.rows : []);
+      while (Array.isArray(checkRows) && checkRows.length > 0 && Array.isArray(checkRows[0])) {
+        checkRows = checkRows[0];
+      }
+
+      // If SQL finds the record in Supabase, skip it!
+      if (checkRows.length > 0) {
+        skippedCount++;
+        insertedInThisBatch.add(normKey);
+        continue;
+      }
+
+      // 3. Insert new unique record into Supabase
+      const insertQuery = `
         INSERT INTO permits 
         (permit_number, date_issued, purpose, applicant_name, phone, address, location, upload_status, status)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 'completed', 'Synced');
       `;
       
       const values = [
-        String(rawPermitNum).trim().toUpperCase(),
-        normDate,
+        cleanPermitNum,
+        String(rawDate).split('T')[0].trim(),
         String(record.purpose || 'RESIDENTIAL').trim().toUpperCase(),
         String(rawApplicant || 'N/A').trim().toUpperCase(),
         record.phone || null,
@@ -371,11 +358,9 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
         String(record.location || 'N/A').trim().toUpperCase()
       ];
 
-      await db.query(query, values);
+      await db.query(insertQuery, values);
 
-      // Add to sets to prevent duplicate rows within the same CSV file
-      existingPermitNumSet.add(normPermitNum);
-      existingCompositeSet.add(compositeKey);
+      insertedInThisBatch.add(normKey);
       insertedCount++;
     }
 
@@ -383,7 +368,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       success: true,
       insertedCount,
       skippedCount,
-      message: `Import complete! Successfully added ${insertedCount} new permit(s). Skipped ${skippedCount} duplicate(s).`
+      message: `Import complete! Added ${insertedCount} new permit(s). Skipped ${skippedCount} duplicate(s).`
     });
 
   } catch (err) {
