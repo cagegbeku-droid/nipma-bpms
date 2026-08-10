@@ -1,16 +1,44 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Login from '../Login';
 
+// Enhanced Flexible Date Parser with 2-Digit Year Support (e.g. 26 -> 2026, 73 -> 1973)
 const parseFlexibleDate = (inputStr) => {
   if (!inputStr) return '';
   const str = inputStr.trim();
 
-  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{4})$/);
+  // Helper to expand 2-digit year to 4-digit year using a 1931-2030 pivot rule
+  const expandYear = (yy) => {
+    if (yy.length === 4) return yy;
+    const num = parseInt(yy, 10);
+    if (isNaN(num)) return yy;
+    return num <= 30 ? `20${yy.padStart(2, '0')}` : `19${yy.padStart(2, '0')}`;
+  };
+
+  // 1. Matches DD/MM/YY, DD-MM-YYYY, DD.MM.YY, etc.
+  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2}|\d{4})$/);
   if (dmyMatch) {
     const [, day, month, year] = dmyMatch;
-    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    const fullYear = expandYear(year);
+    return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
+  // 2. Matches YY-MM-DD or YYYY-MM-DD
+  const ymdMatch = str.match(/^(\d{2}|\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
+  if (ymdMatch) {
+    const [, year, month, day] = ymdMatch;
+    const fullYear = expandYear(year);
+    return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  // 3. Matches 6-digit continuous entry DDMMYY (e.g., 120526 -> 2026-05-12)
+  const d6Match = str.match(/^(\d{2})(\d{2})(\d{2})$/);
+  if (d6Match) {
+    const [, day, month, year] = d6Match;
+    const fullYear = expandYear(year);
+    return `${fullYear}-${month}-${day}`;
+  }
+
+  // 4. Matches 8-digit continuous entry DDMMYYYY (e.g., 12052026 -> 2026-05-12)
   const d8Match = str.match(/^(\d{2})(\d{2})(\d{4})$/);
   if (d8Match) {
     const [, day, month, year] = d8Match;
@@ -20,7 +48,7 @@ const parseFlexibleDate = (inputStr) => {
   return str;
 };
 
-// Robust CSV Parser that handles commas inside quoted fields
+// Robust CSV Parser handling quotes and commas
 const parseCSVText = (text) => {
   const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
   if (lines.length < 2) return [];
@@ -71,7 +99,7 @@ const NewPermit = () => {
       try {
         setCurrentUser(JSON.parse(savedUser));
       } catch (e) {
-        console.error("Error parsing user session:", e);
+        console.error("Session parse error:", e);
       }
     }
   }, []);
@@ -129,7 +157,9 @@ const NewPermit = () => {
       setFormData(prev => ({ ...prev, permitNumber: formatted }));
       checkDuplicateRecord(formatted, formData.dateIssued);
     } else if (name === 'dateIssued') {
-      checkDuplicateRecord(formatPermitNumberInput(formData.permitNumber), value);
+      const parsedDate = parseFlexibleDate(value);
+      setFormData(prev => ({ ...prev, dateIssued: parsedDate }));
+      checkDuplicateRecord(formatPermitNumberInput(formData.permitNumber), parsedDate);
     } else if (name !== 'phone') {
       setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
     }
@@ -182,10 +212,10 @@ const NewPermit = () => {
     activeXhrsRef.current = [];
     setIsSubmitting(false);
     setUploadProgress(0);
-    setMessage("⏹️ Upload process was stopped by user.");
+    setMessage("⏹️ Upload process was canceled.");
   };
 
-  // --- ISOLATED BULK CSV IMPORT HANDLER ---
+  // --- BULK CSV IMPORT HANDLER ---
   const handleBulkCsvUpload = async (e) => {
     e.stopPropagation();
     const file = e.target.files[0];
@@ -218,7 +248,7 @@ const NewPermit = () => {
         }
 
         setIsSubmitting(true);
-        setMessage(`Processing ${records.length} historical records for import...`);
+        setMessage(`Importing ${records.length} permit records...`);
 
         const token = sessionStorage.getItem('token');
         const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/bulk-import", {
@@ -232,9 +262,9 @@ const NewPermit = () => {
 
         const result = await response.json();
         if (response.ok && result.success) {
-          setMessage(`🎉 ${result.message}`);
+          setMessage(`🎉 Import complete! Successfully added ${result.insertedCount || 0} record(s). Skipped ${result.skippedCount || 0} existing record(s).`);
         } else {
-          setMessage(`Bulk Import Error: ${result.message}`);
+          setMessage("Bulk Import Error: Failed to import records. Please check the file and try again.");
         }
       } catch (err) {
         console.error("Bulk CSV Parse Error:", err);
@@ -269,7 +299,7 @@ const NewPermit = () => {
       if (files.drawings.length > 0) activeCategories.push('drawings');
       if (files.permitForm.length > 0) activeCategories.push('permitForm');
 
-      setMessage("Creating Google Drive permit folder...");
+      setMessage("Initializing permit archive...");
       const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
         method: "POST",
         headers: {
@@ -292,7 +322,7 @@ const NewPermit = () => {
 
       const folderData = await folderRes.json();
       if (!folderRes.ok || !folderData.success || !folderData.subfolders) {
-        throw new Error(folderData.message || "Failed to create Google Drive permit folders.");
+        throw new Error("Unable to prepare document storage.");
       }
 
       const subfolders = folderData.subfolders;
@@ -315,7 +345,7 @@ const NewPermit = () => {
 
         const sessionData = await sessionRes.json();
         if (!sessionData.success || !sessionData.uploadUrl) {
-          throw new Error(sessionData.message || "Failed to create Google Drive session.");
+          throw new Error("Upload session creation failed.");
         }
 
         return new Promise((resolve, reject) => {
@@ -341,18 +371,18 @@ const NewPermit = () => {
                 resolve(sessionData.uploadUrl);
               }
             } else {
-              reject(new Error(`Google Drive upload failed with status ${xhr.status}`));
+              reject(new Error("Document upload failed."));
             }
           };
 
-          xhr.onerror = () => reject(new Error("Network connection error during Google Drive upload."));
+          xhr.onerror = () => reject(new Error("Network connection error."));
           xhr.onabort = () => reject(new Error("CANCELLED_BY_USER"));
           
           xhr.send(file);
         });
       };
 
-      setMessage("Uploading documents to Google Drive subfolders...");
+      setMessage("Uploading attached documents...");
 
       const certPromise = (files.certificate.length > 0 && subfolders.certificate) 
         ? uploadFileDirectToDrive(files.certificate[0], subfolders.certificate) 
@@ -372,7 +402,7 @@ const NewPermit = () => {
         Promise.all(drawingsPromises)
       ]);
 
-      setMessage("Saving permit record metadata...");
+      setMessage("Finalizing record...");
       const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
 
       const metadataPayload = {
@@ -401,7 +431,7 @@ const NewPermit = () => {
       const metaData = await metaRes.json();
 
       if (metaRes.ok && metaData.success) {
-        setMessage("Success! Permit archived cleanly.");
+        setMessage("Success! Permit Archived.");
         
         try {
           const qrRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(formattedPermitNumber)}`);
@@ -414,22 +444,22 @@ const NewPermit = () => {
             });
           }
         } catch (qrErr) {
-          console.error("Failed to load QR badge:", qrErr);
+          console.error("Failed to generate QR badge:", qrErr);
         }
 
         setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
         setFiles({ certificate: [], drawings: [], permitForm: [] });
         setDuplicateWarning('');
       } else {
-        setMessage(metaData.message || "Failed to save record metadata.");
+        setMessage(metaData.message || "Failed to save permit record.");
       }
 
     } catch (err) {
       if (err.message === "CANCELLED_BY_USER" || err.name === "AbortError") {
-        console.log("Upload aborted by officer.");
+        console.log("Upload canceled by officer.");
       } else {
-        console.error("Direct Upload Error:", err);
-        setMessage("Upload Error: " + (err.message || "Failed to complete upload."));
+        console.error("Upload Error:", err);
+        setMessage("Upload Error: " + (err.message || "Failed to complete process."));
       }
     } finally {
       setIsSubmitting(false);
@@ -494,7 +524,7 @@ const NewPermit = () => {
     <div className="p-8 max-w-5xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Archive Historical Permit</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Archive Permit</h1>
           <p className="text-xs text-gray-500">Logged in as: <span className="font-semibold text-gray-700">{currentUser.name || currentUser.email}</span></p>
         </div>
         <button 
@@ -505,11 +535,11 @@ const NewPermit = () => {
         </button>
       </div>
 
-      {/* --- ISOLATED BULK CSV IMPORT BOX --- */}
+      {/* --- BULK CSV IMPORT BOX --- */}
       <div className="mb-6 p-5 bg-emerald-50 rounded-xl border border-emerald-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
-          <h3 className="font-bold text-sm text-emerald-900">📊 Bulk Import Historical Permits (CSV Spreadsheet)</h3>
-          <p className="text-xs text-emerald-700">Upload a `.csv` file containing permit numbers, dates, applicants, and locations to import records directly to Supabase.</p>
+          <h3 className="font-bold text-sm text-emerald-900">📊 Import Permit Records (CSV)</h3>
+          <p className="text-xs text-emerald-700">Upload a CSV spreadsheet containing permit numbers, dates, applicants, and locations to import records.</p>
         </div>
 
         <button 
@@ -537,7 +567,7 @@ const NewPermit = () => {
       )}
       
       {message && (
-        <div className={"p-4 mb-6 rounded-md font-medium transition-all shadow-sm " + (message.includes("Success") || message.includes("Import complete") ? "bg-green-100 text-green-700 border border-green-200" : message.includes("stopped") ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-blue-100 text-blue-700 border border-blue-200")}> 
+        <div className={"p-4 mb-6 rounded-md font-medium transition-all shadow-sm " + (message.includes("Success") || message.includes("complete") ? "bg-green-100 text-green-700 border border-green-200" : message.includes("canceled") ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-blue-100 text-blue-700 border border-blue-200")}> 
           {message} 
         </div>
       )}
@@ -545,7 +575,7 @@ const NewPermit = () => {
       {isSubmitting && (
         <div className="mb-6 bg-white p-5 rounded-xl border border-blue-200 shadow-md space-y-3">
           <div className="flex justify-between items-center text-xs font-bold text-blue-800">
-            <span>Transferring Records & Synchronizing Vault...</span>
+            <span>Uploading Documents...</span>
             <span className="text-sm text-blue-900">{uploadProgress}%</span>
           </div>
           
@@ -559,7 +589,7 @@ const NewPermit = () => {
               onClick={handleCancelUpload}
               className="bg-red-100 hover:bg-red-200 text-red-700 font-bold text-xs px-4 py-2 rounded-lg transition border border-red-300 cursor-pointer flex items-center space-x-1"
             >
-              <span>⏹️ Cancel Operation</span>
+              <span>⏹️ Cancel</span>
             </button>
           </div>
         </div>
@@ -603,11 +633,7 @@ const NewPermit = () => {
                 name="dateIssued" 
                 value={formData.dateIssued} 
                 onChange={handleTextChange} 
-                onBlur={(e) => {
-                  const parsedDate = parseFlexibleDate(e.target.value);
-                  setFormData(prev => ({ ...prev, dateIssued: parsedDate }));
-                  handleInputBlur(e);
-                }}
+                onBlur={handleInputBlur}
                 required 
                 disabled={isSubmitting} 
                 className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
@@ -727,7 +753,7 @@ const NewPermit = () => {
           className="w-full bg-blue-600 text-white font-semibold py-4 rounded-md hover:bg-blue-700 transition shadow-md flex items-center justify-center space-x-2 disabled:opacity-70 cursor-pointer"
         >
           {isSubmitting ? (
-            <span>Archiving Documents ({uploadProgress}%)...</span>
+            <span>Processing ({uploadProgress}%)...</span>
           ) : (
             <span>Save to Secure Archives</span>
           )}
