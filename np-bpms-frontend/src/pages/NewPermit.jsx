@@ -1,10 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Login from '../Login';
 
-// Flexible Date Parser (Converts DD/MM/YYYY -> YYYY-MM-DD)
+// Enhanced Universal Date Parser (Supports DD/MM/YYYY, DD/MM/YY, ISO, Continuous Digits, & Excel Serials)
 const parseFlexibleDate = (inputStr) => {
   if (!inputStr) return '';
   const str = String(inputStr).trim();
+
+  // 1. Handle Excel Serial Numbers (e.g. 45658 -> 2026-01-20)
+  if (/^\d{5}$/.test(str)) {
+    const excelSerial = parseInt(str, 10);
+    const utcDays = excelSerial - 25569;
+    const dateObj = new Date(utcDays * 86400 * 1000);
+    if (!isNaN(dateObj.getTime())) {
+      return dateObj.toISOString().split('T')[0];
+    }
+  }
 
   const expandYear = (yy) => {
     if (yy.length === 4) return yy;
@@ -13,20 +23,48 @@ const parseFlexibleDate = (inputStr) => {
     return num <= 30 ? `20${yy.padStart(2, '0')}` : `19${yy.padStart(2, '0')}`;
   };
 
-  // Matches DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
-  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2}|\d{4})$/);
+  // 2. ISO Format (YYYY-MM-DD or YYYY/MM/DD)
+  const ymdMatch = str.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})/);
+  if (ymdMatch) {
+    const [, year, month, day] = ymdMatch;
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  // 3. Day-First Format (DD/MM/YYYY, DD/MM/YY, DD-MM-YYYY)
+  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2}|\d{4})/);
   if (dmyMatch) {
     const [, day, month, year] = dmyMatch;
     const fullYear = expandYear(year);
     return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  // Matches YYYY-MM-DD
-  const ymdMatch = str.match(/^(\d{2}|\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
-  if (ymdMatch) {
-    const [, year, month, day] = ymdMatch;
-    const fullYear = expandYear(year);
-    return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  // 4. Continuous 8 digits: YYYYMMDD or DDMMYYYY
+  if (/^\d{8}$/.test(str)) {
+    if (str.startsWith('19') || str.startsWith('20')) {
+      const year = str.substring(0, 4);
+      const month = str.substring(4, 6);
+      const day = str.substring(6, 8);
+      return `${year}-${month}-${day}`;
+    } else {
+      const day = str.substring(0, 2);
+      const month = str.substring(2, 4);
+      const year = str.substring(4, 8);
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  // 5. Continuous 6 digits: DDMMYY
+  if (/^\d{6}$/.test(str)) {
+    const day = str.substring(0, 2);
+    const month = str.substring(2, 4);
+    const year = expandYear(str.substring(4, 6));
+    return `${year}-${month}-${day}`;
+  }
+
+  // 6. JavaScript standard Date fallback
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
   }
 
   return str;
@@ -36,7 +74,7 @@ const parseFlexibleDate = (inputStr) => {
 const getRowVal = (rowObj, possibleKeys) => {
   for (const rawKey of Object.keys(rowObj)) {
     const cleanKey = rawKey
-      .replace(/^\uFEFF/, '') // Strips hidden UTF-8 BOM marker
+      .replace(/^\uFEFF/, '')
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '');
 
@@ -52,12 +90,10 @@ const getRowVal = (rowObj, possibleKeys) => {
 
 // Resilient CSV / TSV Parser
 const parseCSVText = (text) => {
-  // Strip BOM and clean lines
   const cleanText = text.replace(/^\uFEFF/, '');
   const lines = cleanText.split(/\r\n|\n/).filter(line => line.trim() !== '');
   if (lines.length < 2) return [];
 
-  // Auto-detect delimiter (comma, tab, or semicolon)
   const firstLine = lines[0];
   let delimiter = ',';
   if ((firstLine.match(/\t/g) || []).length > (firstLine.match(/,/g) || []).length) {
@@ -168,31 +204,33 @@ const NewPermit = () => {
     if (name === 'permitNumber') {
       const formatted = formatPermitNumberInput(value);
       setFormData(prev => ({ ...prev, permitNumber: formatted }));
-      checkDuplicateRecord(formatted, formData.dateIssued);
+      checkDuplicateRecord(formatted);
     } else if (name === 'dateIssued') {
       const parsedDate = parseFlexibleDate(value);
       setFormData(prev => ({ ...prev, dateIssued: parsedDate }));
-      checkDuplicateRecord(formatPermitNumberInput(formData.permitNumber), parsedDate);
     } else if (name !== 'phone') {
       setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
     }
   };
 
-  const checkDuplicateRecord = async (permitNum, date) => {
-    if (!permitNum || !date) return;
+  // DUPLICATE CHECK IS STRICTLY BY PERMIT NUMBER ONLY
+  const checkDuplicateRecord = async (permitNum) => {
+    if (!permitNum || !permitNum.trim()) return;
     
     try {
       const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits");
       const data = await response.json();
       
       if (data.success && Array.isArray(data.data)) {
-        const duplicate = data.data.find(p => 
-          p.permit_number?.toUpperCase().trim() === permitNum.toUpperCase().trim() &&
-          p.date_issued && p.date_issued.split('T')[0] === date
-        );
+        const cleanInput = permitNum.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        const duplicate = data.data.find(p => {
+          const cleanDb = (p.permit_number || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          return cleanDb === cleanInput;
+        });
 
         if (duplicate) {
-          setDuplicateWarning(`⚠️ Duplicate Warning: A permit with number "${permitNum}" issued on ${date} is already archived in the system.`);
+          setDuplicateWarning(`⚠️ Duplicate Warning: A permit with number "${permitNum}" is already archived in the system.`);
         } else {
           setDuplicateWarning('');
         }
@@ -228,7 +266,7 @@ const NewPermit = () => {
     setMessage("⏹️ Upload process was canceled.");
   };
 
-  // BULK CSV IMPORT HANDLER SPECIFICALLY MATCHING YOUR EXACT HEADERS
+  // BULK CSV IMPORT HANDLER
   const handleBulkCsvUpload = async (e) => {
     e.stopPropagation();
     const file = e.target.files[0];
@@ -246,7 +284,6 @@ const NewPermit = () => {
         }
 
         const records = parsedRows.map(obj => {
-          // Explicit mapping for: permit_number, applicant_name, date_issued, purpose, location, address, phone
           const pNum = getRowVal(obj, ['permitnumber', 'permitnum', 'permitno', 'permit', 'fileref']);
           const appName = getRowVal(obj, ['applicantname', 'applicant', 'applicantownername', 'ownername', 'name']);
           const dateVal = getRowVal(obj, ['dateissued', 'dateissue', 'date', 'issueddate']);
@@ -645,7 +682,7 @@ const NewPermit = () => {
                   onClick={() => {
                     const today = new Date().toISOString().split('T')[0];
                     setFormData(prev => ({ ...prev, dateIssued: today }));
-                    checkDuplicateRecord(formData.permitNumber, today);
+                    checkDuplicateRecord(formData.permitNumber);
                   }}
                   className="text-xs bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
                 >
@@ -653,7 +690,7 @@ const NewPermit = () => {
                 </button>
               </div>
               <input 
-                type="date" 
+                type="text" 
                 name="dateIssued" 
                 value={formData.dateIssued} 
                 onChange={handleTextChange} 
@@ -661,6 +698,7 @@ const NewPermit = () => {
                 required 
                 disabled={isSubmitting} 
                 className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+                placeholder="YYYY-MM-DD, DD/MM/YYYY or 20/01/26"
               />
             </div>
             <div className="md:col-span-2">
