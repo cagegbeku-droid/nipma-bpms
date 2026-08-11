@@ -283,7 +283,7 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 4. BULK PERMIT IMPORT ENDPOINT (SQL DUPLICATE SAFE)
+// 4. BULK PERMIT IMPORT ENDPOINT (OPTIMIZED & STRICT UNIQUE PERMIT CHECK)
 // ==========================================
 router.post('/bulk-import', requireAuth, async (req, res) => {
   try {
@@ -297,51 +297,49 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       });
     }
 
+    // 1. Fetch ALL existing normalized permit numbers in ONE single query for high speed
+    const existingDbRes = await db.query(`
+      SELECT REGEXP_REPLACE(LOWER(permit_number), '[^a-z0-9]', '', 'g') AS norm_num
+      FROM permits 
+      WHERE permit_number IS NOT NULL AND TRIM(permit_number) != ''
+    `);
+    
+    let existingRows = Array.isArray(existingDbRes) 
+      ? existingDbRes 
+      : (existingDbRes && existingDbRes.rows ? existingDbRes.rows : []);
+      
+    while (Array.isArray(existingRows) && existingRows.length > 0 && Array.isArray(existingRows[0])) {
+      existingRows = existingRows[0];
+    }
+
+    // Build lookup set of all existing normalized permit numbers in Supabase
+    const existingPermitSet = new Set(
+      existingRows
+        .map(r => r.norm_num || (r.rows && r.rows.norm_num))
+        .filter(Boolean)
+    );
+
     let insertedCount = 0;
     let skippedCount = 0;
-    const insertedInThisBatch = new Set();
 
+    // 2. Process CSV records and insert ONLY unique permit numbers
     for (const record of records) {
       const rawPermitNum = record.permitNumber || record.permit_number;
-      const rawApplicant = record.applicantName || record.applicant_name;
-      const rawDate = record.dateIssued || record.date_issued || new Date().toISOString().split('T')[0];
-
       if (!rawPermitNum || !String(rawPermitNum).trim()) continue;
 
       const cleanPermitNum = String(rawPermitNum).trim().toUpperCase();
-      // Normalize string: "NIPDA/TEST/26/01" -> "nipdatest2601"
+      // Normalize string: "NIPDA/PRAM/26/09" -> "nipdapram2609"
       const normKey = cleanPermitNum.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-      // 1. Check if processed in this current CSV upload batch
-      if (insertedInThisBatch.has(normKey)) {
+      // Skip if permit number already exists in Supabase OR earlier in this CSV file
+      if (existingPermitSet.has(normKey)) {
         skippedCount++;
         continue;
       }
 
-      // 2. Check directly against Supabase database via SQL
-      const checkQuery = `
-        SELECT id 
-        FROM permits 
-        WHERE REGEXP_REPLACE(LOWER(permit_number), '[^a-z0-9]', '', 'g') = $1
-        LIMIT 1;
-      `;
+      const rawApplicant = record.applicantName || record.applicant_name;
+      const rawDate = record.dateIssued || record.date_issued || new Date().toISOString().split('T')[0];
 
-      const checkRes = await db.query(checkQuery, [normKey]);
-      
-      // Safely unwrap response nested arrays
-      let checkRows = Array.isArray(checkRes) ? checkRes : (checkRes && checkRes.rows ? checkRes.rows : []);
-      while (Array.isArray(checkRows) && checkRows.length > 0 && Array.isArray(checkRows[0])) {
-        checkRows = checkRows[0];
-      }
-
-      // If SQL finds the record in Supabase, skip it!
-      if (checkRows.length > 0) {
-        skippedCount++;
-        insertedInThisBatch.add(normKey);
-        continue;
-      }
-
-      // 3. Insert new unique record into Supabase
       const insertQuery = `
         INSERT INTO permits 
         (permit_number, date_issued, purpose, applicant_name, phone, address, location, upload_status, status)
@@ -360,7 +358,8 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
 
       await db.query(insertQuery, values);
 
-      insertedInThisBatch.add(normKey);
+      // Add to set immediately to block repeating permit numbers inside the same CSV file
+      existingPermitSet.add(normKey);
       insertedCount++;
     }
 
@@ -368,7 +367,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       success: true,
       insertedCount,
       skippedCount,
-      message: `Import complete! Added ${insertedCount} new permit(s). Skipped ${skippedCount} duplicate(s).`
+      message: `Import complete! Successfully added ${insertedCount} new permit(s). Skipped ${skippedCount} duplicate(s).`
     });
 
   } catch (err) {
