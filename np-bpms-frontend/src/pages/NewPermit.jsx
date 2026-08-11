@@ -1,20 +1,131 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Login from '../Login';
 
-// Auto-Mask Handler: converts typed digits into DD/MM/YY automatically (e.g. 200126 -> 20/01/26)
-const formatMaskedDate = (val) => {
-  const digits = String(val).replace(/\D/g, '').slice(0, 6);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+// Segmented Date Input Sub-Component
+const SegmentedDateInput = ({ value, onChange, onBlur, disabled }) => {
+  const dayRef = useRef(null);
+  const monthRef = useRef(null);
+  const yearRef = useRef(null);
+
+  const [day, setDay] = useState('');
+  const [month, setMonth] = useState('');
+  const [year, setYear] = useState('');
+
+  // Sync internal segments whenever parent value changes (e.g., Set Today or form reset)
+  useEffect(() => {
+    if (!value) {
+      setDay('');
+      setMonth('');
+      setYear('');
+      return;
+    }
+    if (value.includes('/')) {
+      const parts = value.split('/');
+      if (parts.length === 3) {
+        setDay(parts[0]);
+        setMonth(parts[1]);
+        setYear(parts[2]);
+      }
+    } else if (value.includes('-')) {
+      const parts = value.split('-');
+      if (parts.length === 3) {
+        setYear(parts[0].length === 4 ? parts[0].slice(-2) : parts[0]);
+        setMonth(parts[1]);
+        setDay(parts[2]);
+      }
+    }
+  }, [value]);
+
+  const updateParent = (d, m, y) => {
+    setDay(d);
+    setMonth(m);
+    setYear(y);
+    if (d || m || y) {
+      onChange(`${d}/${m}/${y}`);
+    } else {
+      onChange('');
+    }
+  };
+
+  const handleDayChange = (e) => {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 2);
+    updateParent(val, month, year);
+    if (val.length === 2 && monthRef.current) {
+      monthRef.current.focus();
+    }
+  };
+
+  const handleMonthChange = (e) => {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 2);
+    updateParent(day, val, year);
+    if (val.length === 2 && yearRef.current) {
+      yearRef.current.focus();
+    }
+  };
+
+  const handleYearChange = (e) => {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+    updateParent(day, month, val);
+  };
+
+  const handleKeyDown = (e, segment) => {
+    if (e.key === 'Backspace') {
+      if (segment === 'month' && !month && dayRef.current) {
+        dayRef.current.focus();
+      } else if (segment === 'year' && !year && monthRef.current) {
+        monthRef.current.focus();
+      }
+    }
+  };
+
+  return (
+    <div className={`flex items-center border border-gray-300 rounded-md p-2 bg-white focus-within:ring-2 focus-within:ring-blue-500 font-mono text-sm ${disabled ? 'bg-gray-50 opacity-60 pointer-events-none' : ''}`}>
+      <input
+        ref={dayRef}
+        type="text"
+        placeholder="DD"
+        maxLength={2}
+        value={day}
+        onChange={handleDayChange}
+        onBlur={onBlur}
+        disabled={disabled}
+        className="w-7 text-center outline-none bg-transparent font-semibold text-gray-800 placeholder-gray-300"
+      />
+      <span className="text-gray-400 font-bold px-1 select-none">/</span>
+      <input
+        ref={monthRef}
+        type="text"
+        placeholder="MM"
+        maxLength={2}
+        value={month}
+        onChange={handleMonthChange}
+        onKeyDown={(e) => handleKeyDown(e, 'month')}
+        onBlur={onBlur}
+        disabled={disabled}
+        className="w-7 text-center outline-none bg-transparent font-semibold text-gray-800 placeholder-gray-300"
+      />
+      <span className="text-gray-400 font-bold px-1 select-none">/</span>
+      <input
+        ref={yearRef}
+        type="text"
+        placeholder="YY"
+        maxLength={4}
+        value={year}
+        onChange={handleYearChange}
+        onKeyDown={(e) => handleKeyDown(e, 'year')}
+        onBlur={onBlur}
+        disabled={disabled}
+        className="w-10 text-center outline-none bg-transparent font-semibold text-gray-800 placeholder-gray-300"
+      />
+    </div>
+  );
 };
 
-// Converts DD/MM/YY or DD/MM/YYYY into clean ISO format YYYY-MM-DD for database storage
+// Converts DD/MM/YY or DD/MM/YYYY into YYYY-MM-DD for storage
 const parseFlexibleDate = (inputStr) => {
   if (!inputStr) return '';
   const str = String(inputStr).trim();
 
-  // Excel serial fallback (e.g., 45658 -> 2026-01-20)
   if (/^\d{5}$/.test(str)) {
     const excelSerial = parseInt(str, 10);
     const utcDays = excelSerial - 25569;
@@ -31,14 +142,12 @@ const parseFlexibleDate = (inputStr) => {
     return num <= 30 ? `20${yy.padStart(2, '0')}` : `19${yy.padStart(2, '0')}`;
   };
 
-  // Matches ISO YYYY-MM-DD
   const ymdMatch = str.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})/);
   if (ymdMatch) {
     const [, year, month, day] = ymdMatch;
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  // Matches DD/MM/YY or DD/MM/YYYY
   const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2}|\d{4})/);
   if (dmyMatch) {
     const [, day, month, year] = dmyMatch;
@@ -46,7 +155,6 @@ const parseFlexibleDate = (inputStr) => {
     return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  // Continuous digits DDMMYY
   if (/^\d{6}$/.test(str)) {
     const day = str.substring(0, 2);
     const month = str.substring(2, 4);
@@ -57,7 +165,7 @@ const parseFlexibleDate = (inputStr) => {
   return str;
 };
 
-// Universal Column Matcher that handles BOM markers and subtle spaces
+// Universal Column Matcher
 const getRowVal = (rowObj, possibleKeys) => {
   for (const rawKey of Object.keys(rowObj)) {
     const cleanKey = rawKey
@@ -75,7 +183,7 @@ const getRowVal = (rowObj, possibleKeys) => {
   return '';
 };
 
-// Resilient CSV / TSV Parser
+// Resilient CSV Parser
 const parseCSVText = (text) => {
   const cleanText = text.replace(/^\uFEFF/, '');
   const lines = cleanText.split(/\r\n|\n/).filter(line => line.trim() !== '');
@@ -182,11 +290,7 @@ const NewPermit = () => {
 
   const handleTextChange = (e) => {
     const { name, value } = e.target;
-    if (name === 'dateIssued') {
-      setFormData(prev => ({ ...prev, dateIssued: formatMaskedDate(value) }));
-    } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
-    }
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleInputBlur = (e) => {
@@ -664,7 +768,7 @@ const NewPermit = () => {
             </div>
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label className="block text-sm font-medium text-gray-700">Date Issued (DD/MM/YY)</label>
+                <label className="block text-sm font-medium text-gray-700">Date Issued</label>
                 <button
                   type="button"
                   onClick={() => {
@@ -679,17 +783,11 @@ const NewPermit = () => {
                   📅 Set Today
                 </button>
               </div>
-              <input 
-                type="text" 
-                name="dateIssued" 
-                value={formData.dateIssued} 
-                onChange={handleTextChange} 
+              <SegmentedDateInput 
+                value={formData.dateIssued}
+                onChange={(val) => setFormData(prev => ({ ...prev, dateIssued: val }))}
                 onBlur={handleInputBlur}
-                required 
-                maxLength={8}
-                disabled={isSubmitting} 
-                className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono" 
-                placeholder="DD/MM/YY"
+                disabled={isSubmitting}
               />
             </div>
             <div className="md:col-span-2">
