@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Login from '../Login';
 
-// Enhanced Flexible Date Parser with 2-Digit Year Support (e.g. 26 -> 2026, 73 -> 1973)
+// Flexible Date Parser (Converts DD/MM/YYYY -> YYYY-MM-DD)
 const parseFlexibleDate = (inputStr) => {
   if (!inputStr) return '';
-  const str = inputStr.trim();
+  const str = String(inputStr).trim();
 
-  // Helper to expand 2-digit year to 4-digit year using a 1931-2030 pivot rule
   const expandYear = (yy) => {
     if (yy.length === 4) return yy;
     const num = parseInt(yy, 10);
@@ -14,7 +13,7 @@ const parseFlexibleDate = (inputStr) => {
     return num <= 30 ? `20${yy.padStart(2, '0')}` : `19${yy.padStart(2, '0')}`;
   };
 
-  // 1. Matches DD/MM/YY, DD-MM-YYYY, DD.MM.YY, etc.
+  // Matches DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
   const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2}|\d{4})$/);
   if (dmyMatch) {
     const [, day, month, year] = dmyMatch;
@@ -22,7 +21,7 @@ const parseFlexibleDate = (inputStr) => {
     return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  // 2. Matches YY-MM-DD or YYYY-MM-DD
+  // Matches YYYY-MM-DD
   const ymdMatch = str.match(/^(\d{2}|\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
   if (ymdMatch) {
     const [, year, month, day] = ymdMatch;
@@ -30,28 +29,42 @@ const parseFlexibleDate = (inputStr) => {
     return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  // 3. Matches 6-digit continuous entry DDMMYY (e.g., 120526 -> 2026-05-12)
-  const d6Match = str.match(/^(\d{2})(\d{2})(\d{2})$/);
-  if (d6Match) {
-    const [, day, month, year] = d6Match;
-    const fullYear = expandYear(year);
-    return `${fullYear}-${month}-${day}`;
-  }
-
-  // 4. Matches 8-digit continuous entry DDMMYYYY (e.g., 12052026 -> 2026-05-12)
-  const d8Match = str.match(/^(\d{2})(\d{2})(\d{4})$/);
-  if (d8Match) {
-    const [, day, month, year] = d8Match;
-    return `${year}-${month}-${day}`;
-  }
-
   return str;
 };
 
-// Robust CSV Parser handling quotes and commas
+// Universal Column Matcher that handles BOM markers and subtle spaces
+const getRowVal = (rowObj, possibleKeys) => {
+  for (const rawKey of Object.keys(rowObj)) {
+    const cleanKey = rawKey
+      .replace(/^\uFEFF/, '') // Strips hidden UTF-8 BOM marker
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+
+    if (possibleKeys.includes(cleanKey)) {
+      const val = rowObj[rawKey];
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        return String(val).trim();
+      }
+    }
+  }
+  return '';
+};
+
+// Resilient CSV / TSV Parser
 const parseCSVText = (text) => {
-  const lines = text.split(/\r\n|\n/).filter(line => line.trim() !== '');
+  // Strip BOM and clean lines
+  const cleanText = text.replace(/^\uFEFF/, '');
+  const lines = cleanText.split(/\r\n|\n/).filter(line => line.trim() !== '');
   if (lines.length < 2) return [];
+
+  // Auto-detect delimiter (comma, tab, or semicolon)
+  const firstLine = lines[0];
+  let delimiter = ',';
+  if ((firstLine.match(/\t/g) || []).length > (firstLine.match(/,/g) || []).length) {
+    delimiter = '\t';
+  } else if ((firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length) {
+    delimiter = ';';
+  }
 
   const parseLine = (line) => {
     const values = [];
@@ -62,7 +75,7 @@ const parseCSVText = (text) => {
       const char = line[i];
       if (char === '"') {
         insideQuote = !insideQuote;
-      } else if (char === ',' && !insideQuote) {
+      } else if (char === delimiter && !insideQuote) {
         values.push(currentValue.trim().replace(/^"|"$/g, ''));
         currentValue = '';
       } else {
@@ -73,12 +86,12 @@ const parseCSVText = (text) => {
     return values;
   };
 
-  const headers = parseLine(lines[0]).map(h => h.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+  const rawHeaders = parseLine(lines[0]);
 
   return lines.slice(1).map(line => {
     const vals = parseLine(line);
     const row = {};
-    headers.forEach((h, idx) => {
+    rawHeaders.forEach((h, idx) => {
       row[h] = vals[idx] || '';
     });
     return row;
@@ -215,7 +228,7 @@ const NewPermit = () => {
     setMessage("⏹️ Upload process was canceled.");
   };
 
-  // --- BULK CSV IMPORT HANDLER ---
+  // BULK CSV IMPORT HANDLER SPECIFICALLY MATCHING YOUR EXACT HEADERS
   const handleBulkCsvUpload = async (e) => {
     e.stopPropagation();
     const file = e.target.files[0];
@@ -228,22 +241,33 @@ const NewPermit = () => {
         const parsedRows = parseCSVText(text);
 
         if (parsedRows.length === 0) {
-          alert("CSV file is empty or formatted incorrectly. Please check column headers.");
+          alert("CSV file is empty or formatted incorrectly.");
           return;
         }
 
-        const records = parsedRows.map(obj => ({
-          permitNumber: obj['permit_number'] || obj['permitnumber'] || obj['permit_num'] || obj['permit'],
-          applicantName: obj['applicant_name'] || obj['applicantname'] || obj['applicant'] || obj['name'],
-          dateIssued: parseFlexibleDate(obj['date_issued'] || obj['dateissued'] || obj['date']) || new Date().toISOString().split('T')[0],
-          purpose: obj['purpose'] || 'RESIDENTIAL',
-          location: obj['location'] || 'N/A',
-          address: obj['address'] || obj['location'] || 'N/A',
-          phone: obj['phone'] || ''
-        })).filter(r => r.permitNumber);
+        const records = parsedRows.map(obj => {
+          // Explicit mapping for: permit_number, applicant_name, date_issued, purpose, location, address, phone
+          const pNum = getRowVal(obj, ['permitnumber', 'permitnum', 'permitno', 'permit', 'fileref']);
+          const appName = getRowVal(obj, ['applicantname', 'applicant', 'applicantownername', 'ownername', 'name']);
+          const dateVal = getRowVal(obj, ['dateissued', 'dateissue', 'date', 'issueddate']);
+          const purposeVal = getRowVal(obj, ['purpose', 'buildingpurpose', 'use']) || 'RESIDENTIAL';
+          const locVal = getRowVal(obj, ['location', 'community', 'town']) || 'N/A';
+          const addrVal = getRowVal(obj, ['address', 'siteaddress', 'plot']) || locVal;
+          const phoneVal = getRowVal(obj, ['phone', 'contact', 'phonenumber', 'mobile']);
+
+          return {
+            permitNumber: pNum,
+            applicantName: appName || 'N/A',
+            dateIssued: parseFlexibleDate(dateVal) || new Date().toISOString().split('T')[0],
+            purpose: purposeVal,
+            location: locVal,
+            address: addrVal,
+            phone: phoneVal
+          };
+        }).filter(r => r.permitNumber);
 
         if (records.length === 0) {
-          alert("No valid permit records found in CSV file.");
+          alert("No valid permit records found. Ensure your CSV header contains 'permit_number'.");
           return;
         }
 
@@ -535,7 +559,7 @@ const NewPermit = () => {
         </button>
       </div>
 
-      {/* --- BULK CSV IMPORT BOX --- */}
+      {/* BULK CSV IMPORT BOX */}
       <div className="mb-6 p-5 bg-emerald-50 rounded-xl border border-emerald-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
         <div>
           <h3 className="font-bold text-sm text-emerald-900">📊 Import Permit Records (CSV)</h3>
@@ -760,7 +784,7 @@ const NewPermit = () => {
         </button>
       </form>
 
-      {/* --- PRINTABLE QR BADGE MODAL --- */}
+      {/* PRINTABLE QR BADGE MODAL */}
       {qrCodeData.isOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full text-center relative animate-fadeIn">
