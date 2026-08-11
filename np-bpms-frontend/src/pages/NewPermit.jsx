@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Login from '../Login';
 
-// Segmented Date Input Sub-Component
+// Segmented Date Input Sub-Component with pre-rendered slashes and auto-focusing segments
 const SegmentedDateInput = ({ value, onChange, onBlur, disabled }) => {
   const dayRef = useRef(null);
   const monthRef = useRef(null);
@@ -11,7 +11,7 @@ const SegmentedDateInput = ({ value, onChange, onBlur, disabled }) => {
   const [month, setMonth] = useState('');
   const [year, setYear] = useState('');
 
-  // Sync internal segments whenever parent value changes (e.g., Set Today or form reset)
+  // Sync internal input fields whenever parent value changes (e.g. Set Today or Form Reset)
   useEffect(() => {
     if (!value) {
       setDay('');
@@ -121,11 +121,12 @@ const SegmentedDateInput = ({ value, onChange, onBlur, disabled }) => {
   );
 };
 
-// Converts DD/MM/YY or DD/MM/YYYY into YYYY-MM-DD for storage
+// Flexible Date Parser (Converts DD/MM/YY, DD/MM/YYYY, DDMMYY, DDMMYYYY, or Excel Serials -> YYYY-MM-DD)
 const parseFlexibleDate = (inputStr) => {
   if (!inputStr) return '';
   const str = String(inputStr).trim();
 
+  // Excel serial number fallback (e.g. 45658 -> 2026-01-20)
   if (/^\d{5}$/.test(str)) {
     const excelSerial = parseInt(str, 10);
     const utcDays = excelSerial - 25569;
@@ -142,19 +143,22 @@ const parseFlexibleDate = (inputStr) => {
     return num <= 30 ? `20${yy.padStart(2, '0')}` : `19${yy.padStart(2, '0')}`;
   };
 
-  const ymdMatch = str.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})/);
+  // Matches YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = str.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})$/);
   if (ymdMatch) {
     const [, year, month, day] = ymdMatch;
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2}|\d{4})/);
+  // Matches DD/MM/YY or DD/MM/YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2}|\d{4})$/);
   if (dmyMatch) {
-    const [, day, month, year] = dmyMatch;
-    const fullYear = expandYear(year);
-    return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    const [, day, month, rawYear] = dmyMatch;
+    const year = expandYear(rawYear);
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
+  // Matches continuous 6 digits: DDMMYY
   if (/^\d{6}$/.test(str)) {
     const day = str.substring(0, 2);
     const month = str.substring(2, 4);
@@ -162,10 +166,18 @@ const parseFlexibleDate = (inputStr) => {
     return `${year}-${month}-${day}`;
   }
 
+  // Matches continuous 8 digits: DDMMYYYY
+  if (/^\d{8}$/.test(str)) {
+    const day = str.substring(0, 2);
+    const month = str.substring(2, 4);
+    const year = str.substring(4, 8);
+    return `${year}-${month}-${day}`;
+  }
+
   return str;
 };
 
-// Universal Column Matcher
+// Universal Column Matcher that handles BOM markers and subtle spaces
 const getRowVal = (rowObj, possibleKeys) => {
   for (const rawKey of Object.keys(rowObj)) {
     const cleanKey = rawKey
@@ -183,7 +195,7 @@ const getRowVal = (rowObj, possibleKeys) => {
   return '';
 };
 
-// Resilient CSV Parser
+// Resilient CSV / TSV Parser
 const parseCSVText = (text) => {
   const cleanText = text.replace(/^\uFEFF/, '');
   const lines = cleanText.split(/\r\n|\n/).filter(line => line.trim() !== '');
