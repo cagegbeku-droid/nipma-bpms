@@ -1,12 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Login from '../Login';
 
-// Enhanced Universal Date Parser (Supports DD/MM/YYYY, DD/MM/YY, ISO, Continuous Digits, & Excel Serials)
+// Auto-Mask Handler: converts typed digits into DD/MM/YY automatically (e.g. 200126 -> 20/01/26)
+const formatMaskedDate = (val) => {
+  const digits = String(val).replace(/\D/g, '').slice(0, 6);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+};
+
+// Converts DD/MM/YY or DD/MM/YYYY into clean ISO format YYYY-MM-DD for database storage
 const parseFlexibleDate = (inputStr) => {
   if (!inputStr) return '';
   const str = String(inputStr).trim();
 
-  // 1. Handle Excel Serial Numbers (e.g. 45658 -> 2026-01-20)
+  // Excel serial fallback (e.g., 45658 -> 2026-01-20)
   if (/^\d{5}$/.test(str)) {
     const excelSerial = parseInt(str, 10);
     const utcDays = excelSerial - 25569;
@@ -23,14 +31,14 @@ const parseFlexibleDate = (inputStr) => {
     return num <= 30 ? `20${yy.padStart(2, '0')}` : `19${yy.padStart(2, '0')}`;
   };
 
-  // 2. ISO Format (YYYY-MM-DD or YYYY/MM/DD)
+  // Matches ISO YYYY-MM-DD
   const ymdMatch = str.match(/^(\d{4})[\/\.-](\d{1,2})[\/\.-](\d{1,2})/);
   if (ymdMatch) {
     const [, year, month, day] = ymdMatch;
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  // 3. Day-First Format (DD/MM/YYYY, DD/MM/YY, DD-MM-YYYY)
+  // Matches DD/MM/YY or DD/MM/YYYY
   const dmyMatch = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2}|\d{4})/);
   if (dmyMatch) {
     const [, day, month, year] = dmyMatch;
@@ -38,33 +46,12 @@ const parseFlexibleDate = (inputStr) => {
     return `${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  // 4. Continuous 8 digits: YYYYMMDD or DDMMYYYY
-  if (/^\d{8}$/.test(str)) {
-    if (str.startsWith('19') || str.startsWith('20')) {
-      const year = str.substring(0, 4);
-      const month = str.substring(4, 6);
-      const day = str.substring(6, 8);
-      return `${year}-${month}-${day}`;
-    } else {
-      const day = str.substring(0, 2);
-      const month = str.substring(2, 4);
-      const year = str.substring(4, 8);
-      return `${year}-${month}-${day}`;
-    }
-  }
-
-  // 5. Continuous 6 digits: DDMMYY
+  // Continuous digits DDMMYY
   if (/^\d{6}$/.test(str)) {
     const day = str.substring(0, 2);
     const month = str.substring(2, 4);
     const year = expandYear(str.substring(4, 6));
     return `${year}-${month}-${day}`;
-  }
-
-  // 6. JavaScript standard Date fallback
-  const parsed = new Date(str);
-  if (!isNaN(parsed.getTime())) {
-    return parsed.toISOString().split('T')[0];
   }
 
   return str;
@@ -195,7 +182,11 @@ const NewPermit = () => {
 
   const handleTextChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'dateIssued') {
+      setFormData(prev => ({ ...prev, dateIssued: formatMaskedDate(value) }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleInputBlur = (e) => {
@@ -205,15 +196,12 @@ const NewPermit = () => {
       const formatted = formatPermitNumberInput(value);
       setFormData(prev => ({ ...prev, permitNumber: formatted }));
       checkDuplicateRecord(formatted);
-    } else if (name === 'dateIssued') {
-      const parsedDate = parseFlexibleDate(value);
-      setFormData(prev => ({ ...prev, dateIssued: parsedDate }));
-    } else if (name !== 'phone') {
+    } else if (name !== 'phone' && name !== 'dateIssued') {
       setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
     }
   };
 
-  // DUPLICATE CHECK IS STRICTLY BY PERMIT NUMBER ONLY
+  // STRICT DUPLICATE CHECK BY PERMIT NUMBER ONLY
   const checkDuplicateRecord = async (permitNum) => {
     if (!permitNum || !permitNum.trim()) return;
     
@@ -468,7 +456,7 @@ const NewPermit = () => {
 
       const metadataPayload = {
         permitNumber: formattedPermitNumber,
-        dateIssued: formData.dateIssued,
+        dateIssued: parseFlexibleDate(formData.dateIssued) || formData.dateIssued,
         purpose: finalPurposeValue.toUpperCase(),
         applicantName: formData.applicantName.toUpperCase(),
         phone: formData.phone,
@@ -676,13 +664,15 @@ const NewPermit = () => {
             </div>
             <div>
               <div className="flex justify-between items-center mb-1">
-                <label className="block text-sm font-medium text-gray-700">Date Issued</label>
+                <label className="block text-sm font-medium text-gray-700">Date Issued (DD/MM/YY)</label>
                 <button
                   type="button"
                   onClick={() => {
-                    const today = new Date().toISOString().split('T')[0];
-                    setFormData(prev => ({ ...prev, dateIssued: today }));
-                    checkDuplicateRecord(formData.permitNumber);
+                    const today = new Date();
+                    const dd = String(today.getDate()).padStart(2, '0');
+                    const mm = String(today.getMonth() + 1).padStart(2, '0');
+                    const yy = String(today.getFullYear()).slice(-2);
+                    setFormData(prev => ({ ...prev, dateIssued: `${dd}/${mm}/${yy}` }));
                   }}
                   className="text-xs bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded border border-blue-200 hover:bg-blue-100 transition cursor-pointer"
                 >
@@ -696,9 +686,10 @@ const NewPermit = () => {
                 onChange={handleTextChange} 
                 onBlur={handleInputBlur}
                 required 
+                maxLength={8}
                 disabled={isSubmitting} 
-                className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
-                placeholder="YYYY-MM-DD, DD/MM/YYYY or 20/01/26"
+                className="w-full p-2 border border-gray-300 rounded-md disabled:bg-gray-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono" 
+                placeholder="DD/MM/YY"
               />
             </div>
             <div className="md:col-span-2">
