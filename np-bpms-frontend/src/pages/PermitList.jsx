@@ -30,7 +30,6 @@ const PermitList = () => {
   const [editFormData, setEditFormData] = useState({});       
   const [editFiles, setEditFiles] = useState({ certificate: [], drawings: [], permitForm: [] });
   const [isSaving, setIsSaving] = useState(false);            
-  const [editStatusMsg, setEditStatusMsg] = useState('');
 
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
   const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
@@ -206,7 +205,6 @@ const PermitList = () => {
       location: permit.location || ''
     });
     setEditFiles({ certificate: [], drawings: [], permitForm: [] });
-    setEditStatusMsg('');
     setEditingPermit(permit);
   };
 
@@ -228,107 +226,28 @@ const PermitList = () => {
     setEditFormData(prev => ({ ...prev, permit_number: formatted }));
   };
 
+  // INSTANT SAVE METADATA & NON-BLOCKING BACKGROUND DRIVE UPLOAD
   const submitEdit = async (e) => {
     e.preventDefault();
     setIsSaving(true);
-    setEditStatusMsg('Updating record...');
 
     const finalPurpose = editFormData.purpose === 'OTHER' ? editFormData.custom_purpose : editFormData.purpose;
     const formattedPermitNum = formatPermitNumberInput(editFormData.permit_number);
+    const hasNewFiles = editFiles.certificate.length > 0 || editFiles.drawings.length > 0 || editFiles.permitForm.length > 0;
 
-    let certificateLink = editingPermit.certificate_link || '';
-    let permitFormLink = editingPermit.permit_form_link || '';
-    let drawingsLinks = editingPermit.drawings_links ? editingPermit.drawings_links.split(',') : [];
+    const payload = {
+      permit_number: formattedPermitNum,
+      date_issued: editFormData.date_issued,
+      purpose: finalPurpose,
+      applicant_name: editFormData.applicant_name,
+      phone: editFormData.phone,
+      address: editFormData.address,
+      location: editFormData.location,
+      upload_status: hasNewFiles ? 'processing' : 'completed'
+    };
 
     try {
-      const hasNewFiles = editFiles.certificate.length > 0 || editFiles.drawings.length > 0 || editFiles.permitForm.length > 0;
-
-      if (hasNewFiles) {
-        setEditStatusMsg('Creating/accessing Google Drive subfolders...');
-        const activeCategories = [];
-        if (editFiles.certificate.length > 0) activeCategories.push('certificate');
-        if (editFiles.drawings.length > 0) activeCategories.push('drawings');
-        if (editFiles.permitForm.length > 0) activeCategories.push('permitForm');
-
-        const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
-          method: "POST",
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            permitNumber: formattedPermitNum,
-            applicantName: editFormData.applicant_name,
-            categories: activeCategories
-          })
-        });
-
-        const folderData = await folderRes.json();
-        const subfolders = folderData.subfolders || {};
-
-        const uploadDirectToDrive = async (file, folderId) => {
-          const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
-            method: "POST",
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              targetFolderId: folderId,
-              fileName: file.name,
-              mimeType: file.type || 'application/pdf',
-              fileSize: file.size
-            })
-          });
-          const sessionData = await sessionRes.json();
-
-          return new Promise((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("PUT", sessionData.uploadUrl, true);
-            xhr.onload = () => {
-              if (xhr.status === 200 || xhr.status === 201) {
-                try {
-                  const resJson = JSON.parse(xhr.responseText);
-                  resolve(`https://drive.google.com/file/d/${resJson.id}/view`);
-                } catch (e) {
-                  resolve(sessionData.uploadUrl);
-                }
-              } else {
-                reject(new Error("Drive Upload Failed"));
-              }
-            };
-            xhr.onerror = () => reject(new Error("Upload Error"));
-            xhr.send(file);
-          });
-        };
-
-        setEditStatusMsg('Uploading new attached files to Google Drive...');
-        if (editFiles.certificate.length > 0 && subfolders.certificate) {
-          certificateLink = await uploadDirectToDrive(editFiles.certificate[0], subfolders.certificate);
-        }
-        if (editFiles.permitForm.length > 0 && subfolders.permitForm) {
-          permitFormLink = await uploadDirectToDrive(editFiles.permitForm[0], subfolders.permitForm);
-        }
-        if (editFiles.drawings.length > 0 && subfolders.drawings) {
-          const newDrawings = await Promise.all(editFiles.drawings.map(f => uploadDirectToDrive(f, subfolders.drawings)));
-          drawingsLinks = [...drawingsLinks, ...newDrawings];
-        }
-      }
-
-      setEditStatusMsg('Saving changes to Supabase...');
-      const payload = {
-        permit_number: formattedPermitNum,
-        date_issued: editFormData.date_issued,
-        purpose: finalPurpose,
-        applicant_name: editFormData.applicant_name,
-        phone: editFormData.phone,
-        address: editFormData.address,
-        location: editFormData.location,
-        certificate_link: certificateLink,
-        permit_form_link: permitFormLink,
-        drawings_links: drawingsLinks.filter(Boolean).join(',')
-      };
-
+      // 1. Instant DB metadata update (< 0.5s)
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${editingPermit.id}`, {
         method: 'PUT',
         headers: { 
@@ -339,16 +258,110 @@ const PermitList = () => {
       });
       const data = await response.json();
       
-      if (data.success) {
-        setPermits(permits.map(p => p.id === editingPermit.id ? { ...p, ...payload } : p));
-        setEditingPermit(null);
-      } else {
-        alert(data.message || "Failed to update record. Permission denied.");
+      if (!response.ok || !data.success) {
+        alert(data.message || "Failed to update record.");
+        setIsSaving(false);
+        return;
       }
+
+      // 2. Optimistically update UI & Close Modal immediately
+      setPermits(prev => prev.map(p => p.id === editingPermit.id ? { ...p, ...payload } : p));
+      const activeEditingPermit = editingPermit;
+      const activeEditFiles = { ...editFiles };
+      setEditingPermit(null);
+      setIsSaving(false);
+
+      // 3. Silent non-blocking background Google Drive file upload
+      if (hasNewFiles) {
+        (async () => {
+          try {
+            const activeCategories = [];
+            if (activeEditFiles.certificate.length > 0) activeCategories.push('certificate');
+            if (activeEditFiles.drawings.length > 0) activeCategories.push('drawings');
+            if (activeEditFiles.permitForm.length > 0) activeCategories.push('permitForm');
+
+            const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
+              method: "POST",
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                permitNumber: formattedPermitNum,
+                applicantName: editFormData.applicant_name,
+                categories: activeCategories
+              })
+            });
+
+            const folderData = await folderRes.json();
+            const subfolders = folderData.subfolders || {};
+
+            const uploadDirectToDrive = async (file, folderId) => {
+              const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
+                method: "POST",
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  targetFolderId: folderId,
+                  fileName: file.name,
+                  mimeType: file.type || 'application/pdf',
+                  fileSize: file.size
+                })
+              });
+              const sessionData = await sessionRes.json();
+              if (!sessionData.success || !sessionData.uploadUrl) return '';
+
+              const driveRes = await fetch(sessionData.uploadUrl, { method: "PUT", body: file });
+              if (driveRes.ok) {
+                const resJson = await driveRes.json();
+                return `https://drive.google.com/file/d/${resJson.id}/view`;
+              }
+              return '';
+            };
+
+            const certPromise = (activeEditFiles.certificate.length > 0 && subfolders.certificate)
+              ? uploadDirectToDrive(activeEditFiles.certificate[0], subfolders.certificate)
+              : Promise.resolve(activeEditingPermit.certificate_link || null);
+
+            const formPromise = (activeEditFiles.permitForm.length > 0 && subfolders.permitForm)
+              ? uploadDirectToDrive(activeEditFiles.permitForm[0], subfolders.permitForm)
+              : Promise.resolve(activeEditingPermit.permit_form_link || null);
+
+            const drawingsPromises = (activeEditFiles.drawings.length > 0 && subfolders.drawings)
+              ? Promise.all(activeEditFiles.drawings.map(f => uploadDirectToDrive(f, subfolders.drawings)))
+              : Promise.resolve([]);
+
+            const [newCertLink, newFormLink, newDrawingsList] = await Promise.all([certPromise, formPromise, drawingsPromises]);
+
+            const existingDrawings = activeEditingPermit.drawings_links ? activeEditingPermit.drawings_links.split(',').map(l => l.trim()).filter(Boolean) : [];
+            const mergedDrawings = [...existingDrawings, ...newDrawingsList.filter(Boolean)].join(', ');
+
+            await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${activeEditingPermit.id}`, {
+              method: 'PUT',
+              headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                certificate_link: newCertLink || activeEditingPermit.certificate_link,
+                permit_form_link: newFormLink || activeEditingPermit.permit_form_link,
+                drawings_links: mergedDrawings || activeEditingPermit.drawings_links,
+                upload_status: 'completed'
+              })
+            });
+
+            fetchPermits();
+          } catch (bgErr) {
+            console.error("Background file upload warning:", bgErr);
+          }
+        })();
+      }
+
     } catch (err) {
       console.error("Edit Error:", err);
       alert("Server connection error during update.");
-    } finally {
       setIsSaving(false);
     }
   };
@@ -722,12 +735,6 @@ const PermitList = () => {
                 ✕
               </button>
             </div>
-
-            {editStatusMsg && (
-              <div className="mx-6 mt-4 p-3 bg-blue-50 text-blue-800 font-semibold text-xs rounded border border-blue-200">
-                {editStatusMsg}
-              </div>
-            )}
             
             <form onSubmit={submitEdit} className="p-6 overflow-y-auto bg-white space-y-4 text-sm">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -808,7 +815,7 @@ const PermitList = () => {
               <div className="pt-4 border-t border-gray-100 flex justify-end space-x-3 mt-6">
                 <button type="button" onClick={() => setEditingPermit(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium cursor-pointer">Cancel</button>
                 <button type="submit" disabled={isSaving} className="px-6 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 text-sm cursor-pointer">
-                  {isSaving ? 'Saving & Uploading...' : 'Save Changes'}
+                  {isSaving ? 'Saving Changes...' : 'Save Changes'}
                 </button>
               </div>
             </form>
