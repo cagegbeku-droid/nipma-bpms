@@ -281,7 +281,6 @@ const NewPermit = () => {
   const [message, setMessage] = useState('');
   const [duplicateWarning, setDuplicateWarning] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
 
   const [qrCodeData, setQrCodeData] = useState({ isOpen: false, code: '', permitNum: '' });
 
@@ -353,21 +352,6 @@ const NewPermit = () => {
 
   const removeFile = (fieldName, indexToRemove) => {
     setFiles(prev => ({ ...prev, [fieldName]: prev[fieldName].filter((_, index) => index !== indexToRemove) }));
-  };
-
-  const handleCancelUpload = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    activeXhrsRef.current.forEach(xhr => {
-      if (xhr && xhr.readyState !== 4) {
-        xhr.abort();
-      }
-    });
-    activeXhrsRef.current = [];
-    setIsSubmitting(false);
-    setUploadProgress(0);
-    setMessage("⏹️ Upload process was canceled.");
   };
 
   // BULK CSV IMPORT HANDLER
@@ -443,12 +427,10 @@ const NewPermit = () => {
     reader.readAsText(file);
   };
 
+  // INSTANT SUBMIT WITH BACKGROUND FILE UPLOADS
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
-    setUploadProgress(0);
-    activeXhrsRef.current = [];
-    abortControllerRef.current = new AbortController();
 
     try {
       const token = sessionStorage.getItem('token');
@@ -458,175 +440,144 @@ const NewPermit = () => {
       }
 
       const formattedPermitNumber = formatPermitNumberInput(formData.permitNumber);
+      const finalPurpose = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
+      const parsedDate = parseFlexibleDate(formData.dateIssued) || formData.dateIssued;
 
-      const activeCategories = [];
-      if (files.certificate.length > 0) activeCategories.push('certificate');
-      if (files.drawings.length > 0) activeCategories.push('drawings');
-      if (files.permitForm.length > 0) activeCategories.push('permitForm');
+      const hasFiles = files.certificate.length > 0 || files.drawings.length > 0 || files.permitForm.length > 0;
 
-      setMessage("Initializing permit archive...");
-      const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
-        method: "POST",
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        signal: abortControllerRef.current.signal,
-        body: JSON.stringify({
-          permitNumber: formattedPermitNumber,
-          applicantName: formData.applicantName.toUpperCase(),
-          categories: activeCategories
-        })
-      });
-
-      if (folderRes.status === 401 || folderRes.status === 403) {
-        alert("Your session has expired. Please log in again.");
-        handleLogout();
-        return;
-      }
-
-      const folderData = await folderRes.json();
-      if (!folderRes.ok || !folderData.success || !folderData.subfolders) {
-        throw new Error("Unable to prepare document storage.");
-      }
-
-      const subfolders = folderData.subfolders;
-
-      const uploadFileDirectToDrive = async (file, targetFolderId) => {
-        const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
-          method: "POST",
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          signal: abortControllerRef.current.signal,
-          body: JSON.stringify({ 
-            targetFolderId: targetFolderId,
-            fileName: file.name, 
-            mimeType: file.type || 'application/pdf',
-            fileSize: file.size
-          })
-        });
-
-        const sessionData = await sessionRes.json();
-        if (!sessionData.success || !sessionData.uploadUrl) {
-          throw new Error("Upload session creation failed.");
-        }
-
-        return new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          activeXhrsRef.current.push(xhr);
-
-          xhr.open("PUT", sessionData.uploadUrl, true);
-
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              const percent = Math.round((event.loaded / event.total) * 100);
-              setUploadProgress(percent);
-            }
-          };
-
-          xhr.onload = () => {
-            if (xhr.status === 200 || xhr.status === 201) {
-              try {
-                const resJson = JSON.parse(xhr.responseText);
-                const driveFileUrl = `https://drive.google.com/file/d/${resJson.id}/view`;
-                resolve(driveFileUrl);
-              } catch (e) {
-                resolve(sessionData.uploadUrl);
-              }
-            } else {
-              reject(new Error("Document upload failed."));
-            }
-          };
-
-          xhr.onerror = () => reject(new Error("Network connection error."));
-          xhr.onabort = () => reject(new Error("CANCELLED_BY_USER"));
-          
-          xhr.send(file);
-        });
-      };
-
-      setMessage("Uploading attached documents...");
-
-      const certPromise = (files.certificate.length > 0 && subfolders.certificate) 
-        ? uploadFileDirectToDrive(files.certificate[0], subfolders.certificate) 
-        : Promise.resolve('');
-
-      const formPromise = (files.permitForm.length > 0 && subfolders.permitForm) 
-        ? uploadFileDirectToDrive(files.permitForm[0], subfolders.permitForm) 
-        : Promise.resolve('');
-
-      const drawingsPromises = (files.drawings.length > 0 && subfolders.drawings) 
-        ? files.drawings.map(file => uploadFileDirectToDrive(file, subfolders.drawings)) 
-        : [];
-
-      const [certificateLink, permitFormLink, drawingsLinks] = await Promise.all([
-        certPromise,
-        formPromise,
-        Promise.all(drawingsPromises)
-      ]);
-
-      setMessage("Finalizing record...");
-      const finalPurposeValue = formData.purpose === 'OTHER' ? formData.customPurpose : formData.purpose;
-
-      const metadataPayload = {
-        permitNumber: formattedPermitNumber,
-        dateIssued: parseFlexibleDate(formData.dateIssued) || formData.dateIssued,
-        purpose: finalPurposeValue.toUpperCase(),
-        applicantName: formData.applicantName.toUpperCase(),
-        phone: formData.phone,
-        location: formData.location.toUpperCase(),
-        address: formData.address.toUpperCase(),
-        certificateLink: certificateLink,
-        drawingsLinks: drawingsLinks.join(','),
-        permitFormLink: permitFormLink
-      };
-
+      // STEP 1: INSTANT DATABASE SAVE (< 0.5s)
       const metaRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive-metadata", {
         method: "POST",
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        signal: abortControllerRef.current.signal,
-        body: JSON.stringify(metadataPayload)
+        body: JSON.stringify({
+          permitNumber: formattedPermitNumber,
+          dateIssued: parsedDate,
+          purpose: finalPurpose.toUpperCase(),
+          applicantName: formData.applicantName.toUpperCase(),
+          phone: formData.phone,
+          location: formData.location.toUpperCase(),
+          address: formData.address.toUpperCase(),
+          certificateLink: null,
+          drawingsLinks: null,
+          permitFormLink: null,
+          uploadStatus: hasFiles ? 'processing' : 'completed'
+        })
       });
 
       const metaData = await metaRes.json();
+      if (!metaRes.ok || !metaData.success) {
+        throw new Error("Failed to save permit record.");
+      }
 
-      if (metaRes.ok && metaData.success) {
-        setMessage("Success! Permit Archived.");
-        
-        try {
-          const qrRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(formattedPermitNumber)}`);
-          const qrJson = await qrRes.json();
-          if (qrJson.success && qrJson.qrCode) {
-            setQrCodeData({
-              isOpen: true,
-              code: qrJson.qrCode,
-              permitNum: formattedPermitNumber
-            });
-          }
-        } catch (qrErr) {
-          console.error("Failed to generate QR badge:", qrErr);
+      const newRecordId = metaData.data.id;
+
+      // STEP 2: INSTANT UI SUCCESS CONFIRMATION
+      setMessage("Success! Permit Archived.");
+      
+      try {
+        const qrRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(formattedPermitNumber)}`);
+        const qrJson = await qrRes.json();
+        if (qrJson.success && qrJson.qrCode) {
+          setQrCodeData({
+            isOpen: true,
+            code: qrJson.qrCode,
+            permitNum: formattedPermitNumber
+          });
         }
+      } catch (qrErr) {
+        console.error("Failed to generate QR badge:", qrErr);
+      }
 
-        setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
-        setFiles({ certificate: [], drawings: [], permitForm: [] });
-        setDuplicateWarning('');
-      } else {
-        setMessage(metaData.message || "Failed to save permit record.");
+      // STEP 3: RESET FORM IMMEDIATELY
+      const filesToUpload = { ...files };
+      const currentApplicant = formData.applicantName.toUpperCase();
+
+      setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
+      setFiles({ certificate: [], drawings: [], permitForm: [] });
+      setDuplicateWarning('');
+      setIsSubmitting(false);
+
+      // STEP 4: SILENT BACKGROUND FILE UPLOAD (NON-BLOCKING)
+      if (hasFiles) {
+        (async () => {
+          try {
+            const activeCategories = [];
+            if (filesToUpload.certificate.length > 0) activeCategories.push('certificate');
+            if (filesToUpload.drawings.length > 0) activeCategories.push('drawings');
+            if (filesToUpload.permitForm.length > 0) activeCategories.push('permitForm');
+
+            const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
+              method: "POST",
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({
+                permitNumber: formattedPermitNumber,
+                applicantName: currentApplicant,
+                categories: activeCategories
+              })
+            });
+
+            const folderData = await folderRes.json();
+            const subfolders = folderData.subfolders || {};
+
+            const uploadDirect = async (file, targetFolderId) => {
+              const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
+                method: "POST",
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({
+                  targetFolderId,
+                  fileName: file.name,
+                  mimeType: file.type || 'application/pdf',
+                  fileSize: file.size
+                })
+              });
+
+              const sessionData = await sessionRes.json();
+              if (!sessionData.success || !sessionData.uploadUrl) return '';
+
+              const driveRes = await fetch(sessionData.uploadUrl, { method: "PUT", body: file });
+              if (driveRes.ok) {
+                const resJson = await driveRes.json();
+                return `https://drive.google.com/file/d/${resJson.id}/view`;
+              }
+              return '';
+            };
+
+            const certPromise = (filesToUpload.certificate.length > 0 && subfolders.certificate) 
+              ? uploadDirect(filesToUpload.certificate[0], subfolders.certificate) 
+              : Promise.resolve('');
+
+            const formPromise = (filesToUpload.permitForm.length > 0 && subfolders.permitForm) 
+              ? uploadDirect(filesToUpload.permitForm[0], subfolders.permitForm) 
+              : Promise.resolve('');
+
+            const drawingsPromises = (filesToUpload.drawings.length > 0 && subfolders.drawings) 
+              ? Promise.all(filesToUpload.drawings.map(f => uploadDirect(f, subfolders.drawings))) 
+              : Promise.resolve([]);
+
+            const [certLink, formLink, drawingsList] = await Promise.all([certPromise, formPromise, drawingsPromises]);
+
+            await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${newRecordId}`, {
+              method: "PUT",
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify({
+                certificate_link: certLink,
+                permit_form_link: formLink,
+                drawings_links: drawingsList.filter(Boolean).join(','),
+                upload_status: 'completed'
+              })
+            });
+          } catch (bgErr) {
+            console.error("Background file sync notice:", bgErr);
+          }
+        })();
       }
 
     } catch (err) {
-      if (err.message === "CANCELLED_BY_USER" || err.name === "AbortError") {
-        console.log("Upload canceled by officer.");
-      } else {
-        console.error("Upload Error:", err);
-        setMessage("Upload Error: " + (err.message || "Failed to complete process."));
-      }
-    } finally {
+      console.error("Submit Error:", err);
+      setMessage("Error saving record. Please try again.");
       setIsSubmitting(false);
     }
   };
@@ -732,31 +683,8 @@ const NewPermit = () => {
       )}
       
       {message && (
-        <div className={"p-4 mb-6 rounded-md font-medium transition-all shadow-sm " + (message.includes("Success") || message.includes("complete") ? "bg-green-100 text-green-700 border border-green-200" : message.includes("canceled") ? "bg-amber-100 text-amber-800 border border-amber-200" : "bg-blue-100 text-blue-700 border border-blue-200")}> 
+        <div className={"p-4 mb-6 rounded-md font-medium transition-all shadow-sm " + (message.includes("Success") || message.includes("complete") ? "bg-green-100 text-green-700 border border-green-200" : "bg-blue-100 text-blue-700 border border-blue-200")}> 
           {message} 
-        </div>
-      )}
-
-      {isSubmitting && (
-        <div className="mb-6 bg-white p-5 rounded-xl border border-blue-200 shadow-md space-y-3">
-          <div className="flex justify-between items-center text-xs font-bold text-blue-800">
-            <span>Uploading Documents...</span>
-            <span className="text-sm text-blue-900">{uploadProgress}%</span>
-          </div>
-          
-          <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-            <div className="bg-blue-600 h-3 rounded-full transition-all duration-200" style={{ width: `${uploadProgress}%` }}></div>
-          </div>
-
-          <div className="flex justify-end pt-1">
-            <button 
-              type="button" 
-              onClick={handleCancelUpload}
-              className="bg-red-100 hover:bg-red-200 text-red-700 font-bold text-xs px-4 py-2 rounded-lg transition border border-red-300 cursor-pointer flex items-center space-x-1"
-            >
-              <span>⏹️ Cancel</span>
-            </button>
-          </div>
         </div>
       )}
 
@@ -916,7 +844,7 @@ const NewPermit = () => {
           className="w-full bg-blue-600 text-white font-semibold py-4 rounded-md hover:bg-blue-700 transition shadow-md flex items-center justify-center space-x-2 disabled:opacity-70 cursor-pointer"
         >
           {isSubmitting ? (
-            <span>Processing ({uploadProgress}%)...</span>
+            <span>Saving Record...</span>
           ) : (
             <span>Save to Secure Archives</span>
           )}

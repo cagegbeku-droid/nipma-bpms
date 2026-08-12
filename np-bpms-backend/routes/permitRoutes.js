@@ -110,7 +110,7 @@ router.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 1. DYNAMIC SUBFOLDER CREATOR
+// 1. DYNAMIC SUBFOLDER CREATOR (PARALLEL & FAST)
 // ==========================================
 router.post('/create-permit-folders', requireAuth, async (req, res) => {
   try {
@@ -135,7 +135,7 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
           q: q,
           fields: 'files(id, name)',
           spaces: 'drive',
-          pageSize: 10
+          pageSize: 5
         });
 
         if (searchRes.data.files && searchRes.data.files.length > 0) {
@@ -186,11 +186,12 @@ router.post('/create-permit-folders', requireAuth, async (req, res) => {
       ? categories 
       : Object.keys(categoryMap);
 
-    for (const cat of requestedCategories) {
+    // Parallel Subfolder Creation
+    await Promise.all(requestedCategories.map(async (cat) => {
       if (categoryMap[cat]) {
         subfolders[cat] = await getOrCreateFolder(categoryMap[cat], masterFolderId);
       }
-    }
+    }));
 
     res.json({ success: true, masterFolderId, subfolders });
 
@@ -255,13 +256,13 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
     const { 
       permitNumber, dateIssued, purpose, applicantName, 
       phone, address, location, certificateLink, 
-      drawingsLinks, permitFormLink 
+      drawingsLinks, permitFormLink, uploadStatus 
     } = req.body;
 
     const query = `
       INSERT INTO permits 
       (permit_number, date_issued, purpose, applicant_name, phone, address, location, certificate_link, drawings_links, permit_form_link, upload_status, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed', 'Synced')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'Synced')
       RETURNING *;
     `;
     
@@ -269,7 +270,7 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
       permitNumber, dateIssued, purpose, applicantName, 
       phone || null, address, location, 
       certificateLink || null, drawingsLinks || null, 
-      permitFormLink || null
+      permitFormLink || null, uploadStatus || 'completed'
     ];
 
     const dbResponse = await db.query(query, values);
@@ -283,7 +284,7 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 4. BULK PERMIT IMPORT ENDPOINT (OPTIMIZED & STRICT UNIQUE PERMIT CHECK)
+// 4. BULK PERMIT IMPORT ENDPOINT (STRICT PERMIT NUMBER UNIQUE CHECK)
 // ==========================================
 router.post('/bulk-import', requireAuth, async (req, res) => {
   try {
@@ -297,7 +298,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       });
     }
 
-    // 1. Fetch ALL existing normalized permit numbers in ONE single query for high speed
+    // Single fast query to fetch all existing normalized permit numbers
     const existingDbRes = await db.query(`
       SELECT REGEXP_REPLACE(LOWER(permit_number), '[^a-z0-9]', '', 'g') AS norm_num
       FROM permits 
@@ -312,7 +313,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       existingRows = existingRows[0];
     }
 
-    // Build lookup set of all existing normalized permit numbers in Supabase
+    // Build lookup set of normalized permit numbers strictly in Supabase
     const existingPermitSet = new Set(
       existingRows
         .map(r => r.norm_num || (r.rows && r.rows.norm_num))
@@ -322,7 +323,6 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
     let insertedCount = 0;
     let skippedCount = 0;
 
-    // 2. Process CSV records and insert ONLY unique permit numbers
     for (const record of records) {
       const rawPermitNum = record.permitNumber || record.permit_number;
       if (!rawPermitNum || !String(rawPermitNum).trim()) continue;
@@ -331,7 +331,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       // Normalize string: "NIPDA/PRAM/26/09" -> "nipdapram2609"
       const normKey = cleanPermitNum.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-      // Skip if permit number already exists in Supabase OR earlier in this CSV file
+      // Skip strictly if permit number already exists in DB OR earlier in this CSV
       if (existingPermitSet.has(normKey)) {
         skippedCount++;
         continue;
@@ -358,7 +358,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
 
       await db.query(insertQuery, values);
 
-      // Add to set immediately to block repeating permit numbers inside the same CSV file
+      // Block duplicates within the same batch
       existingPermitSet.add(normKey);
       insertedCount++;
     }
