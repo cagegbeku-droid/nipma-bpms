@@ -28,8 +28,8 @@ const PermitList = () => {
   const [selectedPermit, setSelectedPermit] = useState(null); 
   const [editingPermit, setEditingPermit] = useState(null);   
   const [editFormData, setEditFormData] = useState({});       
-  const [editFiles, setEditFiles] = useState({ certificate: [], drawings: [], permitForm: [] });
   const [isSaving, setIsSaving] = useState(false);            
+  const [uploadingCategory, setUploadingCategory] = useState(null);
 
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
   const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
@@ -187,6 +187,7 @@ const PermitList = () => {
     document.body.removeChild(link);
   };
 
+  // EDIT MODAL: PURE METADATA (NO FILES)
   const handleEditClick = (permit) => {
     const standardPurposes = ['RESIDENTIAL', 'COMMERCIAL', 'INSTITUTION', 'ORGANIZATION', 'MIXED USE', 'FENCE WALL'];
     const currentPurpose = permit.purpose ? permit.purpose.toUpperCase() : 'RESIDENTIAL';
@@ -204,7 +205,6 @@ const PermitList = () => {
       address: permit.address || '',
       location: permit.location || ''
     });
-    setEditFiles({ certificate: [], drawings: [], permitForm: [] });
     setEditingPermit(permit);
   };
 
@@ -216,24 +216,17 @@ const PermitList = () => {
     }));
   };
 
-  const handleEditFileChange = (e) => {
-    const { name, files } = e.target;
-    setEditFiles(prev => ({ ...prev, [name]: Array.from(files) }));
-  };
-
   const handlePermitNumberBlur = () => {
     const formatted = formatPermitNumberInput(editFormData.permit_number);
     setEditFormData(prev => ({ ...prev, permit_number: formatted }));
   };
 
-  // INSTANT SAVE METADATA & NON-BLOCKING BACKGROUND DRIVE UPLOAD
   const submitEdit = async (e) => {
     e.preventDefault();
     setIsSaving(true);
 
     const finalPurpose = editFormData.purpose === 'OTHER' ? editFormData.custom_purpose : editFormData.purpose;
     const formattedPermitNum = formatPermitNumberInput(editFormData.permit_number);
-    const hasNewFiles = editFiles.certificate.length > 0 || editFiles.drawings.length > 0 || editFiles.permitForm.length > 0;
 
     const payload = {
       permit_number: formattedPermitNum,
@@ -242,12 +235,10 @@ const PermitList = () => {
       applicant_name: editFormData.applicant_name,
       phone: editFormData.phone,
       address: editFormData.address,
-      location: editFormData.location,
-      upload_status: hasNewFiles ? 'processing' : 'completed'
+      location: editFormData.location
     };
 
     try {
-      // 1. Instant DB metadata update (< 0.5s)
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${editingPermit.id}`, {
         method: 'PUT',
         headers: { 
@@ -260,109 +251,129 @@ const PermitList = () => {
       
       if (!response.ok || !data.success) {
         alert(data.message || "Failed to update record.");
-        setIsSaving(false);
         return;
       }
 
-      // 2. Optimistically update UI & Close Modal immediately
       setPermits(prev => prev.map(p => p.id === editingPermit.id ? { ...p, ...payload } : p));
-      const activeEditingPermit = editingPermit;
-      const activeEditFiles = { ...editFiles };
       setEditingPermit(null);
-      setIsSaving(false);
-
-      // 3. Silent non-blocking background Google Drive file upload
-      if (hasNewFiles) {
-        (async () => {
-          try {
-            const activeCategories = [];
-            if (activeEditFiles.certificate.length > 0) activeCategories.push('certificate');
-            if (activeEditFiles.drawings.length > 0) activeCategories.push('drawings');
-            if (activeEditFiles.permitForm.length > 0) activeCategories.push('permitForm');
-
-            const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
-              method: "POST",
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                permitNumber: formattedPermitNum,
-                applicantName: editFormData.applicant_name,
-                categories: activeCategories
-              })
-            });
-
-            const folderData = await folderRes.json();
-            const subfolders = folderData.subfolders || {};
-
-            const uploadDirectToDrive = async (file, folderId) => {
-              const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
-                method: "POST",
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                  targetFolderId: folderId,
-                  fileName: file.name,
-                  mimeType: file.type || 'application/pdf',
-                  fileSize: file.size
-                })
-              });
-              const sessionData = await sessionRes.json();
-              if (!sessionData.success || !sessionData.uploadUrl) return '';
-
-              const driveRes = await fetch(sessionData.uploadUrl, { method: "PUT", body: file });
-              if (driveRes.ok) {
-                const resJson = await driveRes.json();
-                return `https://drive.google.com/file/d/${resJson.id}/view`;
-              }
-              return '';
-            };
-
-            const certPromise = (activeEditFiles.certificate.length > 0 && subfolders.certificate)
-              ? uploadDirectToDrive(activeEditFiles.certificate[0], subfolders.certificate)
-              : Promise.resolve(activeEditingPermit.certificate_link || null);
-
-            const formPromise = (activeEditFiles.permitForm.length > 0 && subfolders.permitForm)
-              ? uploadDirectToDrive(activeEditFiles.permitForm[0], subfolders.permitForm)
-              : Promise.resolve(activeEditingPermit.permit_form_link || null);
-
-            const drawingsPromises = (activeEditFiles.drawings.length > 0 && subfolders.drawings)
-              ? Promise.all(activeEditFiles.drawings.map(f => uploadDirectToDrive(f, subfolders.drawings)))
-              : Promise.resolve([]);
-
-            const [newCertLink, newFormLink, newDrawingsList] = await Promise.all([certPromise, formPromise, drawingsPromises]);
-
-            const existingDrawings = activeEditingPermit.drawings_links ? activeEditingPermit.drawings_links.split(',').map(l => l.trim()).filter(Boolean) : [];
-            const mergedDrawings = [...existingDrawings, ...newDrawingsList.filter(Boolean)].join(', ');
-
-            await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${activeEditingPermit.id}`, {
-              method: 'PUT',
-              headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                certificate_link: newCertLink || activeEditingPermit.certificate_link,
-                permit_form_link: newFormLink || activeEditingPermit.permit_form_link,
-                drawings_links: mergedDrawings || activeEditingPermit.drawings_links,
-                upload_status: 'completed'
-              })
-            });
-
-            fetchPermits();
-          } catch (bgErr) {
-            console.error("Background file upload warning:", bgErr);
-          }
-        })();
-      }
-
     } catch (err) {
       console.error("Edit Error:", err);
       alert("Server connection error during update.");
+    } finally {
       setIsSaving(false);
+    }
+  };
+
+  // VIEW MODAL: DIRECT DOCUMENT UPLOAD & ATTACHMENT
+  const handleViewUpload = async (category, fileList) => {
+    if (!fileList || fileList.length === 0 || !selectedPermit) return;
+
+    setUploadingCategory(category);
+
+    try {
+      const activeCategories = [category];
+
+      // 1. Create or fetch target subfolder on Google Drive
+      const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
+        method: "POST",
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          permitNumber: selectedPermit.permit_number,
+          applicantName: selectedPermit.applicant_name,
+          categories: activeCategories
+        })
+      });
+
+      const folderData = await folderRes.json();
+      const targetFolderId = folderData.subfolders?.[category];
+
+      if (!targetFolderId) {
+        throw new Error("Could not access destination folder on Google Drive.");
+      }
+
+      // 2. Resumable Google Drive upload helper
+      const uploadDirectToDrive = async (file) => {
+        const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
+          method: "POST",
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            targetFolderId: targetFolderId,
+            fileName: file.name,
+            mimeType: file.type || 'application/pdf',
+            fileSize: file.size
+          })
+        });
+
+        const sessionData = await sessionRes.json();
+        if (!sessionData.success || !sessionData.uploadUrl) {
+          throw new Error("Google Drive upload rejected.");
+        }
+
+        const driveRes = await fetch(sessionData.uploadUrl, { method: "PUT", body: file });
+        if (driveRes.ok) {
+          const resJson = await driveRes.json();
+          return `https://drive.google.com/file/d/${resJson.id}/view`;
+        }
+        throw new Error("Document upload failed.");
+      };
+
+      // 3. Upload all selected files concurrently
+      const uploadedLinks = await Promise.all(Array.from(fileList).map(f => uploadDirectToDrive(f)));
+
+      // 4. Merge links with existing records
+      let updateKey = '';
+      let updatedValue = '';
+
+      if (category === 'certificate') {
+        updateKey = 'certificate_link';
+        updatedValue = uploadedLinks[0];
+      } else if (category === 'drawings') {
+        updateKey = 'drawings_links';
+        const existing = selectedPermit.drawings_links 
+          ? selectedPermit.drawings_links.split(',').map(s => s.trim()).filter(Boolean) 
+          : [];
+        updatedValue = [...existing, ...uploadedLinks].join(', ');
+      } else if (category === 'permitForm') {
+        updateKey = 'permit_form_link';
+        const existing = selectedPermit.permit_form_link 
+          ? selectedPermit.permit_form_link.split(',').map(s => s.trim()).filter(Boolean) 
+          : [];
+        updatedValue = [...existing, ...uploadedLinks].join(', ');
+      }
+
+      // 5. Update Supabase record
+      const updateRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          [updateKey]: updatedValue,
+          upload_status: 'completed'
+        })
+      });
+
+      const updateData = await updateRes.json();
+      if (!updateRes.ok || !updateData.success) {
+        throw new Error("Failed to record document link in database.");
+      }
+
+      // 6. Update local state
+      setSelectedPermit(prev => ({ ...prev, [updateKey]: updatedValue }));
+      setPermits(prev => prev.map(p => p.id === selectedPermit.id ? { ...p, [updateKey]: updatedValue } : p));
+
+    } catch (err) {
+      console.error("View Upload Error:", err);
+      alert("Upload failed: " + err.message);
+    } finally {
+      setUploadingCategory(null);
     }
   };
 
@@ -381,12 +392,14 @@ const PermitList = () => {
 
   const renderLinks = (linkString, label) => {
     if (!linkString) return null;
-    const links = linkString.split(',').map(link => link.trim());
+    const links = linkString.split(',').map(link => link.trim()).filter(Boolean);
+    if (links.length === 0) return null;
+
     if (links.length === 1) {
       return (
         <button 
           onClick={() => handleOpenDocViewer(links[0], `${label} - ${selectedPermit?.permit_number}`)}
-          className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline font-medium text-left cursor-pointer"
+          className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline font-medium text-left cursor-pointer truncate max-w-full"
         >
           📄 View {label}
         </button>
@@ -395,12 +408,12 @@ const PermitList = () => {
     return (
       <div className="mb-1">
         <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
-        <div className="flex flex-wrap gap-2 mt-2">
+        <div className="flex flex-wrap gap-1.5 mt-2">
           {links.map((link, index) => (
             <button 
               key={index} 
               onClick={() => handleOpenDocViewer(link, `${label} Part ${index + 1} - ${selectedPermit?.permit_number}`)}
-              className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-1 rounded text-sm hover:underline border border-blue-100 font-medium cursor-pointer"
+              className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-2.5 py-1 rounded text-xs hover:underline border border-blue-100 font-medium cursor-pointer"
             >
               Part {index + 1}
             </button>
@@ -555,7 +568,7 @@ const PermitList = () => {
                           
                           {isOfficer && (
                             <>
-                              <button onClick={() => handleEditClick(permit)} className="bg-gray-100 text-gray-700 hover:bg-gray-800 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Edit Details & Attach Files">
+                              <button onClick={() => handleEditClick(permit)} className="bg-gray-100 text-gray-700 hover:bg-gray-800 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Edit Permit Metadata">
                                 ✏️ Edit
                               </button>
                               <button onClick={() => handleDelete(permit.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Delete Record">
@@ -574,18 +587,18 @@ const PermitList = () => {
         </div>
       </div>
 
-      {/* VIEW DOCUMENTS MODAL */}
+      {/* VIEW DOCUMENTS & ATTACH MODAL */}
       {selectedPermit && (() => {
         const modalName = selectedPermit.applicant_name || `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim();
         const modalPurpose = selectedPermit.purpose || 'RESIDENTIAL';
 
         return (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
               <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
                 <div>
                   <h3 className="text-xl font-bold text-gray-900">Archived Documents & Details</h3>
-                  <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold">{selectedPermit.permit_number}</span></p>
+                  <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold text-blue-900">{selectedPermit.permit_number}</span></p>
                 </div>
                 <button onClick={() => setSelectedPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer">
                   ✕
@@ -624,18 +637,107 @@ const PermitList = () => {
                   </div>
                 </div>
 
+                {/* 3 DOCUMENT CARDS WITH INLINE ATTACHMENT */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                    <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Certificate</h4>
-                    {renderLinks(selectedPermit.certificate_link, "Certificate") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+                  {/* CARD 1: CERTIFICATE */}
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
+                        <span>📜 Certificate</span>
+                        {selectedPermit.certificate_link && <span className="text-xs text-green-600 font-semibold">✓ Archived</span>}
+                      </h4>
+                      <div className="min-h-[48px]">
+                        {renderLinks(selectedPermit.certificate_link, "Certificate") || (
+                          <span className="text-xs text-gray-400 italic">No certificate uploaded yet</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {isOfficer && (
+                      <div className="mt-4 pt-3 border-t border-gray-100">
+                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'certificate' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
+                          <span>{uploadingCategory === 'certificate' ? '⏳ Uploading...' : (selectedPermit.certificate_link ? '🔄 Replace Certificate' : '📁 Attach Certificate')}</span>
+                          <input 
+                            type="file" 
+                            accept=".pdf,image/*" 
+                            disabled={uploadingCategory !== null} 
+                            onChange={(e) => {
+                              handleViewUpload('certificate', e.target.files);
+                              e.target.value = '';
+                            }} 
+                            className="hidden" 
+                          />
+                        </label>
+                      </div>
+                    )}
                   </div>
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                    <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Architectural Drawings</h4>
-                    {renderLinks(selectedPermit.drawings_links, "Drawing") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+
+                  {/* CARD 2: DRAWINGS */}
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
+                        <span>📐 Architectural Drawings</span>
+                        {selectedPermit.drawings_links && <span className="text-xs text-green-600 font-semibold">✓ Archived</span>}
+                      </h4>
+                      <div className="min-h-[48px]">
+                        {renderLinks(selectedPermit.drawings_links, "Drawing") || (
+                          <span className="text-xs text-gray-400 italic">No drawings uploaded yet</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {isOfficer && (
+                      <div className="mt-4 pt-3 border-t border-gray-100">
+                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'drawings' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
+                          <span>{uploadingCategory === 'drawings' ? '⏳ Uploading Drawings...' : '+ Add Architectural Drawings'}</span>
+                          <input 
+                            type="file" 
+                            multiple 
+                            accept=".pdf,image/*" 
+                            disabled={uploadingCategory !== null} 
+                            onChange={(e) => {
+                              handleViewUpload('drawings', e.target.files);
+                              e.target.value = '';
+                            }} 
+                            className="hidden" 
+                          />
+                        </label>
+                      </div>
+                    )}
                   </div>
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
-                    <h4 className="font-bold text-gray-700 mb-2 border-b pb-2">Permit Form</h4>
-                    {renderLinks(selectedPermit.permit_form_link, "Form") || <span className="text-sm text-gray-400 italic">Not uploaded</span>}
+
+                  {/* CARD 3: PERMIT FORM */}
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
+                        <span>📑 Permit Form</span>
+                        {selectedPermit.permit_form_link && <span className="text-xs text-green-600 font-semibold">✓ Archived</span>}
+                      </h4>
+                      <div className="min-h-[48px]">
+                        {renderLinks(selectedPermit.permit_form_link, "Form") || (
+                          <span className="text-xs text-gray-400 italic">No permit form uploaded yet</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {isOfficer && (
+                      <div className="mt-4 pt-3 border-t border-gray-100">
+                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'permitForm' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
+                          <span>{uploadingCategory === 'permitForm' ? '⏳ Uploading Form...' : '+ Attach Permit Form'}</span>
+                          <input 
+                            type="file" 
+                            multiple 
+                            accept=".pdf,image/*" 
+                            disabled={uploadingCategory !== null} 
+                            onChange={(e) => {
+                              handleViewUpload('permitForm', e.target.files);
+                              e.target.value = '';
+                            }} 
+                            className="hidden" 
+                          />
+                        </label>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -653,7 +755,7 @@ const PermitList = () => {
         );
       })()}
 
-      {/* DOCUMENT VIEWER MODAL */}
+      {/* DOCUMENT PREVIEW MODAL */}
       {viewerDoc.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-gray-200">
@@ -705,7 +807,7 @@ const PermitList = () => {
         </div>
       )}
 
-      {/* PRINTABLE & DOWNLOADABLE QR BADGE MODAL */}
+      {/* QR BADGE MODAL */}
       {qrModal.isOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="relative max-w-sm w-full">
@@ -725,12 +827,12 @@ const PermitList = () => {
         </div>
       )}
 
-      {/* EDIT & ATTACH DOCUMENTS MODAL */}
+      {/* EDIT METADATA MODAL (FAST - NO FILES) */}
       {editingPermit && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-              <h3 className="text-xl font-bold text-gray-900">Edit Permit & Attach Files</h3>
+              <h3 className="text-xl font-bold text-gray-900">Edit Permit Details</h3>
               <button onClick={() => setEditingPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer">
                 ✕
               </button>
@@ -790,25 +892,6 @@ const PermitList = () => {
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
                   <input type="text" name="address" value={editFormData.address} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" />
-                </div>
-              </div>
-
-              {/* ATTACH MISSING DOCUMENTS SECTION */}
-              <div className="pt-4 border-t border-gray-200">
-                <h4 className="font-bold text-gray-800 mb-2">Attach Missing / New Documents</h4>
-                <div className="space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200 text-xs">
-                  <div>
-                    <label className="block font-bold text-gray-700 mb-1">Permit Certificate (PDF / Image)</label>
-                    <input type="file" name="certificate" accept=".pdf,image/*" onChange={handleEditFileChange} className="w-full text-gray-600" />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-gray-700 mb-1">Architectural Drawings (Multiple Allowed)</label>
-                    <input type="file" name="drawings" multiple accept=".pdf,image/*" onChange={handleEditFileChange} className="w-full text-gray-600" />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-gray-700 mb-1">Permit Application Form (PDF / Image)</label>
-                    <input type="file" name="permitForm" accept=".pdf,image/*" onChange={handleEditFileChange} className="w-full text-gray-600" />
-                  </div>
                 </div>
               </div>
 
