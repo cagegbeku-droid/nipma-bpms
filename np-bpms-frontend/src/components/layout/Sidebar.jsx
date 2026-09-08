@@ -120,7 +120,7 @@ const Sidebar = () => {
 
           <p className="text-[10px] md:text-xs text-blue-100 mt-2 md:mt-3 font-semibold text-center px-2 tracking-wide uppercase bg-gray-800 py-1 w-full border-y border-gray-700">
 
-            NiPMA Building Permit System
+            Building Permit Records Management System
 
           </p>
 

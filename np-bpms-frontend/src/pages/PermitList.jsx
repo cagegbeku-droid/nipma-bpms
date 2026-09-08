@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import PermitQRBadge from '../components/PermitQRBadge';
 
 const PermitList = () => {
+  const [searchParams] = useSearchParams();
+  const initialSearch = searchParams.get('search') || '';
+
   const token = sessionStorage.getItem('token') || localStorage.getItem('token');
   const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
   const user = savedUser ? JSON.parse(savedUser) : null;
@@ -19,12 +22,25 @@ const PermitList = () => {
   );
 
   const [permits, setPermits] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
+  const [selectedPurpose, setSelectedPurpose] = useState('ALL');
+  const [selectedLocation, setSelectedLocation] = useState('ALL');
+  const [sortBy, setSortBy] = useState('date-desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   
+  const [confirmDeleteModal, setConfirmDeleteModal] = useState({ isOpen: false, permitId: null, permitNumber: '' });
+  const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
+
+  const showToast = (message, type = 'info') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3500);
+  };
+
   const [selectedPermit, setSelectedPermit] = useState(null); 
   const [editingPermit, setEditingPermit] = useState(null);   
   const [editFormData, setEditFormData] = useState({});       
@@ -33,6 +49,19 @@ const PermitList = () => {
 
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
   const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
+
+  // Sync with search parameter if changed from outside
+  useEffect(() => {
+    const q = searchParams.get('search');
+    if (q !== null) {
+      setSearchTerm(q);
+    }
+  }, [searchParams]);
+
+  // Reset to page 1 whenever any filter or sorting changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedMonth, selectedYear, selectedPurpose, selectedLocation, sortBy, pageSize]);
 
   useEffect(() => {
     fetchPermits();
@@ -45,17 +74,27 @@ const PermitList = () => {
       if (data.success) {
         setPermits(data.data);
       } else {
-        setError("Failed to load records from the database.");
+        setError("Failed to load records. Please try again.");
       }
     } catch (err) {
-      setError("Server connection error. Please try again later.");
+      setError("Unable to connect to records registry. Please try again later.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this permit record? This cannot be undone.")) return;
+  const triggerDelete = (permit) => {
+    setConfirmDeleteModal({
+      isOpen: true,
+      permitId: permit.id,
+      permitNumber: permit.permit_number
+    });
+  };
+
+  const confirmDeleteAction = async () => {
+    const id = confirmDeleteModal.permitId;
+    setConfirmDeleteModal({ isOpen: false, permitId: null, permitNumber: '' });
+    if (!id) return;
 
     try {
       const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${id}`, {
@@ -67,12 +106,13 @@ const PermitList = () => {
       const data = await response.json();
       
       if (data.success) {
-        setPermits(permits.filter(permit => permit.id !== id));
+        setPermits(prev => prev.filter(permit => permit.id !== id));
+        showToast("Permit record deleted successfully.", "success");
       } else {
-        alert(data.message || "Failed to delete record. Permission denied.");
+        showToast(data.message || "Failed to delete record. Permission denied.", "error");
       }
     } catch (err) {
-      alert("Server connection error.");
+      showToast("Connection error. Please try again.", "error");
     }
   };
 
@@ -88,11 +128,11 @@ const PermitList = () => {
           applicantName: permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`.trim()
         });
       } else {
-        alert("Could not generate QR Badge.");
+        showToast("Could not generate QR Badge.", "error");
       }
     } catch (err) {
       console.error("QR Code Fetch Error:", err);
-      alert("Error generating QR Badge.");
+      showToast("Error generating QR Badge.", "error");
     }
   };
 
@@ -128,6 +168,26 @@ const PermitList = () => {
     return Array.from(years).sort((a, b) => b - a);
   }, [permits]);
 
+  const availableLocations = useMemo(() => {
+    const locs = new Set();
+    permits.forEach(p => {
+      if (p.location && p.location.trim() && p.location.trim().toUpperCase() !== 'N/A') {
+        locs.add(p.location.trim().toUpperCase());
+      }
+    });
+    return Array.from(locs).sort();
+  }, [permits]);
+
+  const availablePurposes = useMemo(() => {
+    const purps = new Set(['RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'CIVIC', 'MIXED-USE']);
+    permits.forEach(p => {
+      if (p.purpose && p.purpose.trim()) {
+        purps.add(p.purpose.trim().toUpperCase());
+      }
+    });
+    return Array.from(purps).sort();
+  }, [permits]);
+
   const filteredPermits = useMemo(() => {
     return permits.filter(permit => {
       const search = searchTerm.toLowerCase().trim();
@@ -147,6 +207,12 @@ const PermitList = () => {
       const matchesMonth = selectedMonth === 'ALL' || permitMonth === selectedMonth;
       const matchesYear = selectedYear === 'ALL' || permitYear === selectedYear;
 
+      const pPurpose = (permit.purpose || 'RESIDENTIAL').toUpperCase();
+      const matchesPurpose = selectedPurpose === 'ALL' || pPurpose.includes(selectedPurpose);
+
+      const pLocation = (permit.location || '').toUpperCase();
+      const matchesLocation = selectedLocation === 'ALL' || pLocation === selectedLocation;
+
       const matchesSearch = !search || (
         permit.permit_number?.toLowerCase().includes(search) ||
         applicantName.toLowerCase().includes(search) ||
@@ -156,15 +222,46 @@ const PermitList = () => {
         permit.phone?.includes(search)
       );
 
-      return matchesMonth && matchesYear && matchesSearch;
+      return matchesMonth && matchesYear && matchesPurpose && matchesLocation && matchesSearch;
     });
-  }, [permits, searchTerm, selectedMonth, selectedYear]);
+  }, [permits, searchTerm, selectedMonth, selectedYear, selectedPurpose, selectedLocation]);
+
+  const sortedPermits = useMemo(() => {
+    const list = [...filteredPermits];
+    if (sortBy === 'date-desc') {
+      return list.sort((a, b) => (b.date_issued || '').localeCompare(a.date_issued || ''));
+    }
+    if (sortBy === 'date-asc') {
+      return list.sort((a, b) => (a.date_issued || '').localeCompare(b.date_issued || ''));
+    }
+    if (sortBy === 'permit-asc') {
+      return list.sort((a, b) => (a.permit_number || '').localeCompare(b.permit_number || ''));
+    }
+    if (sortBy === 'permit-desc') {
+      return list.sort((a, b) => (b.permit_number || '').localeCompare(a.permit_number || ''));
+    }
+    if (sortBy === 'name-asc') {
+      const nameA = a.applicant_name || `${a.first_name || ''} ${a.last_name || ''}`;
+      const nameB = b.applicant_name || `${b.first_name || ''} ${b.last_name || ''}`;
+      return nameA.localeCompare(nameB);
+    }
+    return list;
+  }, [filteredPermits, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedPermits.length / pageSize));
+  const paginatedPermits = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return sortedPermits.slice(start, start + pageSize);
+  }, [sortedPermits, currentPage, pageSize]);
 
   const exportToCSV = () => {
-    if (filteredPermits.length === 0) return;
+    if (sortedPermits.length === 0) {
+      showToast("No records to export.", "info");
+      return;
+    }
 
     const headers = ["Permit Number", "Applicant Name", "Date Issued", "Purpose", "Location", "Phone", "Address"];
-    const rows = filteredPermits.map(p => {
+    const rows = sortedPermits.map(p => {
       const applicantName = p.applicant_name || `${p.first_name || ''} ${p.last_name || ''}`.trim();
       return [
         `"${p.permit_number || ''}"`,
@@ -181,10 +278,19 @@ const PermitList = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `NiPDA_Permit_Registry_Export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `Building_Permit_Registry_Export_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    showToast(`Exported ${sortedPermits.length} records to CSV`, "success");
+  };
+
+  const handlePrintReport = () => {
+    if (sortedPermits.length === 0) {
+      showToast("No records available to print.", "info");
+      return;
+    }
+    window.print();
   };
 
   // EDIT MODAL: PURE METADATA (NO FILES)
@@ -424,122 +530,304 @@ const PermitList = () => {
   };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
+      
+      {/* PRINT-ONLY OFFICIAL STYLES & HEADER */}
+      <style>{`
+        @media print {
+          body {
+            background: white !important;
+            color: black !important;
+          }
+          .no-print, header, aside, nav, .filter-bar, .pagination-controls, .action-buttons {
+            display: none !important;
+          }
+          .print-only {
+            display: block !important;
+          }
+          .print-table {
+            width: 100% !important;
+            font-size: 11px !important;
+            border-collapse: collapse !important;
+          }
+          .print-table th, .print-table td {
+            border: 1px solid #cbd5e1 !important;
+            padding: 6px 8px !important;
+          }
+          .print-table th {
+            background-color: #f1f5f9 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+        @media screen {
+          .print-only {
+            display: none;
+          }
+        }
+      `}</style>
+
+      {/* PRINT-ONLY OFFICIAL HEADER */}
+      <div className="print-only mb-6">
+        <div className="text-center border-b-2 border-gray-900 pb-4">
+          <h1 className="text-xl font-black uppercase tracking-wider text-gray-900">
+            NINGO-PRAMPRAM MUNICIPAL ASSEMBLY
+          </h1>
+          <h2 className="text-sm font-bold uppercase tracking-wide text-gray-700 mt-1">
+            WORKS & PHYSICAL PLANNING DEPARTMENT
+          </h2>
+          <p className="text-xs text-gray-600 mt-1 font-semibold">Official Building Permit Registry Report</p>
+        </div>
+        <div className="flex justify-between items-center text-xs text-gray-600 mt-3 pb-2 border-b border-gray-200">
+          <span>Date Generated: {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+          <span>Total Records in Report: {sortedPermits.length}</span>
+          <span>Category: {selectedPurpose} | Zone: {selectedLocation} | Year: {selectedYear}</span>
+        </div>
+      </div>
+
+      {/* REGISTRY HEADER & ACTIONS */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 no-print">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Archive Vault Records</h1>
-          <p className="text-sm text-gray-500 mt-1">Search, update, and retrieve historical building permits.</p>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
+            Building Permit Records Registry
+          </h1>
+          <p className="text-sm text-gray-500 mt-1 font-medium">
+            Search, filter, update, and manage official building permits.
+          </p>
         </div>
         
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button 
+            onClick={handlePrintReport}
+            className="bg-gray-800 hover:bg-gray-900 text-white px-3.5 py-2 rounded-lg transition text-xs font-semibold flex items-center space-x-1.5 shadow-xs cursor-pointer"
+            title="Print Official Committee Report"
+          >
+            <span>🖨️ Print Report</span>
+          </button>
+
           <button 
             onClick={exportToCSV}
-            className="bg-green-600 hover:bg-green-700 text-white px-3.5 py-2 rounded-md transition text-sm font-medium flex items-center space-x-1.5 shadow-sm cursor-pointer"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-lg transition text-xs font-semibold flex items-center space-x-1.5 shadow-xs cursor-pointer"
+            title="Export filtered records to CSV"
           >
             <span>📊 Export CSV</span>
           </button>
 
           {isOfficer && (
-            <Link to="/permits/new" className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition text-sm font-medium whitespace-nowrap">
+            <Link 
+              to="/permits/new" 
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-lg transition text-xs font-semibold whitespace-nowrap shadow-xs"
+            >
               + Add New Permit
             </Link>
           )}
         </div>
       </div>
 
-      {/* FILTER BAR */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="md:col-span-2">
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Search Keywords</label>
-          <input 
-            type="text" 
-            placeholder="Search permit #, applicant name, location, address..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none text-sm"
-          />
+      {/* ADVANCED MULTI-FILTER BAR */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4 no-print filter-bar">
+        {/* Row 1: Search + Category + Community */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div className="md:col-span-2">
+            <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Search Keywords</label>
+            <div className="relative">
+              <input 
+                type="text" 
+                placeholder="Search permit #, applicant name, location, address..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-8 py-2 bg-gray-50/70 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition"
+              />
+              <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
+              {searchTerm && (
+                <button 
+                  onClick={() => setSearchTerm('')} 
+                  className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Category / Purpose</label>
+            <select 
+              value={selectedPurpose} 
+              onChange={(e) => setSelectedPurpose(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-lg bg-gray-50/70 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none capitalize"
+            >
+              <option value="ALL">All Categories</option>
+              {availablePurposes.map(purp => (
+                <option key={purp} value={purp}>{purp}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Community / Zone</label>
+            <select 
+              value={selectedLocation} 
+              onChange={(e) => setSelectedLocation(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-lg bg-gray-50/70 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none uppercase"
+            >
+              <option value="ALL">All Communities</option>
+              {availableLocations.map(loc => (
+                <option key={loc} value={loc}>{loc}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Filter by Month</label>
-          <select 
-            value={selectedMonth} 
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-          >
-            <option value="ALL">All Months (Jan - Dec)</option>
-            <option value="01">January</option>
-            <option value="02">February</option>
-            <option value="03">March</option>
-            <option value="04">April</option>
-            <option value="05">May</option>
-            <option value="06">June</option>
-            <option value="07">July</option>
-            <option value="08">August</option>
-            <option value="09">September</option>
-            <option value="10">October</option>
-            <option value="11">November</option>
-            <option value="12">December</option>
-          </select>
+        {/* Row 2: Month + Year + Sort By + Reset */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 pt-3 border-t border-gray-100">
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Month</label>
+            <select 
+              value={selectedMonth} 
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="w-full p-2 border border-gray-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="ALL">All Months</option>
+              <option value="01">Jan</option>
+              <option value="02">Feb</option>
+              <option value="03">Mar</option>
+              <option value="04">Apr</option>
+              <option value="05">May</option>
+              <option value="06">Jun</option>
+              <option value="07">Jul</option>
+              <option value="08">Aug</option>
+              <option value="09">Sep</option>
+              <option value="10">Oct</option>
+              <option value="11">Nov</option>
+              <option value="12">Dec</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Year</label>
+            <select 
+              value={selectedYear} 
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="w-full p-2 border border-gray-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="ALL">All Years</option>
+              {availableYears.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sort By</label>
+            <select 
+              value={sortBy} 
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full p-2 border border-gray-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="date-desc">Date Issued (Newest)</option>
+              <option value="date-asc">Date Issued (Oldest)</option>
+              <option value="permit-asc">Permit # (A - Z)</option>
+              <option value="permit-desc">Permit # (Z - A)</option>
+              <option value="name-asc">Applicant (A - Z)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Per Page</label>
+            <select 
+              value={pageSize} 
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="w-full p-2 border border-gray-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value={10}>10 records</option>
+              <option value={25}>25 records</option>
+              <option value={50}>50 records</option>
+              <option value={100}>100 records</option>
+            </select>
+          </div>
+
+          <div className="flex items-end col-span-2 sm:col-span-1">
+            <button
+              onClick={() => {
+                setSearchTerm('');
+                setSelectedMonth('ALL');
+                setSelectedYear('ALL');
+                setSelectedPurpose('ALL');
+                setSelectedLocation('ALL');
+                setSortBy('date-desc');
+              }}
+              className="w-full p-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-semibold transition cursor-pointer text-center"
+            >
+              ↺ Reset
+            </button>
+          </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-gray-600 mb-1">Filter by Year</label>
-          <select 
-            value={selectedYear} 
-            onChange={(e) => setSelectedYear(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded-md bg-white text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-          >
-            <option value="ALL">All Years</option>
-            {availableYears.map(year => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
+        {/* Results Counter */}
+        <div className="text-xs text-gray-500 font-medium pt-1">
+          Found <span className="font-bold text-gray-900">{sortedPermits.length}</span> matching records 
+          {(searchTerm || selectedPurpose !== 'ALL' || selectedLocation !== 'ALL' || selectedMonth !== 'ALL' || selectedYear !== 'ALL') && ' (filters active)'}
         </div>
       </div>
 
-      {error && <div className="bg-red-100 text-red-700 p-4 rounded-md">{error}</div>}
+      {error && <div className="bg-red-100 text-red-700 p-4 rounded-xl text-sm font-medium">{error}</div>}
 
       {/* TABLE */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse print-table">
             <thead>
-              <tr className="bg-gray-50 text-gray-700 text-sm border-b border-gray-200">
-                <th className="p-4 font-semibold">Permit Info</th>
-                <th className="p-4 font-semibold">Applicant / Entity</th>
-                <th className="p-4 font-semibold">Property Details & GPS Map</th>
-                <th className="p-4 font-semibold text-center">Action</th>
+              <tr className="bg-gray-50/80 text-gray-700 text-xs font-bold uppercase tracking-wider border-b border-gray-200">
+                <th className="p-4">Permit Info</th>
+                <th className="p-4">Applicant / Entity</th>
+                <th className="p-4">Property Details & GPS Map</th>
+                <th className="p-4 text-center action-buttons">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
               {isLoading ? (
-                <tr><td colSpan="4" className="p-8 text-center text-gray-500">Loading secure records...</td></tr>
-              ) : filteredPermits.length === 0 ? (
-                <tr><td colSpan="4" className="p-8 text-center text-gray-500">No records found matching your filters.</td></tr>
+                <tr><td colSpan="4" className="p-12 text-center text-gray-400 animate-pulse">Loading secure records...</td></tr>
+              ) : paginatedPermits.length === 0 ? (
+                <tr>
+                  <td colSpan="4" className="p-12 text-center">
+                    <span className="text-3xl inline-block mb-2">📂</span>
+                    <p className="text-sm font-medium text-gray-600">No records found matching your filters.</p>
+                    <p className="text-xs text-gray-400 mt-1">Try adjusting keywords or clearing category and zone filters.</p>
+                  </td>
+                </tr>
               ) : (
-                filteredPermits.map((permit) => {
+                paginatedPermits.map((permit) => {
                   const displayName = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`.trim();
                   const displayPurpose = permit.purpose || 'RESIDENTIAL';
+                  const isResidential = displayPurpose.toUpperCase().includes('RESIDENTIAL');
 
                   return (
-                    <tr key={permit.id} className="hover:bg-gray-50 transition">
+                    <tr key={permit.id} className="hover:bg-blue-50/25 transition group">
                       <td className="p-4 align-middle">
-                        <div className="font-bold text-gray-900">{permit.permit_number}</div>
-                        <div className="text-xs text-blue-600 font-semibold uppercase mt-0.5">{displayPurpose}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">Issued: {permit.date_issued}</div>
+                        <div className="font-bold text-gray-900 font-mono tracking-tight text-base">{permit.permit_number}</div>
+                        <div className="mt-1">
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-semibold uppercase ${
+                            isResidential 
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                              : 'bg-purple-50 text-purple-700 border border-purple-200'
+                          }`}>
+                            {displayPurpose}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1">Issued: {permit.date_issued || 'N/A'}</div>
                       </td>
                       <td className="p-4 align-middle">
-                        <div className="font-semibold text-gray-800 uppercase">{displayName}</div>
-                        <div className="text-sm text-gray-600 mt-0.5">📞 {permit.phone || 'N/A'}</div>
+                        <div className="font-semibold text-gray-900 uppercase">{displayName}</div>
+                        <div className="text-xs text-gray-500 mt-1">📞 {permit.phone || 'N/A'}</div>
                       </td>
                       <td className="p-4 align-middle">
-                        <div className="text-sm text-gray-800 uppercase">
-                          <span className="font-semibold text-gray-500">Location:</span> {permit.location || 'N/A'}
+                        <div className="text-xs font-semibold text-gray-800 uppercase">
+                          <span className="text-gray-400 font-normal">Location:</span> {permit.location || 'N/A'}
                         </div>
 
-                        <div className="text-sm uppercase mt-1">
-                          <span className="font-semibold text-gray-500">Address:</span>{' '}
+                        <div className="text-xs uppercase mt-1">
+                          <span className="text-gray-400 font-normal">Address:</span>{' '}
                           {permit.address ? (
                             <a 
                               href={getGoogleMapsUrl(permit.address, permit.location)}
@@ -556,22 +844,38 @@ const PermitList = () => {
                           )}
                         </div>
                       </td>
-                      <td className="p-4 align-middle text-center">
+                      <td className="p-4 align-middle text-center action-buttons">
                         <div className="flex items-center justify-center space-x-2">
-                          <button onClick={() => setSelectedPermit(permit)} className="bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="View Documents">
+                          <button 
+                            onClick={() => setSelectedPermit(permit)} 
+                            className="bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs" 
+                            title="View Documents"
+                          >
                             👁️ View
                           </button>
 
-                          <button onClick={() => handleShowQrBadge(permit)} className="bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Print QR Badge">
+                          <button 
+                            onClick={() => handleShowQrBadge(permit)} 
+                            className="bg-purple-50 hover:bg-purple-600 text-purple-600 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs" 
+                            title="Print QR Badge"
+                          >
                             🖨️ Badge
                           </button>
                           
                           {isOfficer && (
                             <>
-                              <button onClick={() => handleEditClick(permit)} className="bg-gray-100 text-gray-700 hover:bg-gray-800 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Edit Permit Metadata">
+                              <button 
+                                onClick={() => handleEditClick(permit)} 
+                                className="bg-gray-100 hover:bg-gray-800 text-gray-700 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs" 
+                                title="Edit Permit Metadata"
+                              >
                                 ✏️ Edit
                               </button>
-                              <button onClick={() => handleDelete(permit.id)} className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded text-sm font-medium transition cursor-pointer" title="Delete Record">
+                              <button 
+                                onClick={() => triggerDelete(permit)} 
+                                className="bg-red-50 hover:bg-red-600 text-red-600 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs" 
+                                title="Delete Record"
+                              >
                                 🗑️ Delete
                               </button>
                             </>
@@ -585,7 +889,114 @@ const PermitList = () => {
             </tbody>
           </table>
         </div>
+
+        {/* PAGINATION CONTROLS */}
+        {sortedPermits.length > 0 && (
+          <div className="px-6 py-4 bg-gray-50/70 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4 no-print pagination-controls">
+            <div className="text-xs text-gray-500 font-medium">
+              Showing <span className="font-bold text-gray-900">{(currentPage - 1) * pageSize + 1}</span> to{' '}
+              <span className="font-bold text-gray-900">{Math.min(currentPage * pageSize, sortedPermits.length)}</span> of{' '}
+              <span className="font-bold text-gray-900">{sortedPermits.length}</span> permits
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-semibold text-gray-700 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                ← Previous
+              </button>
+
+              <div className="hidden sm:flex items-center gap-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                  .map((pageNum, idx, arr) => {
+                    const showEllipsis = idx > 0 && pageNum - arr[idx - 1] > 1;
+                    return (
+                      <React.Fragment key={pageNum}>
+                        {showEllipsis && <span className="text-xs text-gray-400 px-1">...</span>}
+                        <button
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`w-8 h-8 rounded-lg text-xs font-bold transition ${
+                            currentPage === pageNum
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      </React.Fragment>
+                    );
+                  })}
+              </div>
+
+              <button
+                disabled={currentPage >= totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-semibold text-gray-700 hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* PRINT-ONLY SIGN-OFF BLOCK */}
+      <div className="print-only mt-12 pt-6 border-t border-gray-400">
+        <div className="grid grid-cols-2 gap-12 text-xs text-gray-700">
+          <div>
+            <p className="font-bold">Prepared By:</p>
+            <div className="mt-8 border-b border-gray-500 w-48"></div>
+            <p className="mt-1">Records & Archive Officer</p>
+          </div>
+          <div>
+            <p className="font-bold">Certified / Approved By:</p>
+            <div className="mt-8 border-b border-gray-500 w-48"></div>
+            <p className="mt-1">Municipal Planning / Works Director</p>
+          </div>
+        </div>
+      </div>
+
+      {/* DELETE CONFIRMATION MODAL */}
+      {confirmDeleteModal.isOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border border-gray-200 animate-fadeIn">
+            <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center text-2xl mx-auto mb-4">
+              🗑️
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 text-center">Delete Permit Record</h3>
+            <p className="text-sm text-gray-500 text-center mt-2">
+              Are you sure you want to permanently delete record{' '}
+              <span className="font-mono font-bold text-gray-800">{confirmDeleteModal.permitNumber}</span>? 
+              This action cannot be undone.
+            </p>
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button
+                onClick={() => setConfirmDeleteModal({ isOpen: false, permitId: null, permitNumber: '' })}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteAction}
+                className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition cursor-pointer shadow-xs"
+              >
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* IN-APP TOAST NOTIFICATION */}
+      {toast.show && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-gray-700 animate-bounce">
+          <span>{toast.type === 'error' ? '❌' : toast.type === 'success' ? '✅' : 'ℹ️'}</span>
+          <span className="text-sm font-medium">{toast.message}</span>
+        </div>
+      )}
 
       {/* VIEW DOCUMENTS & ATTACH MODAL */}
       {selectedPermit && (() => {
@@ -795,7 +1206,7 @@ const PermitList = () => {
             </div>
             
             <div className="bg-white px-6 py-2.5 border-t border-gray-200 text-xs text-gray-500 flex justify-between items-center">
-              <span>NIPDA BPMS Secure Document Vault</span>
+              <span>Building Permit Records Management System</span>
               <button 
                 onClick={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
                 className="px-4 py-1.5 bg-gray-200 text-gray-800 font-semibold rounded hover:bg-gray-300 transition cursor-pointer"

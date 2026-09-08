@@ -7,7 +7,7 @@ const VerifyPermit = () => {
 
   const [permit, setPermit] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMessage, setLoadingMessage] = useState('Connecting to verification server...');
+  const [loadingMessage, setLoadingMessage] = useState('Connecting to verification registry...');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -26,7 +26,7 @@ const VerifyPermit = () => {
         for (let attempt = 0; attempt <= retries; attempt++) {
           try {
             if (attempt > 0) {
-              setLoadingMessage(`Waking up archive server (attempt ${attempt + 1}/${retries + 1})...`);
+              setLoadingMessage(`Connecting to digital archive (attempt ${attempt + 1}/${retries + 1})...`);
             }
 
             const controller = new AbortController();
@@ -49,7 +49,7 @@ const VerifyPermit = () => {
             await new Promise(r => setTimeout(r, 2000));
           }
         }
-        throw new Error('Server unreachable');
+        throw new Error('Registry unreachable');
       };
 
       try {
@@ -63,7 +63,6 @@ const VerifyPermit = () => {
         }
 
         if (data && data.success && data.data) {
-          console.log("Verified Record Data Received:", data.data);
           setPermit(data.data);
         } else {
           setError((data && data.message) || `Permit "${cleanPermitNum}" not found in official archives.`);
@@ -71,7 +70,7 @@ const VerifyPermit = () => {
 
       } catch (err) {
         console.error('Verification Fetch Error:', err);
-        setError('Unable to connect to verification server. Please check your network connection and try again.');
+        setError('Unable to connect to verification registry. Please check your network connection and try again.');
       } finally {
         setLoading(false);
       }
@@ -96,16 +95,58 @@ const VerifyPermit = () => {
   const location = getDisplayVal(permit?.location);
   const address = getDisplayVal(permit?.address);
 
+  const handlePrintSlip = () => {
+    window.print();
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-4">
-      <div className="w-full max-w-lg bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden">
+      
+      {/* PRINT-ONLY OFFICIAL STYLES */}
+      <style>{`
+        @media print {
+          body {
+            background: white !important;
+            color: black !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+          .print-slip {
+            display: block !important;
+            background: white !important;
+            color: #0f172a !important;
+            padding: 20px !important;
+            border: 2px solid #0f172a !important;
+            border-radius: 12px !important;
+            width: 100% !important;
+            max-width: 650px !important;
+            margin: 0 auto !important;
+          }
+          .print-slip * {
+            color: #0f172a !important;
+          }
+          .print-badge {
+            border: 2px solid #059669 !important;
+            background: #ecfdf5 !important;
+            color: #047857 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+        }
+      `}</style>
+
+      {/* VERIFICATION CARD CONTAINER */}
+      <div className="w-full max-w-lg bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden print-slip">
         
         {/* Header */}
         <div className="bg-slate-950 p-6 text-center border-b border-slate-800">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-600/20 text-blue-400 font-bold text-xl mb-2">
             🏛️
           </div>
-          <h1 className="text-xl font-bold uppercase tracking-wide text-white">NIPDA Municipal Assembly</h1>
+          <h1 className="text-xl font-bold uppercase tracking-wide text-white">
+            NINGO-PRAMPRAM MUNICIPAL ASSEMBLY
+          </h1>
           <p className="text-xs text-slate-400 mt-1">Official Building Permit Verification Portal</p>
         </div>
 
@@ -124,11 +165,11 @@ const VerifyPermit = () => {
               <h2 className="text-xl font-bold text-red-400">Unverified Permit</h2>
               <p className="text-xs text-slate-400 max-w-sm mx-auto">{error}</p>
               <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-lg text-xs text-red-300">
-                ⚠️ Warning: This document or QR code does not match any active record in the NIPDA Building Permit Management System.
+                ⚠️ Warning: This document or QR code does not match any active record in the Building Permit Records Management System.
               </div>
               <button 
                 onClick={() => window.location.reload()} 
-                className="mt-2 text-xs bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg transition cursor-pointer"
+                className="mt-2 text-xs bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg transition cursor-pointer no-print"
               >
                 🔄 Retry Connection
               </button>
@@ -136,53 +177,73 @@ const VerifyPermit = () => {
           ) : (
             <div className="space-y-6">
               {/* Authenticated Banner */}
-              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center space-x-3 text-emerald-400">
-                <span className="text-2xl">✅</span>
-                <div>
-                  <h3 className="font-bold text-sm">AUTHENTIC PERMIT RECORD</h3>
-                  <p className="text-xs text-emerald-300/80">Issued by NIPDA Works Department</p>
+              <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center justify-between text-emerald-400 print-badge">
+                <div className="flex items-center space-x-3">
+                  <span className="text-2xl">✅</span>
+                  <div>
+                    <h3 className="font-bold text-sm uppercase tracking-wide">AUTHENTIC PERMIT RECORD</h3>
+                    <p className="text-xs text-emerald-300/80">Issued by NiPMA Works & Planning Department</p>
+                  </div>
                 </div>
+                <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 font-mono font-bold">VERIFIED</span>
               </div>
 
               {/* Data Table */}
-              <div className="space-y-3 text-xs bg-slate-900/60 p-4 rounded-xl border border-slate-700/60">
+              <div className="space-y-3 text-xs bg-slate-900/60 p-5 rounded-xl border border-slate-700/60">
                 <div className="flex justify-between border-b border-slate-800 pb-2">
-                  <span className="text-slate-400">Permit Number:</span>
+                  <span className="text-slate-400 font-medium">Permit Number:</span>
                   <span className="font-mono font-bold text-blue-400 text-sm">{permitNumber}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-800 pb-2">
-                  <span className="text-slate-400">Applicant / Owner:</span>
+                  <span className="text-slate-400 font-medium">Applicant / Owner:</span>
                   <span className="font-bold text-slate-200 uppercase">{applicantName}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-800 pb-2">
-                  <span className="text-slate-400">Date Issued:</span>
+                  <span className="text-slate-400 font-medium">Date Issued:</span>
                   <span className="font-medium text-slate-300">{dateIssued}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-800 pb-2">
-                  <span className="text-slate-400">Purpose / Use:</span>
+                  <span className="text-slate-400 font-medium">Purpose / Use:</span>
                   <span className="font-bold text-emerald-400 uppercase">{purpose}</span>
                 </div>
 
                 <div className="flex justify-between border-b border-slate-800 pb-2">
-                  <span className="text-slate-400">Location:</span>
+                  <span className="text-slate-400 font-medium">Location / Community:</span>
                   <span className="font-medium text-slate-300 uppercase">{location}</span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-slate-400">Site Address:</span>
+                  <span className="text-slate-400 font-medium">Site Address:</span>
                   <span className="font-medium text-slate-300 uppercase">{address}</span>
                 </div>
               </div>
+
+              {/* Print Slip Action */}
+              <div className="no-print pt-2">
+                <button
+                  onClick={handlePrintSlip}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+                >
+                  <span>🖨️ Print Official Verification Slip</span>
+                </button>
+              </div>
+
+              {/* Print-Only Verification Footer */}
+              <div className="hidden print:block pt-6 border-t border-gray-300 text-center text-[10px] text-gray-500 space-y-1">
+                <p>Verified on: {new Date().toLocaleString('en-GB')}</p>
+                <p>Official Digital Verification Seal • Ningo-Prampram Municipal Assembly</p>
+              </div>
+
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="bg-slate-950 px-6 py-3 border-t border-slate-800 text-center text-xs text-slate-500 flex justify-between items-center">
-          <span>NIPDA BPMS Archive Verification</span>
+        <div className="bg-slate-950 px-6 py-3 border-t border-slate-800 text-center text-xs text-slate-500 flex justify-between items-center no-print">
+          <span>Building Permit Records Management System</span>
           <Link to="/" className="text-blue-400 hover:underline font-medium">
             Go to Portal
           </Link>

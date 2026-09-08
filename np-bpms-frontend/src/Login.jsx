@@ -42,7 +42,7 @@ const Login = ({ onLoginSuccess }) => {
       }
     } catch (err) {
       console.error("Login fetch error:", err);
-      setError('Server connection error. Please check your network.');
+      setError('Unable to connect. Please check your network connection.');
     } finally {
       setLoading(false);
     }

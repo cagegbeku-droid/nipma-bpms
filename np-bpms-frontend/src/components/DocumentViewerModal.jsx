@@ -119,7 +119,7 @@ const DocumentViewerModal = ({ isOpen, onClose, documentUrl, title }) => {
         
         {/* Modal Footer */}
         <div className="bg-white px-4 sm:px-6 py-2.5 border-t border-gray-200 text-xs text-gray-500 flex justify-between items-center">
-          <span className="truncate">NIPDA BPMS Secure Document Vault</span>
+          <span className="truncate">Building Permit Records Management System</span>
           <button 
             onClick={onClose}
             className="px-4 py-1.5 bg-gray-200 text-gray-800 font-semibold rounded hover:bg-gray-300 transition cursor-pointer"
