@@ -56,6 +56,14 @@ const PermitList = () => {
     if (q !== null) {
       setSearchTerm(q);
     }
+    const p = searchParams.get('purpose');
+    if (p !== null) {
+      setSelectedPurpose(p.toUpperCase());
+    }
+    const loc = searchParams.get('location');
+    if (loc !== null) {
+      setSelectedLocation(loc.toUpperCase());
+    }
   }, [searchParams]);
 
   // Reset to page 1 whenever any filter or sorting changes
@@ -208,7 +216,15 @@ const PermitList = () => {
       const matchesYear = selectedYear === 'ALL' || permitYear === selectedYear;
 
       const pPurpose = (permit.purpose || 'RESIDENTIAL').toUpperCase();
-      const matchesPurpose = selectedPurpose === 'ALL' || pPurpose.includes(selectedPurpose);
+      const matchesPurpose = selectedPurpose === 'ALL' || 
+        pPurpose.includes(selectedPurpose) ||
+        (selectedPurpose === 'COMMERCIAL' && (
+          pPurpose.includes('COMMERCIAL') ||
+          pPurpose.includes('CIVIC') ||
+          pPurpose.includes('INSTITUT') ||
+          pPurpose.includes('ORGANIZ') ||
+          pPurpose.includes('INDUSTRIAL')
+        ));
 
       const pLocation = (permit.location || '').toUpperCase();
       const matchesLocation = selectedLocation === 'ALL' || pLocation === selectedLocation;
@@ -591,9 +607,6 @@ const PermitList = () => {
           <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
             Building Permit Records Registry
           </h1>
-          <p className="text-sm text-gray-500 mt-1 font-medium">
-            Search, filter, update, and manage official building permits.
-          </p>
         </div>
         
         <div className="flex flex-wrap items-center gap-2.5">

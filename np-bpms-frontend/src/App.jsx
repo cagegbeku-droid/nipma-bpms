@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Sidebar from './components/layout/Sidebar';
 import SessionTimer from './components/layout/SessionTimer';
 import Dashboard from './pages/Dashboard';
+import Analytics from './pages/Analytics';
 import NewPermit from './pages/NewPermit';
 import PermitList from './pages/PermitList';
 import VerifyPermit from './pages/VerifyPermit';
@@ -34,6 +35,7 @@ function App() {
       <AppLayout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/analytics" element={<Analytics />} />
           <Route path="/permits/new" element={<NewPermit />} />
           <Route path="/permits/historical" element={<PermitList />} />
           <Route path="/vault-admin" element={<Login />} />

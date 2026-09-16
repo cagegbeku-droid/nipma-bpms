@@ -7,7 +7,7 @@ const VerifyPermit = () => {
 
   const [permit, setPermit] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [loadingMessage, setLoadingMessage] = useState('Connecting to verification registry...');
+  const [loadingMessage, setLoadingMessage] = useState('Verifying permit record...');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -26,7 +26,7 @@ const VerifyPermit = () => {
         for (let attempt = 0; attempt <= retries; attempt++) {
           try {
             if (attempt > 0) {
-              setLoadingMessage(`Connecting to digital archive (attempt ${attempt + 1}/${retries + 1})...`);
+              setLoadingMessage('Connecting to registry...');
             }
 
             const controller = new AbortController();
@@ -53,7 +53,7 @@ const VerifyPermit = () => {
       };
 
       try {
-        setLoadingMessage('Verifying permit credentials against official records...');
+        setLoadingMessage('Verifying permit record...');
 
         let data;
         try {
@@ -140,14 +140,14 @@ const VerifyPermit = () => {
       <div className="w-full max-w-lg bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden print-slip">
         
         {/* Header */}
-        <div className="bg-slate-950 p-6 text-center border-b border-slate-800">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-600/20 text-blue-400 font-bold text-xl mb-2">
-            🏛️
+        <div className="bg-slate-950 p-6 text-center border-b border-slate-800 flex flex-col items-center">
+          <div className="w-14 h-14 mb-2 drop-shadow-md">
+            <img src="/nipma-bpms-logo.svg" alt="NiPMA BPMS Emblem" className="w-full h-full object-contain" />
           </div>
-          <h1 className="text-xl font-bold uppercase tracking-wide text-white">
+          <h1 className="text-base md:text-lg font-bold uppercase tracking-wide text-white">
             NINGO-PRAMPRAM MUNICIPAL ASSEMBLY
           </h1>
-          <p className="text-xs text-slate-400 mt-1">Official Building Permit Verification Portal</p>
+          <p className="text-xs text-slate-400 mt-1 font-medium">Building Permit Verification</p>
         </div>
 
         {/* Content Body */}
@@ -164,14 +164,11 @@ const VerifyPermit = () => {
               </div>
               <h2 className="text-xl font-bold text-red-400">Unverified Permit</h2>
               <p className="text-xs text-slate-400 max-w-sm mx-auto">{error}</p>
-              <div className="p-3 bg-red-950/40 border border-red-900/50 rounded-lg text-xs text-red-300">
-                ⚠️ Warning: This document or QR code does not match any active record in the Building Permit Records Management System.
-              </div>
               <button 
                 onClick={() => window.location.reload()} 
                 className="mt-2 text-xs bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg transition cursor-pointer no-print"
               >
-                🔄 Retry Connection
+                🔄 Retry
               </button>
             </div>
           ) : (

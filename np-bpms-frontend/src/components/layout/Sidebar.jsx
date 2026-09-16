@@ -3,127 +3,70 @@ import React from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 
 import {
-
   HomeIcon,
-
+  ChartBarSquareIcon,
   ArrowUpTrayIcon,
-
   ArchiveBoxIcon,
-
   ArrowLeftOnRectangleIcon,
-
   KeyIcon
-
 } from '@heroicons/react/24/outline';
 
-
-
 const navigation = [
-
   { name: 'Dashboard', href: '/', icon: HomeIcon },
-
+  { name: 'Analytics', href: '/analytics', icon: ChartBarSquareIcon },
   { name: 'Upload Archive', href: '/permits/new', icon: ArrowUpTrayIcon },
-
   { name: 'Registry', href: '/permits/historical', icon: ArchiveBoxIcon },
-
 ];
 
-
-
 const Sidebar = () => {
-
   const navigate = useNavigate();
-
   const location = useLocation();
 
-
-
   // --- JWT USER CHECK ---
-
   const token = localStorage.getItem('token');
-
   const savedUser = localStorage.getItem('user');
-
   const user = savedUser ? JSON.parse(savedUser) : null;
-
   const isLoggedIn = Boolean(token && user);
 
-
-
   // --- FILTER NAVIGATION ---
-
   const filteredNavigation = navigation.filter((item) => {
-
     if (!isLoggedIn && item.name === 'Upload Archive') {
-
       return false;
-
     }
-
     return true;
-
   });
 
-
-
   const handleLogout = () => {
-
     localStorage.removeItem('token');
-
     localStorage.removeItem('user');
-
     localStorage.removeItem('token_expiry');
-
-    // Force a fresh render to the public Dashboard
-
     window.location.href = '/';
-
   };
-
-
 
   const handleLoginClick = () => {
-
     navigate('/vault-admin');
-
   };
 
-
-
   return (
-
     <div className="flex flex-col w-full md:w-64 bg-gray-900 text-white shrink-0 md:min-h-screen justify-between">
-
-     
-
       <div>
-
         {/* --- HEADER LOGO & TITLE --- */}
+        <div className="flex flex-col items-center justify-center py-5 border-b border-gray-800 px-4 text-center">
+          <div className="w-16 h-16 md:w-20 md:h-20 mb-3 drop-shadow-lg">
+            <img
+              src="/nipma-bpms-logo.svg"
+              alt="NiPMA BPMS Emblem"
+              className="w-full h-full object-contain"
+            />
+          </div>
 
-        <div className="flex flex-col items-center justify-center py-4 md:py-6 border-b border-gray-800">
-
-          <img
-
-            src="/465783232_1385047576154895_1881211722468502227_n.jpg"
-
-            alt="NiPMA Logo"
-
-            className="h-16 w-16 md:h-24 md:w-24 rounded-full bg-white object-contain mb-2 md:mb-4 p-1 shadow-md"
-
-          />
-
-          <h1 className="text-xs md:text-sm font-bold tracking-wider text-center px-4 text-blue-400 leading-snug">
-
+          <h1 className="text-xs md:text-sm font-bold tracking-wider text-blue-400 leading-snug uppercase">
             NINGO-PRAMPRAM<br/>MUNICIPAL ASSEMBLY
-
           </h1>
 
-          <p className="text-[10px] md:text-xs text-blue-100 mt-2 md:mt-3 font-semibold text-center px-2 tracking-wide uppercase bg-gray-800 py-1 w-full border-y border-gray-700">
-
-            Building Permit Records Management System
-
+          <p className="text-[10px] md:text-xs text-blue-100 mt-2 font-semibold tracking-wide uppercase bg-gray-800/80 py-1 w-full rounded border border-gray-700/60">
+            BPMS Records System
           </p>
-
         </div>
 
 

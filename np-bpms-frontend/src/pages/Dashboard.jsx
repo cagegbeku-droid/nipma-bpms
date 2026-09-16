@@ -150,25 +150,24 @@ const Dashboard = () => {
       {/* Header Section with Quick Search */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-6 border-b border-gray-200">
         <div>
-          <h1 className="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight">
+          <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
             Building Permit Records Management System
           </h1>
-          <p className="text-sm text-gray-500 mt-1 font-medium">Official Registry & Digital Archive Dashboard</p>
         </div>
 
         {/* Quick Search Bar */}
         <form onSubmit={handleQuickSearch} className="relative w-full lg:w-96">
           <input
             type="text"
-            placeholder="Quick lookup by permit #, applicant..."
+            placeholder="Quick search permits..."
             value={quickSearch}
             onChange={(e) => setQuickSearch(e.target.value)}
-            className="w-full pl-9 pr-24 py-2.5 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none shadow-xs"
+            className="w-full pl-9 pr-24 py-2 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none shadow-xs"
           />
-          <span className="absolute left-3 top-3 text-gray-400 text-sm">🔍</span>
+          <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
           <button
             type="submit"
-            className="absolute right-1.5 top-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+            className="absolute right-1.5 top-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
           >
             Search
           </button>
@@ -181,7 +180,7 @@ const Dashboard = () => {
         {/* Card 1: Total Archived */}
         <Link 
           to="/permits/historical" 
-          className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col justify-between hover:border-blue-400 hover:shadow-md transition-all group"
+          className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-blue-400 hover:shadow-md transition-all group"
         >
           <div>
             <div className="flex items-center justify-between">
@@ -199,16 +198,19 @@ const Dashboard = () => {
             </div>
           </div>
           <p className="text-xs text-blue-600 font-medium mt-3 flex items-center justify-between border-t border-gray-100 pt-2">
-            <span>Official Records Indexed</span>
-            <span className="font-bold group-hover:translate-x-0.5 transition-transform">View All →</span>
+            <span>Official Records</span>
+            <span className="font-bold group-hover:translate-x-0.5 transition-transform">→</span>
           </p>
         </Link>
 
-        {/* Card 2: Residential Permits */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col justify-between">
+        {/* Card 2: Residential Permits - Clickable */}
+        <Link 
+          to="/permits/historical?purpose=RESIDENTIAL"
+          className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-emerald-400 hover:shadow-md transition-all group cursor-pointer"
+        >
           <div>
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Residential</h2>
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider group-hover:text-emerald-600 transition-colors">Residential</h2>
               <span className="text-emerald-600 bg-emerald-50 p-2 rounded-lg text-lg">🏡</span>
             </div>
             <div className="mt-3">
@@ -219,14 +221,20 @@ const Dashboard = () => {
               )}
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-3 border-t border-gray-100 pt-2">Residential Housing Permits</p>
-        </div>
+          <p className="text-xs text-gray-500 group-hover:text-emerald-600 mt-3 border-t border-gray-100 pt-2 flex items-center justify-between transition-colors">
+            <span>Residential Housing Permits</span>
+            <span className="font-bold group-hover:translate-x-0.5 transition-transform">→</span>
+          </p>
+        </Link>
 
-        {/* Card 3: Commercial & Other */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col justify-between">
+        {/* Card 3: Commercial & Other - Clickable */}
+        <Link 
+          to="/permits/historical?purpose=COMMERCIAL"
+          className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-purple-400 hover:shadow-md transition-all group cursor-pointer"
+        >
           <div>
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Commercial & Civic</h2>
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider group-hover:text-purple-600 transition-colors">Commercial & Civic</h2>
               <span className="text-purple-600 bg-purple-50 p-2 rounded-lg text-lg">🏢</span>
             </div>
             <div className="mt-3">
@@ -237,14 +245,20 @@ const Dashboard = () => {
               )}
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-3 border-t border-gray-100 pt-2">Business & Civic Structures</p>
-        </div>
+          <p className="text-xs text-gray-500 group-hover:text-purple-600 mt-3 border-t border-gray-100 pt-2 flex items-center justify-between transition-colors">
+            <span>Business & Civic Structures</span>
+            <span className="font-bold group-hover:translate-x-0.5 transition-transform">→</span>
+          </p>
+        </Link>
 
-        {/* Card 4: Municipal Communities */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 flex flex-col justify-between">
+        {/* Card 4: Municipal Communities - Clickable */}
+        <Link 
+          to="/analytics"
+          className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-amber-400 hover:shadow-md transition-all group cursor-pointer"
+        >
           <div>
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Communities</h2>
+              <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider group-hover:text-amber-600 transition-colors">Communities</h2>
               <span className="text-amber-600 bg-amber-50 p-2 rounded-lg text-lg">📍</span>
             </div>
             <div className="mt-3">
@@ -255,98 +269,110 @@ const Dashboard = () => {
               )}
             </div>
           </div>
-          <p className="text-xs text-gray-500 mt-3 border-t border-gray-100 pt-2">Registered District Zones</p>
-        </div>
+          <p className="text-xs text-gray-500 group-hover:text-amber-600 mt-3 border-t border-gray-100 pt-2 flex items-center justify-between transition-colors">
+            <span>Registered District Zones</span>
+            <span className="font-bold group-hover:translate-x-0.5 transition-transform">→</span>
+          </p>
+        </Link>
 
       </div>
 
-      {/* Visual Analytics Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Chart 1: Permits Registration Trend */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-base font-bold text-gray-900">Permit Registration Trends</h3>
-              <p className="text-xs text-gray-500 mt-0.5">Monthly archive issuance volumes</p>
+      {/* Analytics Section */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-gray-900">Analytics</h2>
+          <Link
+            to="/analytics"
+            className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition"
+          >
+            Full Analytics View →
+          </Link>
+        </div>
+
+        {/* Visual Analytics Charts Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          {/* Chart 1: Permits Registration Trend */}
+          <div className="lg:col-span-2 bg-white rounded-xl shadow-xs border border-gray-200 p-6 flex flex-col justify-between">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-gray-900">Registration Trends</h3>
+              <span className="text-xs px-2.5 py-1 bg-blue-50 text-blue-700 font-semibold rounded-md">
+                Monthly
+              </span>
             </div>
-            <span className="text-xs px-2.5 py-1 bg-blue-50 text-blue-700 font-semibold rounded-md">
-              Monthly Volume
-            </span>
+
+            <div className="h-64 w-full">
+              {isLoading ? (
+                <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg animate-pulse text-xs text-gray-400">
+                  Loading...
+                </div>
+              ) : trendData.length === 0 ? (
+                <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg text-xs text-gray-500">
+                  No date records to display
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="period" stroke="#64748b" fontSize={12} tickLine={false} />
+                    <YAxis stroke="#64748b" fontSize={12} tickLine={false} allowDecimals={false} />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
+                      cursor={{ fill: '#f8fafc' }}
+                    />
+                    <Bar dataKey="count" name="Permits" fill="#2563eb" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
           </div>
 
-          <div className="h-64 w-full">
-            {isLoading ? (
-              <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg animate-pulse text-xs text-gray-400">
-                Loading analytics...
-              </div>
-            ) : trendData.length === 0 ? (
-              <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg text-xs text-gray-500">
-                Not enough date records to plot trend
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="period" stroke="#64748b" fontSize={12} tickLine={false} />
-                  <YAxis stroke="#64748b" fontSize={12} tickLine={false} allowDecimals={false} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
-                    cursor={{ fill: '#f8fafc' }}
-                  />
-                  <Bar dataKey="count" name="Permits Registered" fill="#2563eb" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
+          {/* Chart 2: Development Purpose Breakdown */}
+          <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6 flex flex-col justify-between">
+            <div className="mb-4">
+              <h3 className="text-base font-bold text-gray-900">Category Distribution</h3>
+            </div>
+
+            <div className="h-64 w-full flex items-center justify-center">
+              {isLoading ? (
+                <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg animate-pulse text-xs text-gray-400">
+                  Loading...
+                </div>
+              ) : purposeData.length === 0 ? (
+                <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg text-xs text-gray-500">
+                  No category data
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={purposeData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={80}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {purposeData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={PURPOSE_COLORS[index % PURPOSE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
+                    />
+                    <Legend 
+                      verticalAlign="bottom" 
+                      iconType="circle" 
+                      wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </div>
           </div>
+
         </div>
-
-        {/* Chart 2: Development Purpose Breakdown */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex flex-col justify-between">
-          <div className="mb-4">
-            <h3 className="text-base font-bold text-gray-900">Category Distribution</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Breakdown by development purpose</p>
-          </div>
-
-          <div className="h-64 w-full flex items-center justify-center">
-            {isLoading ? (
-              <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg animate-pulse text-xs text-gray-400">
-                Loading categories...
-              </div>
-            ) : purposeData.length === 0 ? (
-              <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg text-xs text-gray-500">
-                No category data available
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={purposeData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={55}
-                    outerRadius={80}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {purposeData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={PURPOSE_COLORS[index % PURPOSE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
-                  />
-                  <Legend 
-                    verticalAlign="bottom" 
-                    iconType="circle" 
-                    wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-
       </div>
 
       {/* Quick Actions Section */}
@@ -354,33 +380,31 @@ const Dashboard = () => {
         <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
         <div className={`grid grid-cols-1 ${isUploader ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-5`}>
           
-          {/* UPLOAD ACTION: VISIBLE ONLY TO AUTHENTICATED OFFICERS */}
+          {/* UPLOAD ACTION */}
           {isUploader && (
             <Link 
               to="/permits/new" 
-              className="group flex items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-sm hover:shadow-md hover:from-blue-700 hover:to-indigo-800 transition-all border border-blue-500/20"
+              className="group flex items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-xs hover:shadow-md hover:from-blue-700 hover:to-indigo-800 transition-all border border-blue-500/20"
             >
-              <div className="bg-white/15 text-white p-4 rounded-xl mr-4 group-hover:scale-105 transition-transform text-2xl">
+              <div className="bg-white/15 text-white p-3.5 rounded-xl mr-4 group-hover:scale-105 transition-transform text-2xl">
                 ➕
               </div>
               <div>
                 <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
-                <p className="text-blue-100 text-sm mt-0.5">Digitize, catalog, and record a physical permit file</p>
               </div>
             </Link>
           )}
 
-          {/* PUBLIC SEARCH ACTION: VISIBLE TO EVERYONE */}
+          {/* PUBLIC SEARCH ACTION */}
           <Link 
             to="/permits/historical" 
-            className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-blue-400 hover:shadow-md transition-all"
+            className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-xs hover:border-blue-400 hover:shadow-md transition-all"
           >
-            <div className="bg-blue-50 text-blue-600 p-4 rounded-xl mr-4 group-hover:bg-blue-100 transition-colors text-2xl">
+            <div className="bg-blue-50 text-blue-600 p-3.5 rounded-xl mr-4 group-hover:bg-blue-100 transition-colors text-2xl">
               🔍
             </div>
             <div>
               <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">Search & Browse Registry</h3>
-              <p className="text-gray-500 text-sm mt-0.5">Search permits by number, applicant name, community, or date</p>
             </div>
           </Link>
 
@@ -388,17 +412,16 @@ const Dashboard = () => {
       </div>
 
       {/* RECENT ARCHIVES SECTION */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 pb-4 border-b border-gray-100">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Recent Archived Records</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Latest official permits indexed in the registry</p>
+            <h2 className="text-xl font-bold text-gray-900">Recent Records</h2>
           </div>
           <Link 
             to="/permits/historical" 
-            className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
           >
-            <span>View All Records in Registry</span>
+            <span>View All</span>
             <span>→</span>
           </Link>
         </div>
@@ -413,7 +436,6 @@ const Dashboard = () => {
           <div className="text-center py-12">
             <span className="text-3xl mb-2 inline-block">📂</span>
             <p className="text-sm font-medium text-gray-600">No permits archived yet.</p>
-            <p className="text-xs text-gray-400 mt-1">Archived records will appear here as they are entered.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">

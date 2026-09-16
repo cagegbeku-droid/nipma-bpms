@@ -53,9 +53,12 @@ const Login = ({ onLoginSuccess }) => {
       <div className="bg-white p-8 rounded-xl shadow-md w-96 max-w-full border border-gray-200 text-center">
         
         {/* Official Portal Header */}
-        <div className="mb-6">
+        <div className="mb-6 flex flex-col items-center">
+          <div className="w-16 h-16 mb-3 drop-shadow-md">
+            <img src="/nipma-bpms-logo.svg" alt="NiPMA BPMS Emblem" className="w-full h-full object-contain" />
+          </div>
           <h2 className="text-xl font-bold text-gray-900 leading-snug">
-            NIPDA BPMS<br/>Officer Archive Portal
+            NiPMA BPMS<br/>Officer Portal
           </h2>
         </div>
         
@@ -110,7 +113,7 @@ const Login = ({ onLoginSuccess }) => {
                 <span>Authenticating...</span>
               </>
             ) : (
-              <span>Log In to Archive System</span>
+              <span>Log In</span>
             )}
           </button>
         </form>

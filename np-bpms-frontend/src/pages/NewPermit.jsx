@@ -587,10 +587,9 @@ const NewPermit = () => {
     return (
       <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-2">
         <label className="block text-sm font-bold text-gray-800">{label}</label>
-        <p className="text-xs text-gray-500 mb-2">Upload scanned PDFs or images</p>
         
         <label className={`cursor-pointer bg-blue-50 text-blue-700 font-semibold py-2.5 px-4 rounded-md hover:bg-blue-100 transition text-sm flex items-center justify-center border border-blue-200 ${isSubmitting ? 'opacity-50 pointer-events-none' : ''}`}>
-          <span>📁 Browse & Select {allowMultiple ? 'Scanned Documents' : 'Scanned Document'}</span>
+          <span>📁 Select {allowMultiple ? 'Files' : 'File'}</span>
           <input 
             type="file" 
             name={fieldName} 
@@ -652,19 +651,18 @@ const NewPermit = () => {
       </div>
 
       {/* BULK CSV IMPORT BOX */}
-      <div className="mb-6 p-5 bg-emerald-50 rounded-xl border border-emerald-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="mb-6 p-4 bg-emerald-50 rounded-xl border border-emerald-200 shadow-xs flex items-center justify-between gap-4">
         <div>
-          <h3 className="font-bold text-sm text-emerald-900">📊 Import Permit Records (CSV)</h3>
-          <p className="text-xs text-emerald-700">Upload a CSV spreadsheet containing permit numbers, dates, applicants, and locations to import records.</p>
+          <h3 className="font-bold text-sm text-emerald-900">📊 Import Records (CSV)</h3>
         </div>
 
         <button 
           type="button"
           onClick={() => csvInputRef.current && csvInputRef.current.click()}
           disabled={isSubmitting}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm whitespace-nowrap cursor-pointer disabled:opacity-50"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3.5 rounded-lg transition shadow-xs whitespace-nowrap cursor-pointer disabled:opacity-50"
         >
-          📂 Upload CSV Spreadsheet
+          Upload CSV
         </button>
         <input 
           ref={csvInputRef}
@@ -846,7 +844,7 @@ const NewPermit = () => {
           {isSubmitting ? (
             <span>Saving Record...</span>
           ) : (
-            <span>Save to Secure Archives</span>
+            <span>Save Permit Record</span>
           )}
         </button>
       </form>
