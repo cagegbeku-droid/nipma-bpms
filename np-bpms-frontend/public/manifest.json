@@ -1,0 +1,23 @@
+{
+  "short_name": "NiPMA BPMS",
+  "name": "Ningo-Prampram Building Permit Management System",
+  "icons": [
+    {
+      "src": "/nipma-bpms-logo.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "display": "standalone",
+  "orientation": "portrait"
+}
