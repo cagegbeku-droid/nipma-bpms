@@ -453,7 +453,13 @@ const PermitList = () => {
           throw new Error("Google Drive upload rejected.");
         }
 
-        const driveRes = await fetch(sessionData.uploadUrl, { method: "PUT", body: file });
+        const driveRes = await fetch(sessionData.uploadUrl, {
+          method: "PUT",
+          headers: {
+            'Content-Range': `bytes 0-${file.size - 1}/${file.size}`
+          },
+          body: file
+        });
         if (driveRes.ok) {
           const resJson = await driveRes.json();
           return `https://drive.google.com/file/d/${resJson.id}/view`;
@@ -505,7 +511,7 @@ const PermitList = () => {
 
       // 6. Update local state
       setSelectedPermit(prev => ({ ...prev, [updateKey]: updatedValue }));
-      setPermits(prev => prev.map(p => p.id === selectedPermit.id ? { ...p, [updateKey]: updatedValue } : p));
+      setPermits(prev => prev.map(p => String(p.id) === String(selectedPermit.id) ? { ...p, [updateKey]: updatedValue } : p));
       showToast("Document attached and archived successfully!", "success");
 
     } catch (err) {
@@ -536,26 +542,50 @@ const PermitList = () => {
 
     if (links.length === 1) {
       return (
-        <button 
-          onClick={() => handleOpenDocViewer(links[0], `${label} - ${selectedPermit?.permit_number}`)}
-          className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline font-medium text-left cursor-pointer truncate max-w-full"
-        >
-          📄 View {label}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap mb-1">
+          <a 
+            href={links[0]} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-2xs hover:shadow-xs transition"
+          >
+            <span>📄 Open {label}</span>
+            <span className="text-xs">↗</span>
+          </a>
+          <button 
+            type="button"
+            onClick={() => handleOpenDocViewer(links[0], `${label} - ${selectedPermit?.permit_number}`)}
+            className="text-xs font-medium px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition cursor-pointer"
+          >
+            Preview
+          </button>
+        </div>
       );
     }
     return (
-      <div className="mb-1">
+      <div className="mb-1 space-y-1.5">
         <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
-        <div className="flex flex-wrap gap-1.5 mt-2">
+        <div className="flex flex-wrap gap-2">
           {links.map((link, index) => (
-            <button 
-              key={index} 
-              onClick={() => handleOpenDocViewer(link, `${label} Part ${index + 1} - ${selectedPermit?.permit_number}`)}
-              className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-2.5 py-1 rounded text-xs hover:underline border border-blue-100 font-medium cursor-pointer"
-            >
-              Part {index + 1}
-            </button>
+            <div key={index} className="inline-flex items-center rounded-lg border border-blue-200 overflow-hidden text-xs">
+              <a 
+                href={link} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold px-2.5 py-1 transition flex items-center gap-1"
+              >
+                <span>Part {index + 1}</span>
+                <span className="text-[10px]">↗</span>
+              </a>
+              <button 
+                type="button"
+                onClick={() => handleOpenDocViewer(link, `${label} Part ${index + 1} - ${selectedPermit?.permit_number}`)}
+                className="bg-white hover:bg-gray-50 text-gray-500 px-2 py-1 border-l border-blue-200 cursor-pointer text-[11px]"
+                title="Quick preview"
+              >
+                👁️
+              </button>
+            </div>
           ))}
         </div>
       </div>

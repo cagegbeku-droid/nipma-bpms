@@ -14,7 +14,7 @@ const Dashboard = () => {
   } catch (e) {
     console.error("User parse error:", e);
   }
-  
+
   // Any user with an active token is an authenticated officer
   const isUploader = Boolean(token);
   const isOfficer = isUploader;
@@ -82,26 +82,50 @@ const Dashboard = () => {
 
     if (links.length === 1) {
       return (
-        <button 
-          onClick={() => handleOpenDocViewer(links[0], `${label} - ${selectedPermit?.permit_number}`)}
-          className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline font-medium text-left cursor-pointer truncate max-w-full"
-        >
-          📄 View {label}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap mb-1">
+          <a
+            href={links[0]}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-2xs hover:shadow-xs transition"
+          >
+            <span>📄 Open {label}</span>
+            <span className="text-xs">↗</span>
+          </a>
+          <button
+            type="button"
+            onClick={() => handleOpenDocViewer(links[0], `${label} - ${selectedPermit?.permit_number}`)}
+            className="text-xs font-medium px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition cursor-pointer"
+          >
+            Preview
+          </button>
+        </div>
       );
     }
     return (
-      <div className="mb-1">
+      <div className="mb-1 space-y-1.5">
         <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
-        <div className="flex flex-wrap gap-1.5 mt-2">
+        <div className="flex flex-wrap gap-2">
           {links.map((link, index) => (
-            <button 
-              key={index} 
-              onClick={() => handleOpenDocViewer(link, `${label} Part ${index + 1} - ${selectedPermit?.permit_number}`)}
-              className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-2.5 py-1 rounded text-xs hover:underline border border-blue-100 font-medium cursor-pointer"
-            >
-              Part {index + 1}
-            </button>
+            <div key={index} className="inline-flex items-center rounded-lg border border-blue-200 overflow-hidden text-xs">
+              <a
+                href={link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold px-2.5 py-1 transition flex items-center gap-1"
+              >
+                <span>Part {index + 1}</span>
+                <span className="text-[10px]">↗</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => handleOpenDocViewer(link, `${label} Part ${index + 1} - ${selectedPermit?.permit_number}`)}
+                className="bg-white hover:bg-gray-50 text-gray-500 px-2 py-1 border-l border-blue-200 cursor-pointer text-[11px]"
+                title="Quick preview"
+              >
+                👁️
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -116,8 +140,8 @@ const Dashboard = () => {
 
     try {
       const activeCategories = [category];
-      const applicantName = selectedPermit.applicant_name || 
-        `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim() || 
+      const applicantName = selectedPermit.applicant_name ||
+        `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim() ||
         'Applicant';
 
       // 1. Create or fetch target subfolder on Google Drive
@@ -165,7 +189,13 @@ const Dashboard = () => {
           throw new Error("Google Drive upload rejected.");
         }
 
-        const driveRes = await fetch(sessionData.uploadUrl, { method: "PUT", body: file });
+        const driveRes = await fetch(sessionData.uploadUrl, {
+          method: "PUT",
+          headers: {
+            'Content-Range': `bytes 0-${file.size - 1}/${file.size}`
+          },
+          body: file
+        });
         if (driveRes.ok) {
           const resJson = await driveRes.json();
           return `https://drive.google.com/file/d/${resJson.id}/view`;
@@ -185,14 +215,14 @@ const Dashboard = () => {
         updatedValue = uploadedLinks[0];
       } else if (category === 'drawings') {
         updateKey = 'drawings_links';
-        const existing = selectedPermit.drawings_links 
-          ? selectedPermit.drawings_links.split(',').map(s => s.trim()).filter(Boolean) 
+        const existing = selectedPermit.drawings_links
+          ? selectedPermit.drawings_links.split(',').map(s => s.trim()).filter(Boolean)
           : [];
         updatedValue = [...existing, ...uploadedLinks].join(', ');
       } else if (category === 'permitForm') {
         updateKey = 'permit_form_link';
-        const existing = selectedPermit.permit_form_link 
-          ? selectedPermit.permit_form_link.split(',').map(s => s.trim()).filter(Boolean) 
+        const existing = selectedPermit.permit_form_link
+          ? selectedPermit.permit_form_link.split(',').map(s => s.trim()).filter(Boolean)
           : [];
         updatedValue = [...existing, ...uploadedLinks].join(', ');
       }
@@ -200,7 +230,7 @@ const Dashboard = () => {
       // 5. Update Supabase record
       const updateRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}`, {
         method: 'PUT',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
@@ -217,7 +247,7 @@ const Dashboard = () => {
 
       // 6. Update local state
       setSelectedPermit(prev => ({ ...prev, [updateKey]: updatedValue }));
-      setRecentPermits(prev => prev.map(p => p.id === selectedPermit.id ? { ...p, [updateKey]: updatedValue } : p));
+      setRecentPermits(prev => prev.map(p => String(p.id) === String(selectedPermit.id) ? { ...p, [updateKey]: updatedValue } : p));
       alert("Document attached and archived successfully!");
 
     } catch (err) {
@@ -238,7 +268,7 @@ const Dashboard = () => {
 
         const statsData = await statsRes.json();
         const permitsData = await permitsRes.json();
-        
+
         if (statsData.success) {
           setTotalPermits(statsData.total || (Array.isArray(permitsData.data) ? permitsData.data.length : 0));
         } else {
@@ -281,7 +311,7 @@ const Dashboard = () => {
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8">
-      
+
       {/* Header Section with Quick Search */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-6 border-b border-gray-200">
         <div>
@@ -311,9 +341,9 @@ const Dashboard = () => {
 
       {/* Overview Cards (Clickable) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        
+
         {/* Card 1: Total Archived */}
-        <Link 
+        <Link
           to="/permits/historical"
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-blue-400 hover:shadow-md transition-all group cursor-pointer"
         >
@@ -339,7 +369,7 @@ const Dashboard = () => {
         </Link>
 
         {/* Card 2: Residential Permits - Clickable */}
-        <Link 
+        <Link
           to="/permits/historical?purpose=RESIDENTIAL"
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-emerald-400 hover:shadow-md transition-all group cursor-pointer"
         >
@@ -363,7 +393,7 @@ const Dashboard = () => {
         </Link>
 
         {/* Card 3: Commercial & Civic - Clickable */}
-        <Link 
+        <Link
           to="/permits/historical?purpose=COMMERCIAL"
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-purple-400 hover:shadow-md transition-all group cursor-pointer"
         >
@@ -387,7 +417,7 @@ const Dashboard = () => {
         </Link>
 
         {/* Card 4: Municipal Communities - Clickable */}
-        <Link 
+        <Link
           to="/analytics"
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-amber-400 hover:shadow-md transition-all group cursor-pointer"
         >
@@ -417,8 +447,8 @@ const Dashboard = () => {
         <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
         <div className={`grid grid-cols-1 ${isUploader ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-5`}>
           {isUploader && (
-            <Link 
-              to="/permits/new" 
+            <Link
+              to="/permits/new"
               className="group flex items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-xs hover:shadow-md hover:from-blue-700 hover:to-indigo-800 transition-all border border-blue-500/20"
             >
               <div className="bg-white/15 text-white p-3.5 rounded-xl mr-4 group-hover:scale-105 transition-transform text-2xl">
@@ -431,8 +461,8 @@ const Dashboard = () => {
           )}
 
           {/* SEARCH RECORDS ACTION */}
-          <Link 
-            to="/permits/historical" 
+          <Link
+            to="/permits/historical"
             className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-xs hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
           >
             <div className="bg-blue-50 text-blue-600 p-3.5 rounded-xl mr-4 group-hover:bg-blue-100 transition-colors text-2xl">
@@ -451,8 +481,8 @@ const Dashboard = () => {
           <div>
             <h2 className="text-xl font-bold text-gray-900">Recent Records</h2>
           </div>
-          <Link 
-            to="/permits/historical" 
+          <Link
+            to="/permits/historical"
             className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
           >
             <span>View Full Records</span>
@@ -499,11 +529,10 @@ const Dashboard = () => {
                         {permit.applicant_name || 'N/A'}
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className={`text-xs px-2.5 py-1 rounded-md font-medium ${
-                          isResidential 
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200' 
+                        <span className={`text-xs px-2.5 py-1 rounded-md font-medium ${isResidential
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
                             : 'bg-purple-50 text-purple-700 border border-purple-200'
-                        }`}>
+                          }`}>
                           {permit.purpose || 'RESIDENTIAL'}
                         </span>
                       </td>
@@ -511,18 +540,17 @@ const Dashboard = () => {
                         {permit.location || 'N/A'}
                       </td>
                       <td className="py-3.5 px-4">
-                        <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold ${
-                          isArchived 
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                        <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold ${isArchived
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                             : 'bg-amber-50 text-amber-700 border border-amber-200'
-                        }`}>
+                          }`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${isArchived ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                           {isArchived ? 'Archived' : 'In Review'}
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right">
-                        <button 
-                          onClick={() => setSelectedPermit(permit)} 
+                        <button
+                          onClick={() => setSelectedPermit(permit)}
                           className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap cursor-pointer"
                         >
                           <span>👁️</span>
@@ -555,7 +583,7 @@ const Dashboard = () => {
                   ✕
                 </button>
               </div>
-              
+
               <div className="p-6 overflow-y-auto bg-gray-50 space-y-6">
                 <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm grid grid-cols-2 gap-4 text-sm">
                   <div>
@@ -573,7 +601,7 @@ const Dashboard = () => {
                   <div>
                     <span className="block font-semibold text-gray-400 text-xs">SITE ADDRESS & MAP PIN</span>
                     {selectedPermit.address ? (
-                      <a 
+                      <a
                         href={getGoogleMapsUrl(selectedPermit.address, selectedPermit.location)}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -608,15 +636,15 @@ const Dashboard = () => {
                       <div className="mt-4 pt-3 border-t border-gray-100">
                         <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'certificate' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
                           <span>{uploadingCategory === 'certificate' ? '⏳ Uploading...' : (selectedPermit.certificate_link ? '🔄 Replace Certificate' : '📁 Attach Certificate')}</span>
-                          <input 
-                            type="file" 
-                            accept=".pdf,image/*" 
-                            disabled={uploadingCategory !== null} 
+                          <input
+                            type="file"
+                            accept=".pdf,image/*"
+                            disabled={uploadingCategory !== null}
                             onChange={(e) => {
                               handleViewUpload('certificate', e.target.files);
                               e.target.value = '';
-                            }} 
-                            className="hidden" 
+                            }}
+                            className="hidden"
                           />
                         </label>
                       </div>
@@ -641,16 +669,16 @@ const Dashboard = () => {
                       <div className="mt-4 pt-3 border-t border-gray-100">
                         <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'drawings' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
                           <span>{uploadingCategory === 'drawings' ? '⏳ Uploading Drawings...' : '+ Add Architectural Drawings'}</span>
-                          <input 
-                            type="file" 
-                            multiple 
-                            accept=".pdf,image/*" 
-                            disabled={uploadingCategory !== null} 
+                          <input
+                            type="file"
+                            multiple
+                            accept=".pdf,image/*"
+                            disabled={uploadingCategory !== null}
                             onChange={(e) => {
                               handleViewUpload('drawings', e.target.files);
                               e.target.value = '';
-                            }} 
-                            className="hidden" 
+                            }}
+                            className="hidden"
                           />
                         </label>
                       </div>
@@ -675,16 +703,16 @@ const Dashboard = () => {
                       <div className="mt-4 pt-3 border-t border-gray-100">
                         <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'permitForm' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
                           <span>{uploadingCategory === 'permitForm' ? '⏳ Uploading Form...' : '+ Attach Permit Form'}</span>
-                          <input 
-                            type="file" 
-                            multiple 
-                            accept=".pdf,image/*" 
-                            disabled={uploadingCategory !== null} 
+                          <input
+                            type="file"
+                            multiple
+                            accept=".pdf,image/*"
+                            disabled={uploadingCategory !== null}
                             onChange={(e) => {
                               handleViewUpload('permitForm', e.target.files);
                               e.target.value = '';
-                            }} 
-                            className="hidden" 
+                            }}
+                            className="hidden"
                           />
                         </label>
                       </div>
@@ -693,7 +721,7 @@ const Dashboard = () => {
                 </div>
 
                 <div className="pt-2 flex justify-end">
-                  <button 
+                  <button
                     onClick={() => handleShowQrBadge(selectedPermit)}
                     className="bg-purple-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-purple-700 transition text-xs flex items-center space-x-1.5 shadow"
                   >
@@ -713,16 +741,16 @@ const Dashboard = () => {
             <div className="px-6 py-4 bg-gray-900 text-white flex justify-between items-center">
               <span className="font-bold text-sm tracking-wide truncate max-w-lg">{viewerDoc.title}</span>
               <div className="flex items-center space-x-3">
-                <a 
-                  href={viewerDoc.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
+                <a
+                  href={viewerDoc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded transition"
                 >
                   Open in New Tab ↗
                 </a>
-                <button 
-                  onClick={() => setViewerDoc({ isOpen: false, url: '', title: '' })} 
+                <button
+                  onClick={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
                   className="text-gray-400 hover:text-white p-1 rounded transition text-lg"
                 >
                   ✕
@@ -730,8 +758,8 @@ const Dashboard = () => {
               </div>
             </div>
             <div className="flex-1 bg-gray-100 flex items-center justify-center relative">
-              <iframe 
-                src={getEmbedUrl(viewerDoc.url)} 
+              <iframe
+                src={getEmbedUrl(viewerDoc.url)}
                 title={viewerDoc.title}
                 className="w-full h-full border-0"
                 allow="autoplay"
@@ -745,16 +773,16 @@ const Dashboard = () => {
       {qrModal.isOpen && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="relative max-w-sm w-full">
-            <button 
+            <button
               onClick={() => setQrModal({ isOpen: false, code: '', permitNum: '', applicantName: '' })}
               className="absolute -top-3 -right-3 bg-red-600 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold hover:bg-red-700 shadow-md z-10"
             >
               ✕
             </button>
-            <PermitQRBadge 
-              permitNumber={qrModal.permitNum} 
-              dateIssued={selectedPermit?.date_issued} 
-              qrCodeBase64={qrModal.code} 
+            <PermitQRBadge
+              permitNumber={qrModal.permitNum}
+              dateIssued={selectedPermit?.date_issued}
+              qrCodeBase64={qrModal.code}
             />
           </div>
         </div>

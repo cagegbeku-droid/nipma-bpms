@@ -537,7 +537,13 @@ const NewPermit = () => {
               const sessionData = await sessionRes.json();
               if (!sessionData.success || !sessionData.uploadUrl) return '';
 
-              const driveRes = await fetch(sessionData.uploadUrl, { method: "PUT", body: file });
+              const driveRes = await fetch(sessionData.uploadUrl, {
+                method: "PUT",
+                headers: {
+                  'Content-Range': `bytes 0-${file.size - 1}/${file.size}`
+                },
+                body: file
+              });
               if (driveRes.ok) {
                 const resJson = await driveRes.json();
                 return `https://drive.google.com/file/d/${resJson.id}/view`;
