@@ -73,14 +73,10 @@ const Dashboard = () => {
 
   const handleQuickSearch = (e) => {
     e.preventDefault();
-    if (isUploader) {
-      if (quickSearch.trim()) {
-        navigate(`/permits/historical?search=${encodeURIComponent(quickSearch.trim())}`);
-      } else {
-        navigate('/permits/historical');
-      }
+    if (quickSearch.trim()) {
+      navigate(`/permits/historical?search=${encodeURIComponent(quickSearch.trim())}`);
     } else {
-      navigate('/analytics');
+      navigate('/permits/historical');
     }
   };
 
@@ -99,7 +95,7 @@ const Dashboard = () => {
         <form onSubmit={handleQuickSearch} className="relative w-full lg:w-96">
           <input
             type="text"
-            placeholder={isUploader ? "Quick search permits..." : "Search in analytics..."}
+            placeholder="Quick search permits..."
             value={quickSearch}
             onChange={(e) => setQuickSearch(e.target.value)}
             className="w-full pl-9 pr-24 py-2 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none shadow-xs"
@@ -119,8 +115,8 @@ const Dashboard = () => {
         
         {/* Card 1: Total Archived */}
         <Link 
-          to={isUploader ? "/permits/historical" : "/analytics"}
-          className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-blue-400 hover:shadow-md transition-all group"
+          to="/permits/historical"
+          className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-blue-400 hover:shadow-md transition-all group cursor-pointer"
         >
           <div>
             <div className="flex items-center justify-between">
@@ -145,7 +141,7 @@ const Dashboard = () => {
 
         {/* Card 2: Residential Permits - Clickable */}
         <Link 
-          to={isUploader ? "/permits/historical?purpose=RESIDENTIAL" : "/analytics"}
+          to="/permits/historical?purpose=RESIDENTIAL"
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-emerald-400 hover:shadow-md transition-all group cursor-pointer"
         >
           <div>
@@ -169,7 +165,7 @@ const Dashboard = () => {
 
         {/* Card 3: Commercial & Civic - Clickable */}
         <Link 
-          to={isUploader ? "/permits/historical?purpose=COMMERCIAL" : "/analytics"}
+          to="/permits/historical?purpose=COMMERCIAL"
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-purple-400 hover:shadow-md transition-all group cursor-pointer"
         >
           <div>
@@ -220,64 +216,33 @@ const Dashboard = () => {
       {/* Quick Actions Section */}
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {isUploader ? (
-            <>
-              {/* OFFICER UPLOAD ACTION */}
-              <Link 
-                to="/permits/new" 
-                className="group flex items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-xs hover:shadow-md hover:from-blue-700 hover:to-indigo-800 transition-all border border-blue-500/20"
-              >
-                <div className="bg-white/15 text-white p-3.5 rounded-xl mr-4 group-hover:scale-105 transition-transform text-2xl">
-                  ➕
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
-                </div>
-              </Link>
-
-              {/* OFFICER REGISTRY ACTION */}
-              <Link 
-                to="/permits/historical" 
-                className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-xs hover:border-blue-400 hover:shadow-md transition-all"
-              >
-                <div className="bg-blue-50 text-blue-600 p-3.5 rounded-xl mr-4 group-hover:bg-blue-100 transition-colors text-2xl">
-                  📁
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">Search & Manage Registry</h3>
-                </div>
-              </Link>
-            </>
-          ) : (
-            <>
-              {/* PUBLIC ANALYTICS ACTION */}
-              <Link 
-                to="/analytics" 
-                className="group flex items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-xs hover:shadow-md hover:from-blue-700 hover:to-indigo-800 transition-all border border-blue-500/20"
-              >
-                <div className="bg-white/15 text-white p-3.5 rounded-xl mr-4 group-hover:scale-105 transition-transform text-2xl">
-                  📊
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white">View Analytics & Trends</h3>
-                </div>
-              </Link>
-
-              {/* PUBLIC OFFICER PORTAL ACTION */}
-              <Link 
-                to="/vault-admin" 
-                className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-xs hover:border-blue-400 hover:shadow-md transition-all"
-              >
-                <div className="bg-blue-50 text-blue-600 p-3.5 rounded-xl mr-4 group-hover:bg-blue-100 transition-colors text-2xl">
-                  🔐
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">Officer Portal Login</h3>
-                </div>
-              </Link>
-            </>
+        <div className={`grid grid-cols-1 ${isUploader ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-5`}>
+          {isUploader && (
+            <Link 
+              to="/permits/new" 
+              className="group flex items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-xs hover:shadow-md hover:from-blue-700 hover:to-indigo-800 transition-all border border-blue-500/20"
+            >
+              <div className="bg-white/15 text-white p-3.5 rounded-xl mr-4 group-hover:scale-105 transition-transform text-2xl">
+                ➕
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
+              </div>
+            </Link>
           )}
+
+          {/* SEARCH RECORDS ACTION */}
+          <Link 
+            to="/permits/historical" 
+            className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-xs hover:border-blue-400 hover:shadow-md transition-all cursor-pointer"
+          >
+            <div className="bg-blue-50 text-blue-600 p-3.5 rounded-xl mr-4 group-hover:bg-blue-100 transition-colors text-2xl">
+              🔍
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">Search Records</h3>
+            </div>
+          </Link>
         </div>
       </div>
 
@@ -287,23 +252,13 @@ const Dashboard = () => {
           <div>
             <h2 className="text-xl font-bold text-gray-900">Recent Records</h2>
           </div>
-          {isUploader ? (
-            <Link 
-              to="/permits/historical" 
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-            >
-              <span>View All Registry</span>
-              <span>→</span>
-            </Link>
-          ) : (
-            <Link 
-              to="/analytics" 
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-            >
-              <span>View Full Analytics</span>
-              <span>→</span>
-            </Link>
-          )}
+          <Link 
+            to="/permits/historical" 
+            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+          >
+            <span>View Full Records</span>
+            <span>→</span>
+          </Link>
         </div>
 
         {isLoading ? (
@@ -326,7 +281,8 @@ const Dashboard = () => {
                   <th className="py-3 px-4">Applicant / Entity</th>
                   <th className="py-3 px-4">Purpose</th>
                   <th className="py-3 px-4">Location</th>
-                  <th className="py-3 px-4 text-right rounded-r-lg">Status</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right rounded-r-lg">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
@@ -355,7 +311,7 @@ const Dashboard = () => {
                       <td className="py-3.5 px-4 uppercase text-gray-600">
                         {permit.location || 'N/A'}
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="py-3.5 px-4">
                         <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold ${
                           isArchived 
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
@@ -364,6 +320,14 @@ const Dashboard = () => {
                           <span className={`w-1.5 h-1.5 rounded-full ${isArchived ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                           {isArchived ? 'Archived' : 'In Review'}
                         </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <Link 
+                          to="/permits/historical" 
+                          className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap"
+                        >
+                          View Record →
+                        </Link>
                       </td>
                     </tr>
                   );

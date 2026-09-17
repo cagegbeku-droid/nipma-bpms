@@ -14,8 +14,8 @@ import {
 const navigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'Analytics', href: '/analytics', icon: ChartBarSquareIcon },
-  { name: 'Upload Archive', href: '/permits/new', icon: ArrowUpTrayIcon },
   { name: 'Registry', href: '/permits/historical', icon: ArchiveBoxIcon },
+  { name: 'Upload Archive', href: '/permits/new', icon: ArrowUpTrayIcon },
 ];
 
 const Sidebar = () => {
@@ -29,11 +29,11 @@ const Sidebar = () => {
   const isLoggedIn = Boolean(token && user);
 
   // --- FILTER NAVIGATION ---
-  // Public visitors see only Dashboard and Analytics.
-  // Logged in officers get full access to Upload Archive and Registry.
+  // Dashboard, Analytics, and Registry are accessible to everyone.
+  // Upload Archive is visible only to authenticated officers.
   const filteredNavigation = navigation.filter((item) => {
-    if (!isLoggedIn) {
-      return item.name === 'Dashboard' || item.name === 'Analytics';
+    if (!isLoggedIn && item.name === 'Upload Archive') {
+      return false;
     }
     return true;
   });
