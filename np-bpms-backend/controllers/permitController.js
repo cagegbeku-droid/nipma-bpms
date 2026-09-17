@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
-const { createGoogleDriveFolder, getOrCreateGoogleDriveFolder, uploadFileToDrive } = require('../utils/googleDrive');
+const { createGoogleDriveFolder, getOrCreateGoogleDriveFolder, uploadFileToDrive, deleteFileFromDrive } = require('../utils/googleDrive');
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
@@ -285,6 +285,26 @@ const uploadPermitDocument = async (req, res) => {
 const deletePermit = async (req, res) => {
   try {
     const { id } = req.params;
+
+    // Fetch existing permit files to clean up Drive
+    const { data: permit } = await supabase
+      .from('permits')
+      .select('certificate_link, drawings_links, permit_form_link, receipts_links')
+      .eq('id', id)
+      .single();
+
+    if (permit) {
+      const allLinks = [
+        ...(permit.certificate_link ? [permit.certificate_link] : []),
+        ...(permit.drawings_links ? permit.drawings_links.split(',') : []),
+        ...(permit.permit_form_link ? permit.permit_form_link.split(',') : []),
+        ...(permit.receipts_links ? permit.receipts_links.split(',') : [])
+      ];
+      allLinks.forEach(link => {
+        if (link && link.trim()) deleteFileFromDrive(link.trim()).catch(() => {});
+      });
+    }
+
     const { error } = await supabase.from('permits').delete().eq('id', id);
 
     if (error) throw error;
@@ -322,6 +342,26 @@ const updatePermit = async (req, res) => {
     if (permit_form_link !== undefined) updatePayload.permit_form_link = (permit_form_link && String(permit_form_link).trim() !== '' && permit_form_link !== 'null') ? String(permit_form_link).trim() : null;
     if (receipts_links !== undefined) updatePayload.receipts_links = (receipts_links && String(receipts_links).trim() !== '' && receipts_links !== 'null') ? String(receipts_links).trim() : null;
     if (upload_status !== undefined) updatePayload.upload_status = upload_status;
+
+    // Clean up Google Drive files if document columns were explicitly cleared
+    const docCols = ['certificate_link', 'drawings_links', 'permit_form_link', 'receipts_links'];
+    const colsToClean = docCols.filter(col => updatePayload[col] === null);
+    if (colsToClean.length > 0) {
+      const { data: oldRecord } = await supabase
+        .from('permits')
+        .select(colsToClean.join(','))
+        .eq('id', id)
+        .single();
+      if (oldRecord) {
+        colsToClean.forEach(col => {
+          if (oldRecord[col]) {
+            oldRecord[col].split(',').forEach(link => {
+              if (link && link.trim()) deleteFileFromDrive(link.trim()).catch(() => {});
+            });
+          }
+        });
+      }
+    }
 
     const { data: updatedData, error: updateError } = await supabase
       .from('permits')
@@ -377,6 +417,13 @@ const removePermitFile = async (req, res) => {
       .eq('id', id);
 
     if (updateError) throw updateError;
+
+    // Delete file from Google Drive in background
+    try {
+      await deleteFileFromDrive(file_url);
+    } catch (dErr) {
+      console.warn("Drive cleanup warning:", dErr.message);
+    }
 
     res.status(200).json({ success: true, new_links: newLinksString });
   } catch (error) {

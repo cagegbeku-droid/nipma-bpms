@@ -115,10 +115,32 @@ const uploadFileToDrive = async (file, folderId) => {
   }
 };
 
+// 4. Extract File ID from Google Drive URL
+const extractDriveFileId = (url) => {
+  if (!url || typeof url !== 'string') return null;
+  const match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : null;
+};
+
+// 5. Delete a file from Google Drive
+const deleteFileFromDrive = async (fileUrlOrId) => {
+  try {
+    const fileId = extractDriveFileId(fileUrlOrId) || fileUrlOrId;
+    if (!fileId || typeof fileId !== 'string' || fileId.length < 10) return false;
+    await drive.files.delete({ fileId });
+    return true;
+  } catch (err) {
+    console.warn("Drive file delete notice (non-fatal):", err.message);
+    return false;
+  }
+};
+
 module.exports = { 
   drive,
   MAIN_VAULT_FOLDER_ID,
   getOrCreateGoogleDriveFolder,
   createGoogleDriveFolder, 
-  uploadFileToDrive 
+  uploadFileToDrive,
+  extractDriveFileId,
+  deleteFileFromDrive
 };
