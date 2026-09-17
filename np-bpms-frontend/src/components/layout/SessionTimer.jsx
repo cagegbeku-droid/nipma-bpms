@@ -4,9 +4,14 @@ import { useLocation } from 'react-router-dom';
 const SessionTimer = () => {
   const location = useLocation();
 
-  const token = localStorage.getItem('token');
-  const savedUser = localStorage.getItem('user');
-  const user = savedUser ? JSON.parse(savedUser) : null;
+  const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+  const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+  let user = null;
+  try {
+    user = savedUser ? JSON.parse(savedUser) : null;
+  } catch (e) {
+    console.error("Session user parse error:", e);
+  }
   const isLoggedIn = Boolean(token && user);
 
   const [timeLeft, setTimeLeft] = useState(null);
@@ -18,9 +23,10 @@ const SessionTimer = () => {
     }
 
     // Read or initialize 12-hour expiration timestamp
-    let expiryTime = localStorage.getItem('token_expiry');
+    let expiryTime = sessionStorage.getItem('token_expiry') || localStorage.getItem('token_expiry');
     if (!expiryTime) {
       expiryTime = Date.now() + 12 * 60 * 60 * 1000;
+      sessionStorage.setItem('token_expiry', expiryTime.toString());
       localStorage.setItem('token_expiry', expiryTime.toString());
     } else {
       expiryTime = parseInt(expiryTime, 10);
@@ -32,9 +38,8 @@ const SessionTimer = () => {
 
       if (diff <= 0) {
         // --- SESSION EXPIRED: CLEAR KEYS & REDIRECT TO PUBLIC DASHBOARD ---
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        localStorage.removeItem('token_expiry');
+        sessionStorage.clear();
+        localStorage.clear();
         setTimeLeft(null);
         alert("Your 12-hour officer session has expired. Please log in again.");
         window.location.href = '/';

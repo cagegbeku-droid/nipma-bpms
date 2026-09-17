@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import PermitQRBadge from '../components/PermitQRBadge';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -7,18 +8,16 @@ const Dashboard = () => {
   // --- JWT OFFICER / ADMIN CHECK ---
   const token = sessionStorage.getItem('token') || localStorage.getItem('token');
   const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
-  const user = savedUser ? JSON.parse(savedUser) : null;
+  let user = null;
+  try {
+    user = savedUser ? JSON.parse(savedUser) : null;
+  } catch (e) {
+    console.error("User parse error:", e);
+  }
   
-  const roleStr = (user?.role || '').toLowerCase();
-  const isUploader = Boolean(
-    token && user && (
-      !user.role || 
-      roleStr === 'uploader' || 
-      roleStr === 'admin' || 
-      roleStr === 'officer' || 
-      roleStr === 'staff'
-    )
-  );
+  // Any user with an active token is an authenticated officer
+  const isUploader = Boolean(token);
+  const isOfficer = isUploader;
 
   const [totalPermits, setTotalPermits] = useState(0);
   const [recentPermits, setRecentPermits] = useState([]);
@@ -28,6 +27,206 @@ const Dashboard = () => {
   const [quickSearch, setQuickSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Modals & Document Attachment States
+  const [selectedPermit, setSelectedPermit] = useState(null);
+  const [uploadingCategory, setUploadingCategory] = useState(null);
+  const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
+  const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
+
+  const handleOpenDocViewer = (url, title) => {
+    if (!url) return;
+    setViewerDoc({ isOpen: true, url, title });
+  };
+
+  const getEmbedUrl = (url) => {
+    if (!url) return '';
+    if (url.includes('drive.google.com')) {
+      return url.replace(/\/view(\?.*)?$/, '/preview').replace(/\/edit(\?.*)?$/, '/preview');
+    }
+    return url;
+  };
+
+  const getGoogleMapsUrl = (address, location) => {
+    if (!address) return '#';
+    const cleanAddress = address.trim();
+    const cleanLocation = location ? location.trim() : '';
+    const fullSearchQuery = `${cleanAddress}, ${cleanLocation}, Ghana`;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullSearchQuery)}`;
+  };
+
+  const handleShowQrBadge = async (permit) => {
+    try {
+      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(permit.permit_number)}`);
+      const data = await res.json();
+      if (data.success && data.qrCode) {
+        setQrModal({
+          isOpen: true,
+          code: data.qrCode,
+          permitNum: permit.permit_number,
+          applicantName: permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`.trim()
+        });
+      } else {
+        alert("Could not generate QR Badge.");
+      }
+    } catch (err) {
+      console.error("QR Code Fetch Error:", err);
+      alert("Error generating QR Badge.");
+    }
+  };
+
+  const renderLinks = (linkString, label) => {
+    if (!linkString) return null;
+    const links = linkString.split(',').map(link => link.trim()).filter(Boolean);
+    if (links.length === 0) return null;
+
+    if (links.length === 1) {
+      return (
+        <button 
+          onClick={() => handleOpenDocViewer(links[0], `${label} - ${selectedPermit?.permit_number}`)}
+          className="block text-blue-600 hover:text-blue-800 text-sm mb-1 hover:underline font-medium text-left cursor-pointer truncate max-w-full"
+        >
+          📄 View {label}
+        </button>
+      );
+    }
+    return (
+      <div className="mb-1">
+        <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {links.map((link, index) => (
+            <button 
+              key={index} 
+              onClick={() => handleOpenDocViewer(link, `${label} Part ${index + 1} - ${selectedPermit?.permit_number}`)}
+              className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-2.5 py-1 rounded text-xs hover:underline border border-blue-100 font-medium cursor-pointer"
+            >
+              Part {index + 1}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // DIRECT DOCUMENT UPLOAD & ATTACHMENT
+  const handleViewUpload = async (category, fileList) => {
+    if (!fileList || fileList.length === 0 || !selectedPermit) return;
+
+    setUploadingCategory(category);
+
+    try {
+      const activeCategories = [category];
+      const applicantName = selectedPermit.applicant_name || 
+        `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim() || 
+        'Applicant';
+
+      // 1. Create or fetch target subfolder on Google Drive
+      const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
+        method: "POST",
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          permitNumber: selectedPermit.permit_number,
+          applicantName: applicantName,
+          categories: activeCategories
+        })
+      });
+
+      const folderData = await folderRes.json();
+      if (!folderRes.ok || !folderData.success) {
+        throw new Error(folderData.message || "Could not access destination folder on Google Drive.");
+      }
+
+      const targetFolderId = folderData.subfolders?.[category];
+      if (!targetFolderId) {
+        throw new Error("Could not access destination folder on Google Drive.");
+      }
+
+      // 2. Resumable Google Drive upload helper
+      const uploadDirectToDrive = async (file) => {
+        const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
+          method: "POST",
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            targetFolderId: targetFolderId,
+            fileName: file.name,
+            mimeType: file.type || 'application/pdf',
+            fileSize: file.size
+          })
+        });
+
+        const sessionData = await sessionRes.json();
+        if (!sessionData.success || !sessionData.uploadUrl) {
+          throw new Error("Google Drive upload rejected.");
+        }
+
+        const driveRes = await fetch(sessionData.uploadUrl, { method: "PUT", body: file });
+        if (driveRes.ok) {
+          const resJson = await driveRes.json();
+          return `https://drive.google.com/file/d/${resJson.id}/view`;
+        }
+        throw new Error("Document upload failed.");
+      };
+
+      // 3. Upload all selected files concurrently
+      const uploadedLinks = await Promise.all(Array.from(fileList).map(f => uploadDirectToDrive(f)));
+
+      // 4. Merge links with existing records
+      let updateKey = '';
+      let updatedValue = '';
+
+      if (category === 'certificate') {
+        updateKey = 'certificate_link';
+        updatedValue = uploadedLinks[0];
+      } else if (category === 'drawings') {
+        updateKey = 'drawings_links';
+        const existing = selectedPermit.drawings_links 
+          ? selectedPermit.drawings_links.split(',').map(s => s.trim()).filter(Boolean) 
+          : [];
+        updatedValue = [...existing, ...uploadedLinks].join(', ');
+      } else if (category === 'permitForm') {
+        updateKey = 'permit_form_link';
+        const existing = selectedPermit.permit_form_link 
+          ? selectedPermit.permit_form_link.split(',').map(s => s.trim()).filter(Boolean) 
+          : [];
+        updatedValue = [...existing, ...uploadedLinks].join(', ');
+      }
+
+      // 5. Update Supabase record
+      const updateRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          [updateKey]: updatedValue,
+          upload_status: 'completed'
+        })
+      });
+
+      const updateData = await updateRes.json();
+      if (!updateRes.ok || !updateData.success) {
+        throw new Error(updateData.message || "Failed to record document link in database.");
+      }
+
+      // 6. Update local state
+      setSelectedPermit(prev => ({ ...prev, [updateKey]: updatedValue }));
+      setRecentPermits(prev => prev.map(p => p.id === selectedPermit.id ? { ...p, [updateKey]: updatedValue } : p));
+      alert("Document attached and archived successfully!");
+
+    } catch (err) {
+      console.error("View Upload Error:", err);
+      alert("Upload failed: " + err.message);
+    } finally {
+      setUploadingCategory(null);
+    }
+  };
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -322,12 +521,13 @@ const Dashboard = () => {
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right">
-                        <Link 
-                          to="/permits/historical" 
-                          className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap"
+                        <button 
+                          onClick={() => setSelectedPermit(permit)} 
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap cursor-pointer"
                         >
-                          View Record →
-                        </Link>
+                          <span>👁️</span>
+                          <span>View</span>
+                        </button>
                       </td>
                     </tr>
                   );
@@ -337,6 +537,228 @@ const Dashboard = () => {
           </div>
         )}
       </div>
+
+      {/* DOCUMENT & DETAILS VIEW MODAL */}
+      {selectedPermit && (() => {
+        const modalName = selectedPermit.applicant_name || `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim();
+        const modalPurpose = selectedPermit.purpose || 'RESIDENTIAL';
+
+        return (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-40 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200">
+              <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Archived Documents & Details</h3>
+                  <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold text-blue-900">{selectedPermit.permit_number}</span></p>
+                </div>
+                <button onClick={() => setSelectedPermit(null)} className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer">
+                  ✕
+                </button>
+              </div>
+              
+              <div className="p-6 overflow-y-auto bg-gray-50 space-y-6">
+                <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="block font-semibold text-gray-400 text-xs">PURPOSE / USE</span>
+                    <p className="text-gray-800 font-bold uppercase">{modalPurpose}</p>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-gray-400 text-xs">APPLICANT / ORGANIZATION</span>
+                    <p className="text-gray-800 font-bold uppercase">{modalName}</p>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-gray-400 text-xs">LOCATION / COMMUNITY</span>
+                    <p className="text-gray-800 font-semibold uppercase">{selectedPermit.location || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <span className="block font-semibold text-gray-400 text-xs">SITE ADDRESS & MAP PIN</span>
+                    {selectedPermit.address ? (
+                      <a 
+                        href={getGoogleMapsUrl(selectedPermit.address, selectedPermit.location)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 font-bold uppercase hover:underline inline-flex items-center space-x-1"
+                      >
+                        <span>📍 {selectedPermit.address}</span>
+                        <span className="text-xs font-normal">↗</span>
+                      </a>
+                    ) : (
+                      <p className="text-gray-400 italic">N/A</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3 DOCUMENT CARDS WITH INLINE ATTACHMENT */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* CARD 1: CERTIFICATE */}
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
+                        <span>📜 Certificate</span>
+                        {selectedPermit.certificate_link && <span className="text-xs text-green-600 font-semibold">✓ Archived</span>}
+                      </h4>
+                      <div className="min-h-[48px]">
+                        {renderLinks(selectedPermit.certificate_link, "Certificate") || (
+                          <span className="text-xs text-gray-400 italic">No certificate uploaded yet</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {isOfficer && (
+                      <div className="mt-4 pt-3 border-t border-gray-100">
+                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'certificate' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
+                          <span>{uploadingCategory === 'certificate' ? '⏳ Uploading...' : (selectedPermit.certificate_link ? '🔄 Replace Certificate' : '📁 Attach Certificate')}</span>
+                          <input 
+                            type="file" 
+                            accept=".pdf,image/*" 
+                            disabled={uploadingCategory !== null} 
+                            onChange={(e) => {
+                              handleViewUpload('certificate', e.target.files);
+                              e.target.value = '';
+                            }} 
+                            className="hidden" 
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* CARD 2: DRAWINGS */}
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
+                        <span>📐 Architectural Drawings</span>
+                        {selectedPermit.drawings_links && <span className="text-xs text-green-600 font-semibold">✓ Archived</span>}
+                      </h4>
+                      <div className="min-h-[48px]">
+                        {renderLinks(selectedPermit.drawings_links, "Drawing") || (
+                          <span className="text-xs text-gray-400 italic">No drawings uploaded yet</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {isOfficer && (
+                      <div className="mt-4 pt-3 border-t border-gray-100">
+                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'drawings' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
+                          <span>{uploadingCategory === 'drawings' ? '⏳ Uploading Drawings...' : '+ Add Architectural Drawings'}</span>
+                          <input 
+                            type="file" 
+                            multiple 
+                            accept=".pdf,image/*" 
+                            disabled={uploadingCategory !== null} 
+                            onChange={(e) => {
+                              handleViewUpload('drawings', e.target.files);
+                              e.target.value = '';
+                            }} 
+                            className="hidden" 
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* CARD 3: PERMIT FORM */}
+                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
+                        <span>📑 Permit Form</span>
+                        {selectedPermit.permit_form_link && <span className="text-xs text-green-600 font-semibold">✓ Archived</span>}
+                      </h4>
+                      <div className="min-h-[48px]">
+                        {renderLinks(selectedPermit.permit_form_link, "Form") || (
+                          <span className="text-xs text-gray-400 italic">No permit form uploaded yet</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {isOfficer && (
+                      <div className="mt-4 pt-3 border-t border-gray-100">
+                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'permitForm' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
+                          <span>{uploadingCategory === 'permitForm' ? '⏳ Uploading Form...' : '+ Attach Permit Form'}</span>
+                          <input 
+                            type="file" 
+                            multiple 
+                            accept=".pdf,image/*" 
+                            disabled={uploadingCategory !== null} 
+                            onChange={(e) => {
+                              handleViewUpload('permitForm', e.target.files);
+                              e.target.value = '';
+                            }} 
+                            className="hidden" 
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <button 
+                    onClick={() => handleShowQrBadge(selectedPermit)}
+                    className="bg-purple-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-purple-700 transition text-xs flex items-center space-x-1.5 shadow"
+                  >
+                    <span>🖨️ Print Verification Badge Sticker</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* DOCUMENT PREVIEW MODAL */}
+      {viewerDoc.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-gray-200">
+            <div className="px-6 py-4 bg-gray-900 text-white flex justify-between items-center">
+              <span className="font-bold text-sm tracking-wide truncate max-w-lg">{viewerDoc.title}</span>
+              <div className="flex items-center space-x-3">
+                <a 
+                  href={viewerDoc.url} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded transition"
+                >
+                  Open in New Tab ↗
+                </a>
+                <button 
+                  onClick={() => setViewerDoc({ isOpen: false, url: '', title: '' })} 
+                  className="text-gray-400 hover:text-white p-1 rounded transition text-lg"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-gray-100 flex items-center justify-center relative">
+              <iframe 
+                src={getEmbedUrl(viewerDoc.url)} 
+                title={viewerDoc.title}
+                className="w-full h-full border-0"
+                allow="autoplay"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR BADGE MODAL */}
+      {qrModal.isOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="relative max-w-sm w-full">
+            <button 
+              onClick={() => setQrModal({ isOpen: false, code: '', permitNum: '', applicantName: '' })}
+              className="absolute -top-3 -right-3 bg-red-600 text-white rounded-full w-8 h-8 flex items-center justify-center font-bold hover:bg-red-700 shadow-md z-10"
+            >
+              ✕
+            </button>
+            <PermitQRBadge 
+              permitNumber={qrModal.permitNum} 
+              dateIssued={selectedPermit?.date_issued} 
+              qrCodeBase64={qrModal.code} 
+            />
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -8,18 +8,15 @@ const PermitList = () => {
 
   const token = sessionStorage.getItem('token') || localStorage.getItem('token');
   const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
-  const user = savedUser ? JSON.parse(savedUser) : null;
+  let user = null;
+  try {
+    user = savedUser ? JSON.parse(savedUser) : null;
+  } catch (e) {
+    console.error("Failed to parse user session", e);
+  }
   
-  const roleStr = (user?.role || '').toLowerCase();
-  const isOfficer = Boolean(
-    token && user && (
-      !user.role || 
-      roleStr === 'uploader' || 
-      roleStr === 'admin' || 
-      roleStr === 'officer' || 
-      roleStr === 'staff'
-    )
-  );
+  // Any user with an active token is an authenticated officer
+  const isOfficer = Boolean(token);
 
   const [permits, setPermits] = useState([]);
   const [searchTerm, setSearchTerm] = useState(initialSearch);
@@ -65,6 +62,17 @@ const PermitList = () => {
       setSelectedLocation(loc.toUpperCase());
     }
   }, [searchParams]);
+
+  // Auto-open modal if ?view=PERMIT_NUMBER or ID is passed
+  useEffect(() => {
+    const viewParam = searchParams.get('view');
+    if (viewParam && permits.length > 0) {
+      const match = permits.find(p => p.permit_number === viewParam || String(p.id) === viewParam);
+      if (match) {
+        setSelectedPermit(match);
+      }
+    }
+  }, [searchParams, permits]);
 
   // Reset to page 1 whenever any filter or sorting changes
   useEffect(() => {
@@ -395,6 +403,10 @@ const PermitList = () => {
     try {
       const activeCategories = [category];
 
+      const applicantName = selectedPermit.applicant_name || 
+        `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim() || 
+        'Applicant';
+
       // 1. Create or fetch target subfolder on Google Drive
       const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
         method: "POST",
@@ -404,12 +416,16 @@ const PermitList = () => {
         },
         body: JSON.stringify({
           permitNumber: selectedPermit.permit_number,
-          applicantName: selectedPermit.applicant_name,
+          applicantName: applicantName,
           categories: activeCategories
         })
       });
 
       const folderData = await folderRes.json();
+      if (!folderRes.ok || !folderData.success) {
+        throw new Error(folderData.message || "Could not access destination folder on Google Drive.");
+      }
+
       const targetFolderId = folderData.subfolders?.[category];
 
       if (!targetFolderId) {
@@ -484,12 +500,13 @@ const PermitList = () => {
 
       const updateData = await updateRes.json();
       if (!updateRes.ok || !updateData.success) {
-        throw new Error("Failed to record document link in database.");
+        throw new Error(updateData.message || "Failed to record document link in database.");
       }
 
       // 6. Update local state
       setSelectedPermit(prev => ({ ...prev, [updateKey]: updatedValue }));
       setPermits(prev => prev.map(p => p.id === selectedPermit.id ? { ...p, [updateKey]: updatedValue } : p));
+      showToast("Document attached and archived successfully!", "success");
 
     } catch (err) {
       console.error("View Upload Error:", err);
