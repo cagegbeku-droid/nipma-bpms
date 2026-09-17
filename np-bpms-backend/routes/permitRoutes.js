@@ -12,6 +12,7 @@ const {
   getMonthlyStats, 
   getPermits, 
   archivePermit, 
+  uploadPermitDocument,
   deletePermit, 
   updatePermit, 
   removePermitFile 
@@ -536,6 +537,7 @@ router.get('/monthly-stats', getMonthlyStats);
 router.get('/', getPermits);
 
 router.post('/archive', requireAuth, archivalUploads, archivePermit);
+router.post('/:id/upload-document', requireAuth, upload.array('files', 50), uploadPermitDocument);
 router.delete('/:id', requireAuth, deletePermit);
 router.put('/:id', requireAuth, updatePermit);
 router.put('/:id/remove-file', requireAuth, removePermitFile);

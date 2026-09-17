@@ -2,11 +2,11 @@ const { google } = require('googleapis');
 const { Readable } = require('stream');
 require('dotenv').config();
 
-// 1. Authenticate with Google OAuth2 (This bypasses the 0-byte quota limit!)
+// 1. Authenticate with Google OAuth2
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  "https://developers.google.com/oauthplayground"
+  process.env.GOOGLE_REDIRECT_URI || "https://developers.google.com/oauthplayground"
 );
 
 // Hand the Refresh Token to the client so it can act on your behalf
@@ -16,62 +16,97 @@ oauth2Client.setCredentials({
 
 const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
-// This is the ID of the main folder where all permits will go
+// Main Vault Folder ID
 const MAIN_VAULT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
 
-// 2. Create a Subfolder (either in the Main Vault, or inside another folder)
-const createGoogleDriveFolder = async (folderName, parentId = null) => {
+// 2. Get or Create Folder (avoids duplicates, sets reader permission)
+const getOrCreateGoogleDriveFolder = async (folderName, parentId = null) => {
   try {
-    // NEW: If a parentId is provided, nest it there. Otherwise, default to the Main Vault.
     const targetParentId = parentId || MAIN_VAULT_FOLDER_ID;
+    const escapedName = folderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const q = `mimeType='application/vnd.google-apps.folder' and name='${escapedName}' and '${targetParentId}' in parents and trashed=false`;
 
-    const fileMetadata = {
-      name: folderName,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: [targetParentId]
-    };
+    try {
+      const searchRes = await drive.files.list({
+        q: q,
+        fields: 'files(id, name)',
+        spaces: 'drive',
+        pageSize: 5
+      });
 
-    const folder = await drive.files.create({
-      resource: fileMetadata,
+      if (searchRes.data.files && searchRes.data.files.length > 0) {
+        return searchRes.data.files[0].id;
+      }
+    } catch (searchErr) {
+      console.warn("Folder search notice:", searchErr.message);
+    }
+
+    const folderRes = await drive.files.create({
+      requestBody: {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [targetParentId]
+      },
       fields: 'id'
     });
-    
-    return folder.data.id;
+
+    const newFolderId = folderRes.data.id;
+
+    // Ensure folder is readable by anyone with the link
+    try {
+      await drive.permissions.create({
+        fileId: newFolderId,
+        requestBody: { role: 'reader', type: 'anyone' }
+      });
+    } catch (pErr) {
+      // Non-fatal if domain policies restrict
+    }
+
+    return newFolderId;
   } catch (error) {
-    console.error("Drive Folder Creation Error:", error);
+    console.error("Drive Folder Get/Create Error:", error);
     throw error;
   }
 };
 
-// 3. Upload a file (like an image or PDF) into that subfolder
+const createGoogleDriveFolder = async (folderName, parentId = null) => {
+  return await getOrCreateGoogleDriveFolder(folderName, parentId);
+};
+
+// 3. Upload a file buffer into a folder with public view permission
 const uploadFileToDrive = async (file, folderId) => {
   try {
-    // Convert the buffer coming from Multer into a stream
     const bufferStream = new Readable();
     bufferStream.push(file.buffer);
     bufferStream.push(null);
 
+    const safeFilename = `${Date.now()}-${(file.originalname || 'document.pdf').replace(/[\/\\]/g, '_')}`;
+
     const fileMetadata = {
-      name: file.originalname,
+      name: safeFilename,
       parents: [folderId]
     };
 
     const media = {
-      mimeType: file.mimetype,
+      mimeType: file.mimetype || 'application/pdf',
       body: bufferStream
     };
 
     const uploadedFile = await drive.files.create({
-      resource: fileMetadata,
+      requestBody: fileMetadata,
       media: media,
       fields: 'id, webViewLink'
     });
 
-    // We make the file readable by anyone with the link so your React app can show it
-    await drive.permissions.create({
-      fileId: uploadedFile.data.id,
-      requestBody: { role: 'reader', type: 'anyone' }
-    });
+    // Make file readable by anyone with the link
+    try {
+      await drive.permissions.create({
+        fileId: uploadedFile.data.id,
+        requestBody: { role: 'reader', type: 'anyone' }
+      });
+    } catch (permErr) {
+      console.warn("Permission warning for file:", permErr.message);
+    }
 
     return uploadedFile.data.webViewLink;
   } catch (error) {
@@ -80,4 +115,10 @@ const uploadFileToDrive = async (file, folderId) => {
   }
 };
 
-module.exports = { createGoogleDriveFolder, uploadFileToDrive };
+module.exports = { 
+  drive,
+  MAIN_VAULT_FOLDER_ID,
+  getOrCreateGoogleDriveFolder,
+  createGoogleDriveFolder, 
+  uploadFileToDrive 
+};

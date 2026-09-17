@@ -401,118 +401,40 @@ const PermitList = () => {
     setUploadingCategory(category);
 
     try {
-      const activeCategories = [category];
-
-      const applicantName = selectedPermit.applicant_name || 
-        `${selectedPermit.first_name || ''} ${selectedPermit.last_name || ''}`.trim() || 
-        'Applicant';
-
-      // 1. Create or fetch target subfolder on Google Drive
-      const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
-        method: "POST",
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          permitNumber: selectedPermit.permit_number,
-          applicantName: applicantName,
-          categories: activeCategories
-        })
+      const formData = new FormData();
+      formData.append('category', category);
+      Array.from(fileList).forEach(file => {
+        formData.append('files', file);
       });
 
-      const folderData = await folderRes.json();
-      if (!folderRes.ok || !folderData.success) {
-        throw new Error(folderData.message || "Could not access destination folder on Google Drive.");
+      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/upload-document`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || "Failed to upload document to Google Drive.");
       }
 
-      const targetFolderId = folderData.subfolders?.[category];
-
-      if (!targetFolderId) {
-        throw new Error("Could not access destination folder on Google Drive.");
-      }
-
-      // 2. Resumable Google Drive upload helper
-      const uploadDirectToDrive = async (file) => {
-        const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
-          method: "POST",
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            targetFolderId: targetFolderId,
-            fileName: file.name,
-            mimeType: file.type || 'application/pdf',
-            fileSize: file.size
-          })
-        });
-
-        const sessionData = await sessionRes.json();
-        if (!sessionData.success || !sessionData.uploadUrl) {
-          throw new Error("Google Drive upload rejected.");
-        }
-
-        const driveRes = await fetch(sessionData.uploadUrl, {
-          method: "PUT",
-          headers: {
-            'Content-Range': `bytes 0-${file.size - 1}/${file.size}`
-          },
-          body: file
-        });
-        if (driveRes.ok) {
-          const resJson = await driveRes.json();
-          return `https://drive.google.com/file/d/${resJson.id}/view`;
-        }
-        throw new Error("Document upload failed.");
+      const columnMap = {
+        certificate: 'certificate_link',
+        drawings: 'drawings_links',
+        permitForm: 'permit_form_link'
       };
 
-      // 3. Upload all selected files concurrently
-      const uploadedLinks = await Promise.all(Array.from(fileList).map(f => uploadDirectToDrive(f)));
+      const targetCol = columnMap[category];
+      const updatedLinks = data.new_links || null;
 
-      // 4. Merge links with existing records
-      let updateKey = '';
-      let updatedValue = '';
+      // Update local state immediately
+      setSelectedPermit(prev => ({ ...prev, [targetCol]: updatedLinks }));
+      setPermits(prev => prev.map(p => String(p.id) === String(selectedPermit.id) ? { ...p, [targetCol]: updatedLinks } : p));
+      setFilteredPermits(prev => prev.map(p => String(p.id) === String(selectedPermit.id) ? { ...p, [targetCol]: updatedLinks } : p));
 
-      if (category === 'certificate') {
-        updateKey = 'certificate_link';
-        updatedValue = uploadedLinks[0] || '';
-      } else if (category === 'drawings') {
-        updateKey = 'drawings_links';
-        const existing = (selectedPermit.drawings_links && selectedPermit.drawings_links !== 'null')
-          ? selectedPermit.drawings_links.split(',').map(s => s.trim()).filter(s => s && s !== 'null') 
-          : [];
-        updatedValue = [...existing, ...uploadedLinks].join(', ');
-      } else if (category === 'permitForm') {
-        updateKey = 'permit_form_link';
-        const existing = (selectedPermit.permit_form_link && selectedPermit.permit_form_link !== 'null')
-          ? selectedPermit.permit_form_link.split(',').map(s => s.trim()).filter(s => s && s !== 'null') 
-          : [];
-        updatedValue = [...existing, ...uploadedLinks].join(', ');
-      }
-
-      // 5. Update Supabase record
-      const updateRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          [updateKey]: updatedValue,
-          upload_status: 'completed'
-        })
-      });
-
-      const updateData = await updateRes.json();
-      if (!updateRes.ok || !updateData.success) {
-        throw new Error(updateData.message || "Failed to record document link in database.");
-      }
-
-      // 6. Update local state immediately
-      setSelectedPermit(prev => ({ ...prev, [updateKey]: updatedValue }));
-      setPermits(prev => prev.map(p => String(p.id) === String(selectedPermit.id) ? { ...p, [updateKey]: updatedValue } : p));
-      showToast("Document attached and archived successfully!", "success");
+      showToast("Document attached and archived to Google Drive successfully!", "success");
 
       // Refresh in background to ensure 100% sync
       fetchPermits();

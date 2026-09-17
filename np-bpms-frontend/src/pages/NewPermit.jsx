@@ -449,133 +449,35 @@ const NewPermit = () => {
 
       const hasFiles = files.certificate.length > 0 || files.drawings.length > 0 || files.permitForm.length > 0;
 
-      // STEP 1: INITIAL METADATA SAVE (< 0.5s)
-      setMessage(hasFiles ? "Archiving permit record & connecting to Google Drive..." : "Saving permit record...");
+      // STEP 1: ARCHIVE PERMIT & UPLOAD ATTACHED DOCUMENTS
+      setMessage(hasFiles ? "Archiving permit record & uploading documents directly to Google Drive..." : "Saving permit record...");
 
-      const metaRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive-metadata", {
+      const formDataToSend = new FormData();
+      formDataToSend.append('permitNumber', formattedPermitNumber);
+      formDataToSend.append('dateIssued', parsedDate);
+      formDataToSend.append('purpose', finalPurpose.toUpperCase());
+      formDataToSend.append('applicantName', formData.applicantName.toUpperCase());
+      if (formData.phone) formDataToSend.append('phone', formData.phone);
+      formDataToSend.append('location', formData.location.toUpperCase());
+      formDataToSend.append('address', formData.address.toUpperCase());
+
+      if (files.certificate.length > 0) {
+        formDataToSend.append('certificate', files.certificate[0]);
+      }
+      files.drawings.forEach(f => formDataToSend.append('drawings', f));
+      files.permitForm.forEach(f => formDataToSend.append('permitForm', f));
+
+      const archiveRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive", {
         method: "POST",
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          permitNumber: formattedPermitNumber,
-          dateIssued: parsedDate,
-          purpose: finalPurpose.toUpperCase(),
-          applicantName: formData.applicantName.toUpperCase(),
-          phone: formData.phone,
-          location: formData.location.toUpperCase(),
-          address: formData.address.toUpperCase(),
-          certificateLink: null,
-          drawingsLinks: null,
-          permitFormLink: null,
-          uploadStatus: hasFiles ? 'processing' : 'completed'
-        })
+        body: formDataToSend
       });
 
-      const metaData = await metaRes.json();
-      if (!metaRes.ok || !metaData.success) {
-        throw new Error(metaData.message || "Failed to save permit record.");
-      }
-
-      const newRecordId = metaData.data.id;
-
-      // STEP 2: IF FILES EXIST, UPLOAD THEM CONCURRENTLY AND AWAIT BEFORE CONFIRMING SUCCESS
-      if (hasFiles) {
-        setMessage("Uploading documents directly to Google Drive folders (please wait)...");
-
-        const activeCategories = [];
-        if (files.certificate.length > 0) activeCategories.push('certificate');
-        if (files.drawings.length > 0) activeCategories.push('drawings');
-        if (files.permitForm.length > 0) activeCategories.push('permitForm');
-
-        const currentApplicant = formData.applicantName.toUpperCase();
-
-        const folderRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/create-permit-folders", {
-          method: "POST",
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({
-            permitNumber: formattedPermitNumber,
-            applicantName: currentApplicant,
-            categories: activeCategories
-          })
-        });
-
-        const folderData = await folderRes.json();
-        if (!folderRes.ok || !folderData.success) {
-          throw new Error(folderData.message || "Failed to create Google Drive subfolders.");
-        }
-
-        const subfolders = folderData.subfolders || {};
-
-        const uploadDirect = async (file, targetFolderId) => {
-          if (!targetFolderId) return '';
-          const sessionRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/get-drive-upload-url", {
-            method: "POST",
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({
-              targetFolderId,
-              fileName: file.name,
-              mimeType: file.type || 'application/pdf',
-              fileSize: file.size
-            })
-          });
-
-          const sessionData = await sessionRes.json();
-          if (!sessionData.success || !sessionData.uploadUrl) {
-            throw new Error(`Google Drive rejected upload session for ${file.name}`);
-          }
-
-          const driveRes = await fetch(sessionData.uploadUrl, {
-            method: "PUT",
-            headers: {
-              'Content-Range': `bytes 0-${file.size - 1}/${file.size}`
-            },
-            body: file
-          });
-
-          if (driveRes.ok) {
-            const resJson = await driveRes.json();
-            return `https://drive.google.com/file/d/${resJson.id}/view`;
-          }
-          throw new Error(`Failed to upload ${file.name} to Google Drive.`);
-        };
-
-        const certPromise = (files.certificate.length > 0 && subfolders.certificate) 
-          ? uploadDirect(files.certificate[0], subfolders.certificate) 
-          : Promise.resolve('');
-
-        const formPromises = (files.permitForm.length > 0 && subfolders.permitForm) 
-          ? Promise.all(files.permitForm.map(f => uploadDirect(f, subfolders.permitForm))) 
-          : Promise.resolve([]);
-
-        const drawingsPromises = (files.drawings.length > 0 && subfolders.drawings) 
-          ? Promise.all(files.drawings.map(f => uploadDirect(f, subfolders.drawings))) 
-          : Promise.resolve([]);
-
-        const [certLink, formLinks, drawingsList] = await Promise.all([certPromise, formPromises, drawingsPromises]);
-
-        const updatePayload = {
-          upload_status: 'completed'
-        };
-        if (certLink) updatePayload.certificate_link = certLink;
-        if (Array.isArray(formLinks) && formLinks.filter(Boolean).length > 0) {
-          updatePayload.permit_form_link = formLinks.filter(Boolean).join(', ');
-        }
-        if (Array.isArray(drawingsList) && drawingsList.filter(Boolean).length > 0) {
-          updatePayload.drawings_links = drawingsList.filter(Boolean).join(', ');
-        }
-
-        const updateRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${newRecordId}`, {
-          method: "PUT",
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify(updatePayload)
-        });
-
-        const updateResult = await updateRes.json();
-        if (!updateRes.ok || !updateResult.success) {
-          throw new Error(updateResult.message || "Failed to record document links in database.");
-        }
+      const archiveData = await archiveRes.json();
+      if (!archiveRes.ok || !archiveData.success) {
+        throw new Error(archiveData.message || "Failed to archive permit record.");
       }
 
       // STEP 3: GENERATE QR BADGE
