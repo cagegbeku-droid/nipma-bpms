@@ -1,20 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  PieChart,
-  Pie,
-  Cell,
-  Legend
-} from 'recharts';
-
-const PURPOSE_COLORS = ['#2563eb', '#10b981', '#8b5cf6', '#f59e0b', '#06b6d4', '#ec4899'];
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -40,8 +25,6 @@ const Dashboard = () => {
   const [residentialCount, setResidentialCount] = useState(0);
   const [commercialCount, setCommercialCount] = useState(0);
   const [zonesCount, setZonesCount] = useState(0);
-  const [trendData, setTrendData] = useState([]);
-  const [purposeData, setPurposeData] = useState([]);
   const [quickSearch, setQuickSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -77,53 +60,6 @@ const Dashboard = () => {
           setResidentialCount(resCount);
           setCommercialCount(commCount || (records.length - resCount));
           setZonesCount(uniqueLocations || 1);
-
-          // Build Purpose Distribution Data
-          const purposeMap = {};
-          const monthlyMap = {};
-
-          records.forEach(p => {
-            let rawPurp = (p.purpose || 'RESIDENTIAL').toUpperCase().trim();
-            let normPurp = 'Other';
-            if (rawPurp.includes('RESID')) normPurp = 'Residential';
-            else if (rawPurp.includes('COMM')) normPurp = 'Commercial';
-            else if (rawPurp.includes('INDUS')) normPurp = 'Industrial';
-            else if (rawPurp.includes('CIVIC') || rawPurp.includes('INSTIT')) normPurp = 'Civic / Public';
-            else if (rawPurp.includes('MIXED')) normPurp = 'Mixed-Use';
-            else if (rawPurp) normPurp = rawPurp.charAt(0).toUpperCase() + rawPurp.slice(1).toLowerCase();
-
-            purposeMap[normPurp] = (purposeMap[normPurp] || 0) + 1;
-
-            if (p.date_issued) {
-              const cleanDate = String(p.date_issued).split('T')[0];
-              const match = cleanDate.match(/^(\d{4})[-/](\d{1,2})/);
-              if (match) {
-                const ym = `${match[1]}-${match[2].padStart(2, '0')}`;
-                monthlyMap[ym] = (monthlyMap[ym] || 0) + 1;
-              }
-            }
-          });
-
-          const pData = Object.keys(purposeMap).map(name => ({
-            name,
-            value: purposeMap[name]
-          })).sort((a, b) => b.value - a.value);
-          setPurposeData(pData);
-
-          const sortedMonths = Object.keys(monthlyMap).sort();
-          const recentMonths = sortedMonths.slice(-7);
-          const tData = recentMonths.map(ym => {
-            const [y, m] = ym.split('-');
-            const dateObj = new Date(parseInt(y, 10), parseInt(m, 10) - 1, 1);
-            const label = !isNaN(dateObj.getTime())
-              ? dateObj.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-              : ym;
-            return {
-              period: label,
-              count: monthlyMap[ym]
-            };
-          });
-          setTrendData(tData);
         }
       } catch (err) {
         setError("Unable to retrieve records at this time. Please try again later.");
@@ -137,10 +73,14 @@ const Dashboard = () => {
 
   const handleQuickSearch = (e) => {
     e.preventDefault();
-    if (quickSearch.trim()) {
-      navigate(`/permits/historical?search=${encodeURIComponent(quickSearch.trim())}`);
+    if (isUploader) {
+      if (quickSearch.trim()) {
+        navigate(`/permits/historical?search=${encodeURIComponent(quickSearch.trim())}`);
+      } else {
+        navigate('/permits/historical');
+      }
     } else {
-      navigate('/permits/historical');
+      navigate('/analytics');
     }
   };
 
@@ -159,7 +99,7 @@ const Dashboard = () => {
         <form onSubmit={handleQuickSearch} className="relative w-full lg:w-96">
           <input
             type="text"
-            placeholder="Quick search permits..."
+            placeholder={isUploader ? "Quick search permits..." : "Search in analytics..."}
             value={quickSearch}
             onChange={(e) => setQuickSearch(e.target.value)}
             className="w-full pl-9 pr-24 py-2 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none shadow-xs"
@@ -174,12 +114,12 @@ const Dashboard = () => {
         </form>
       </div>
 
-      {/* Analytics Overview Cards */}
+      {/* Overview Cards (Clickable) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         
         {/* Card 1: Total Archived */}
         <Link 
-          to="/permits/historical" 
+          to={isUploader ? "/permits/historical" : "/analytics"}
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-blue-400 hover:shadow-md transition-all group"
         >
           <div>
@@ -205,7 +145,7 @@ const Dashboard = () => {
 
         {/* Card 2: Residential Permits - Clickable */}
         <Link 
-          to="/permits/historical?purpose=RESIDENTIAL"
+          to={isUploader ? "/permits/historical?purpose=RESIDENTIAL" : "/analytics"}
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-emerald-400 hover:shadow-md transition-all group cursor-pointer"
         >
           <div>
@@ -227,9 +167,9 @@ const Dashboard = () => {
           </p>
         </Link>
 
-        {/* Card 3: Commercial & Other - Clickable */}
+        {/* Card 3: Commercial & Civic - Clickable */}
         <Link 
-          to="/permits/historical?purpose=COMMERCIAL"
+          to={isUploader ? "/permits/historical?purpose=COMMERCIAL" : "/analytics"}
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-purple-400 hover:shadow-md transition-all group cursor-pointer"
         >
           <div>
@@ -277,153 +217,93 @@ const Dashboard = () => {
 
       </div>
 
-      {/* Analytics Section */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-gray-900">Analytics</h2>
-          <Link
-            to="/analytics"
-            className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition"
-          >
-            Full Analytics View →
-          </Link>
-        </div>
-
-        {/* Visual Analytics Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Chart 1: Permits Registration Trend */}
-          <div className="lg:col-span-2 bg-white rounded-xl shadow-xs border border-gray-200 p-6 flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-gray-900">Registration Trends</h3>
-              <span className="text-xs px-2.5 py-1 bg-blue-50 text-blue-700 font-semibold rounded-md">
-                Monthly
-              </span>
-            </div>
-
-            <div className="h-64 w-full">
-              {isLoading ? (
-                <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg animate-pulse text-xs text-gray-400">
-                  Loading...
-                </div>
-              ) : trendData.length === 0 ? (
-                <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg text-xs text-gray-500">
-                  No date records to display
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis dataKey="period" stroke="#64748b" fontSize={12} tickLine={false} />
-                    <YAxis stroke="#64748b" fontSize={12} tickLine={false} allowDecimals={false} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
-                      cursor={{ fill: '#f8fafc' }}
-                    />
-                    <Bar dataKey="count" name="Permits" fill="#2563eb" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-
-          {/* Chart 2: Development Purpose Breakdown */}
-          <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6 flex flex-col justify-between">
-            <div className="mb-4">
-              <h3 className="text-base font-bold text-gray-900">Category Distribution</h3>
-            </div>
-
-            <div className="h-64 w-full flex items-center justify-center">
-              {isLoading ? (
-                <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg animate-pulse text-xs text-gray-400">
-                  Loading...
-                </div>
-              ) : purposeData.length === 0 ? (
-                <div className="w-full h-full flex items-center justify-center bg-gray-50 rounded-lg text-xs text-gray-500">
-                  No category data
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={purposeData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={55}
-                      outerRadius={80}
-                      paddingAngle={3}
-                      dataKey="value"
-                    >
-                      {purposeData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={PURPOSE_COLORS[index % PURPOSE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px', color: '#fff', fontSize: '12px' }}
-                    />
-                    <Legend 
-                      verticalAlign="bottom" 
-                      iconType="circle" 
-                      wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-
-        </div>
-      </div>
-
       {/* Quick Actions Section */}
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
-        <div className={`grid grid-cols-1 ${isUploader ? 'md:grid-cols-2' : 'md:grid-cols-1'} gap-5`}>
-          
-          {/* UPLOAD ACTION */}
-          {isUploader && (
-            <Link 
-              to="/permits/new" 
-              className="group flex items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-xs hover:shadow-md hover:from-blue-700 hover:to-indigo-800 transition-all border border-blue-500/20"
-            >
-              <div className="bg-white/15 text-white p-3.5 rounded-xl mr-4 group-hover:scale-105 transition-transform text-2xl">
-                ➕
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
-              </div>
-            </Link>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {isUploader ? (
+            <>
+              {/* OFFICER UPLOAD ACTION */}
+              <Link 
+                to="/permits/new" 
+                className="group flex items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-xs hover:shadow-md hover:from-blue-700 hover:to-indigo-800 transition-all border border-blue-500/20"
+              >
+                <div className="bg-white/15 text-white p-3.5 rounded-xl mr-4 group-hover:scale-105 transition-transform text-2xl">
+                  ➕
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Archive New Permit</h3>
+                </div>
+              </Link>
+
+              {/* OFFICER REGISTRY ACTION */}
+              <Link 
+                to="/permits/historical" 
+                className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-xs hover:border-blue-400 hover:shadow-md transition-all"
+              >
+                <div className="bg-blue-50 text-blue-600 p-3.5 rounded-xl mr-4 group-hover:bg-blue-100 transition-colors text-2xl">
+                  📁
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">Search & Manage Registry</h3>
+                </div>
+              </Link>
+            </>
+          ) : (
+            <>
+              {/* PUBLIC ANALYTICS ACTION */}
+              <Link 
+                to="/analytics" 
+                className="group flex items-center p-6 bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl shadow-xs hover:shadow-md hover:from-blue-700 hover:to-indigo-800 transition-all border border-blue-500/20"
+              >
+                <div className="bg-white/15 text-white p-3.5 rounded-xl mr-4 group-hover:scale-105 transition-transform text-2xl">
+                  📊
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">View Analytics & Trends</h3>
+                </div>
+              </Link>
+
+              {/* PUBLIC OFFICER PORTAL ACTION */}
+              <Link 
+                to="/vault-admin" 
+                className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-xs hover:border-blue-400 hover:shadow-md transition-all"
+              >
+                <div className="bg-blue-50 text-blue-600 p-3.5 rounded-xl mr-4 group-hover:bg-blue-100 transition-colors text-2xl">
+                  🔐
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">Officer Portal Login</h3>
+                </div>
+              </Link>
+            </>
           )}
-
-          {/* PUBLIC SEARCH ACTION */}
-          <Link 
-            to="/permits/historical" 
-            className="group flex items-center p-6 bg-white border border-gray-200 rounded-xl shadow-xs hover:border-blue-400 hover:shadow-md transition-all"
-          >
-            <div className="bg-blue-50 text-blue-600 p-3.5 rounded-xl mr-4 group-hover:bg-blue-100 transition-colors text-2xl">
-              🔍
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">Search & Browse Registry</h3>
-            </div>
-          </Link>
-
         </div>
       </div>
 
-      {/* RECENT ARCHIVES SECTION */}
+      {/* RECENT RECORDS SECTION */}
       <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 pb-4 border-b border-gray-100">
           <div>
             <h2 className="text-xl font-bold text-gray-900">Recent Records</h2>
           </div>
-          <Link 
-            to="/permits/historical" 
-            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
-          >
-            <span>View All</span>
-            <span>→</span>
-          </Link>
+          {isUploader ? (
+            <Link 
+              to="/permits/historical" 
+              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+            >
+              <span>View All Registry</span>
+              <span>→</span>
+            </Link>
+          ) : (
+            <Link 
+              to="/analytics" 
+              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
+            >
+              <span>View Full Analytics</span>
+              <span>→</span>
+            </Link>
+          )}
         </div>
 
         {isLoading ? (
@@ -446,8 +326,7 @@ const Dashboard = () => {
                   <th className="py-3 px-4">Applicant / Entity</th>
                   <th className="py-3 px-4">Purpose</th>
                   <th className="py-3 px-4">Location</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right rounded-r-lg">Action</th>
+                  <th className="py-3 px-4 text-right rounded-r-lg">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
@@ -476,7 +355,7 @@ const Dashboard = () => {
                       <td className="py-3.5 px-4 uppercase text-gray-600">
                         {permit.location || 'N/A'}
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 text-right">
                         <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold ${
                           isArchived 
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
@@ -485,14 +364,6 @@ const Dashboard = () => {
                           <span className={`w-1.5 h-1.5 rounded-full ${isArchived ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                           {isArchived ? 'Archived' : 'In Review'}
                         </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <Link 
-                          to="/permits/historical"
-                          className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap"
-                        >
-                          View Record →
-                        </Link>
                       </td>
                     </tr>
                   );

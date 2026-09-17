@@ -23,23 +23,24 @@ const Sidebar = () => {
   const location = useLocation();
 
   // --- JWT USER CHECK ---
-  const token = localStorage.getItem('token');
-  const savedUser = localStorage.getItem('user');
+  const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+  const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
   const user = savedUser ? JSON.parse(savedUser) : null;
   const isLoggedIn = Boolean(token && user);
 
   // --- FILTER NAVIGATION ---
+  // Public visitors see only Dashboard and Analytics.
+  // Logged in officers get full access to Upload Archive and Registry.
   const filteredNavigation = navigation.filter((item) => {
-    if (!isLoggedIn && item.name === 'Upload Archive') {
-      return false;
+    if (!isLoggedIn) {
+      return item.name === 'Dashboard' || item.name === 'Analytics';
     }
     return true;
   });
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('token_expiry');
+    sessionStorage.clear();
+    localStorage.clear();
     window.location.href = '/';
   };
 

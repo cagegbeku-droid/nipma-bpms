@@ -249,8 +249,8 @@ const NewPermit = () => {
   const abortControllerRef = useRef(null);
 
   useEffect(() => {
-    const savedUser = sessionStorage.getItem('user');
-    const token = sessionStorage.getItem('token');
+    const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
     if (savedUser && token) {
       try {
         setCurrentUser(JSON.parse(savedUser));
@@ -399,7 +399,7 @@ const NewPermit = () => {
         setIsSubmitting(true);
         setMessage(`Importing ${records.length} permit records...`);
 
-        const token = sessionStorage.getItem('token');
+        const token = sessionStorage.getItem('token') || localStorage.getItem('token');
         const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/bulk-import", {
           method: "POST",
           headers: {
@@ -433,7 +433,7 @@ const NewPermit = () => {
     setIsSubmitting(true);
 
     try {
-      const token = sessionStorage.getItem('token');
+      const token = sessionStorage.getItem('token') || localStorage.getItem('token');
       if (!token) {
         handleLogout();
         return;
