@@ -226,10 +226,10 @@ const updatePermit = async (req, res) => {
     if (address !== undefined) updatePayload.address = address;
     if (location !== undefined) updatePayload.location = location;
     if (status !== undefined) updatePayload.status = status;
-    if (certificate_link !== undefined) updatePayload.certificate_link = certificate_link;
-    if (drawings_links !== undefined) updatePayload.drawings_links = drawings_links;
-    if (permit_form_link !== undefined) updatePayload.permit_form_link = permit_form_link;
-    if (receipts_links !== undefined) updatePayload.receipts_links = receipts_links;
+    if (certificate_link !== undefined) updatePayload.certificate_link = (certificate_link && String(certificate_link).trim() !== '' && certificate_link !== 'null') ? String(certificate_link).trim() : null;
+    if (drawings_links !== undefined) updatePayload.drawings_links = (drawings_links && String(drawings_links).trim() !== '' && drawings_links !== 'null') ? String(drawings_links).trim() : null;
+    if (permit_form_link !== undefined) updatePayload.permit_form_link = (permit_form_link && String(permit_form_link).trim() !== '' && permit_form_link !== 'null') ? String(permit_form_link).trim() : null;
+    if (receipts_links !== undefined) updatePayload.receipts_links = (receipts_links && String(receipts_links).trim() !== '' && receipts_links !== 'null') ? String(receipts_links).trim() : null;
     if (upload_status !== undefined) updatePayload.upload_status = upload_status;
 
     const { data: updatedData, error: updateError } = await supabase
@@ -276,7 +276,7 @@ const removePermitFile = async (req, res) => {
     const linksArray = currentLinks
       .split(',')
       .map(l => l.trim())
-      .filter(l => l !== '' && l !== file_url.trim());
+      .filter(l => l !== '' && l !== 'null' && l !== file_url.trim());
       
     const newLinksString = linksArray.length > 0 ? linksArray.join(', ') : null;
 

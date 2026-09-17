@@ -75,9 +75,120 @@ const Dashboard = () => {
     }
   };
 
-  const renderLinks = (linkString, label) => {
-    if (!linkString) return null;
-    const links = linkString.split(',').map(link => link.trim()).filter(Boolean);
+  // OFFICER DOCUMENT DELETION HANDLERS
+  const handleDeleteDocument = async (category, fileUrl, partLabel = '') => {
+    if (!selectedPermit || !token) return;
+
+    const categoryNames = {
+      certificate: 'Certificate',
+      drawings: 'Architectural Drawing',
+      permitForm: 'Permit Form'
+    };
+
+    const docName = partLabel ? `${categoryNames[category] || 'Document'} (${partLabel})` : (categoryNames[category] || 'Document');
+
+    if (!window.confirm(`Are you sure you want to permanently delete this ${docName}?`)) {
+      return;
+    }
+
+    const columnMap = {
+      certificate: 'certificate_link',
+      drawings: 'drawings_links',
+      permitForm: 'permit_form_link'
+    };
+
+    const columnName = columnMap[category];
+    if (!columnName) return;
+
+    try {
+      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/remove-file`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          column_name: columnName,
+          file_url: fileUrl
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to remove document.');
+      }
+
+      const updatedValue = data.new_links || null;
+
+      setSelectedPermit(prev => ({
+        ...prev,
+        [columnName]: updatedValue
+      }));
+
+      setRecentPermits(prev => prev.map(p => String(p.id) === String(selectedPermit.id) ? { ...p, [columnName]: updatedValue } : p));
+      alert(`${docName} deleted successfully.`);
+
+      fetchDashboardData();
+    } catch (err) {
+      console.error("Delete document error:", err);
+      alert("Failed to delete document: " + err.message);
+    }
+  };
+
+  const handleDeleteAllDocuments = async (category, label) => {
+    if (!selectedPermit || !token) return;
+
+    if (!window.confirm(`Are you sure you want to permanently delete ALL ${label}s for this permit?`)) {
+      return;
+    }
+
+    const columnMap = {
+      certificate: 'certificate_link',
+      drawings: 'drawings_links',
+      permitForm: 'permit_form_link'
+    };
+
+    const columnName = columnMap[category];
+    if (!columnName) return;
+
+    try {
+      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          [columnName]: null
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to remove documents.');
+      }
+
+      setSelectedPermit(prev => ({
+        ...prev,
+        [columnName]: null
+      }));
+
+      setRecentPermits(prev => prev.map(p => String(p.id) === String(selectedPermit.id) ? { ...p, [columnName]: null } : p));
+      alert(`All ${label}s deleted successfully.`);
+
+      fetchDashboardData();
+    } catch (err) {
+      console.error("Delete all error:", err);
+      alert("Failed to delete documents: " + err.message);
+    }
+  };
+
+  const renderLinks = (linkString, label, category = '') => {
+    if (!linkString || linkString === 'null' || linkString === 'undefined') return null;
+    const links = linkString
+      .split(',')
+      .map(link => link.trim())
+      .filter(l => l && l !== 'null' && l !== 'undefined');
     if (links.length === 0) return null;
 
     if (links.length === 1) {
@@ -99,12 +210,34 @@ const Dashboard = () => {
           >
             Preview
           </button>
+          {isOfficer && category && (
+            <button
+              type="button"
+              onClick={() => handleDeleteDocument(category, links[0])}
+              className="text-xs font-semibold px-2.5 py-1.5 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-lg transition cursor-pointer border border-red-200 flex items-center gap-1"
+              title={`Delete ${label}`}
+            >
+              <span>🗑️ Delete</span>
+            </button>
+          )}
         </div>
       );
     }
     return (
       <div className="mb-1 space-y-1.5">
-        <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
+          {isOfficer && category && (
+            <button
+              type="button"
+              onClick={() => handleDeleteAllDocuments(category, label)}
+              className="text-[11px] font-semibold text-red-600 hover:text-red-800 hover:underline cursor-pointer flex items-center gap-1"
+              title={`Delete all ${label}s`}
+            >
+              <span>🗑️ Delete All</span>
+            </button>
+          )}
+        </div>
         <div className="flex flex-wrap gap-2">
           {links.map((link, index) => (
             <div key={index} className="inline-flex items-center rounded-lg border border-blue-200 overflow-hidden text-xs">
@@ -125,6 +258,16 @@ const Dashboard = () => {
               >
                 👁️
               </button>
+              {isOfficer && category && (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteDocument(category, link, `Part ${index + 1}`)}
+                  className="bg-white hover:bg-red-50 text-red-500 hover:text-red-700 px-2 py-1 border-l border-blue-200 cursor-pointer text-[11px] transition"
+                  title={`Delete Part ${index + 1}`}
+                >
+                  🗑️
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -212,17 +355,17 @@ const Dashboard = () => {
 
       if (category === 'certificate') {
         updateKey = 'certificate_link';
-        updatedValue = uploadedLinks[0];
+        updatedValue = uploadedLinks[0] || '';
       } else if (category === 'drawings') {
         updateKey = 'drawings_links';
-        const existing = selectedPermit.drawings_links
-          ? selectedPermit.drawings_links.split(',').map(s => s.trim()).filter(Boolean)
+        const existing = (selectedPermit.drawings_links && selectedPermit.drawings_links !== 'null')
+          ? selectedPermit.drawings_links.split(',').map(s => s.trim()).filter(s => s && s !== 'null')
           : [];
         updatedValue = [...existing, ...uploadedLinks].join(', ');
       } else if (category === 'permitForm') {
         updateKey = 'permit_form_link';
-        const existing = selectedPermit.permit_form_link
-          ? selectedPermit.permit_form_link.split(',').map(s => s.trim()).filter(Boolean)
+        const existing = (selectedPermit.permit_form_link && selectedPermit.permit_form_link !== 'null')
+          ? selectedPermit.permit_form_link.split(',').map(s => s.trim()).filter(s => s && s !== 'null')
           : [];
         updatedValue = [...existing, ...uploadedLinks].join(', ');
       }
@@ -250,6 +393,8 @@ const Dashboard = () => {
       setRecentPermits(prev => prev.map(p => String(p.id) === String(selectedPermit.id) ? { ...p, [updateKey]: updatedValue } : p));
       alert("Document attached and archived successfully!");
 
+      fetchDashboardData();
+
     } catch (err) {
       console.error("View Upload Error:", err);
       alert("Upload failed: " + err.message);
@@ -258,45 +403,45 @@ const Dashboard = () => {
     }
   };
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        const [statsRes, permitsRes] = await Promise.all([
-          fetch("https://nipma-bpms-backend.onrender.com/api/permits/stats"),
-          fetch("https://nipma-bpms-backend.onrender.com/api/permits")
-        ]);
+  const fetchDashboardData = async () => {
+    try {
+      const [statsRes, permitsRes] = await Promise.all([
+        fetch("https://nipma-bpms-backend.onrender.com/api/permits/stats"),
+        fetch("https://nipma-bpms-backend.onrender.com/api/permits")
+      ]);
 
-        const statsData = await statsRes.json();
-        const permitsData = await permitsRes.json();
+      const statsData = await statsRes.json();
+      const permitsData = await permitsRes.json();
 
-        if (statsData.success) {
-          setTotalPermits(statsData.total || (Array.isArray(permitsData.data) ? permitsData.data.length : 0));
-        } else {
-          setError("Unable to load summary statistics.");
-        }
-
-        if (permitsData.success && Array.isArray(permitsData.data)) {
-          const records = permitsData.data;
-          setRecentPermits(records.slice(0, 6));
-
-          const resCount = records.filter(p => (p.purpose || '').toUpperCase().includes('RESIDENTIAL')).length;
-          const commCount = records.filter(p => {
-            const purp = (p.purpose || '').toUpperCase();
-            return purp.includes('COMMERCIAL') || purp.includes('INDUSTRIAL') || purp.includes('CIVIC') || purp.includes('INSTITUTIONAL');
-          }).length;
-          const uniqueLocations = new Set(records.map(p => (p.location || '').trim().toUpperCase()).filter(Boolean)).size;
-
-          setResidentialCount(resCount);
-          setCommercialCount(commCount || (records.length - resCount));
-          setZonesCount(uniqueLocations || 1);
-        }
-      } catch (err) {
-        setError("Unable to retrieve records at this time. Please try again later.");
-      } finally {
-        setIsLoading(false);
+      if (statsData.success) {
+        setTotalPermits(statsData.total || (Array.isArray(permitsData.data) ? permitsData.data.length : 0));
+      } else {
+        setError("Unable to load summary statistics.");
       }
-    };
 
+      if (permitsData.success && Array.isArray(permitsData.data)) {
+        const records = permitsData.data;
+        setRecentPermits(records.slice(0, 6));
+
+        const resCount = records.filter(p => (p.purpose || '').toUpperCase().includes('RESIDENTIAL')).length;
+        const commCount = records.filter(p => {
+          const purp = (p.purpose || '').toUpperCase();
+          return purp.includes('COMMERCIAL') || purp.includes('INDUSTRIAL') || purp.includes('CIVIC') || purp.includes('INSTITUTIONAL');
+        }).length;
+        const uniqueLocations = new Set(records.map(p => (p.location || '').trim().toUpperCase()).filter(Boolean)).size;
+
+        setResidentialCount(resCount);
+        setCommercialCount(commCount || (records.length - resCount));
+        setZonesCount(uniqueLocations || 1);
+      }
+    } catch (err) {
+      setError("Unable to retrieve records at this time. Please try again later.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchDashboardData();
   }, []);
 
@@ -623,10 +768,12 @@ const Dashboard = () => {
                     <div>
                       <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
                         <span>📜 Certificate</span>
-                        {selectedPermit.certificate_link && <span className="text-xs text-green-600 font-semibold">✓ Archived</span>}
+                        {selectedPermit.certificate_link && selectedPermit.certificate_link !== 'null' && (
+                          <span className="text-xs text-green-600 font-semibold">✓ Archived</span>
+                        )}
                       </h4>
                       <div className="min-h-[48px]">
-                        {renderLinks(selectedPermit.certificate_link, "Certificate") || (
+                        {renderLinks(selectedPermit.certificate_link, "Certificate", "certificate") || (
                           <span className="text-xs text-gray-400 italic">No certificate uploaded yet</span>
                         )}
                       </div>
@@ -635,7 +782,7 @@ const Dashboard = () => {
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
                         <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'certificate' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
-                          <span>{uploadingCategory === 'certificate' ? '⏳ Uploading...' : (selectedPermit.certificate_link ? '🔄 Replace Certificate' : '📁 Attach Certificate')}</span>
+                          <span>{uploadingCategory === 'certificate' ? '⏳ Uploading...' : (selectedPermit.certificate_link && selectedPermit.certificate_link !== 'null' ? '🔄 Replace Certificate' : '📁 Attach Certificate')}</span>
                           <input
                             type="file"
                             accept=".pdf,image/*"
@@ -656,10 +803,12 @@ const Dashboard = () => {
                     <div>
                       <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
                         <span>📐 Architectural Drawings</span>
-                        {selectedPermit.drawings_links && <span className="text-xs text-green-600 font-semibold">✓ Archived</span>}
+                        {selectedPermit.drawings_links && selectedPermit.drawings_links !== 'null' && (
+                          <span className="text-xs text-green-600 font-semibold">✓ Archived</span>
+                        )}
                       </h4>
                       <div className="min-h-[48px]">
-                        {renderLinks(selectedPermit.drawings_links, "Drawing") || (
+                        {renderLinks(selectedPermit.drawings_links, "Drawing", "drawings") || (
                           <span className="text-xs text-gray-400 italic">No drawings uploaded yet</span>
                         )}
                       </div>
@@ -690,10 +839,12 @@ const Dashboard = () => {
                     <div>
                       <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
                         <span>📑 Permit Form</span>
-                        {selectedPermit.permit_form_link && <span className="text-xs text-green-600 font-semibold">✓ Archived</span>}
+                        {selectedPermit.permit_form_link && selectedPermit.permit_form_link !== 'null' && (
+                          <span className="text-xs text-green-600 font-semibold">✓ Archived</span>
+                        )}
                       </h4>
                       <div className="min-h-[48px]">
-                        {renderLinks(selectedPermit.permit_form_link, "Form") || (
+                        {renderLinks(selectedPermit.permit_form_link, "Form", "permitForm") || (
                           <span className="text-xs text-gray-400 italic">No permit form uploaded yet</span>
                         )}
                       </div>
