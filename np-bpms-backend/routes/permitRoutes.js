@@ -109,6 +109,41 @@ router.get('/health', (req, res) => {
   });
 });
 
+router.get('/drive-debug', requireAuth, async (req, res) => {
+  try {
+    const { drive } = getGoogleDriveClient();
+    const aboutRes = await drive.about.get({ fields: 'user, storageQuota' });
+    const rootFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+    let rootFolder = null;
+    if (rootFolderId) {
+      try {
+        const rf = await drive.files.get({ fileId: rootFolderId, fields: 'id, name, webViewLink, owners' });
+        rootFolder = rf.data;
+      } catch (e) {
+        rootFolder = { error: e.message };
+      }
+    }
+
+    const filesRes = await drive.files.list({
+      pageSize: 20,
+      fields: 'files(id, name, mimeType, parents, createdTime, webViewLink)',
+      orderBy: 'createdTime desc',
+      q: 'trashed=false'
+    });
+
+    res.json({
+      success: true,
+      driveUser: aboutRes.data.user,
+      rootFolderId,
+      rootFolder,
+      recentFiles: filesRes.data.files
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ==========================================
 // 1. DYNAMIC SUBFOLDER CREATOR (PARALLEL & FAST)
 // ==========================================
