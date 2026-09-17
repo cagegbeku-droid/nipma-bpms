@@ -30,7 +30,8 @@ const Dashboard = () => {
 
   // Modals & Document Attachment States
   const [selectedPermit, setSelectedPermit] = useState(null);
-  const [uploadingCategory, setUploadingCategory] = useState(null);
+  const [stagedFiles, setStagedFiles] = useState({ certificate: null, drawings: [], permitForm: [] });
+  const [isSavingDocs, setIsSavingDocs] = useState(false);
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
   const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
 
@@ -275,18 +276,54 @@ const Dashboard = () => {
     );
   };
 
-  // DIRECT DOCUMENT UPLOAD & ATTACHMENT
-  const handleViewUpload = async (category, fileList) => {
-    if (!fileList || fileList.length === 0 || !selectedPermit) return;
+  // STAGE DOCUMENTS LOCALLY (SUPPORTS 1, 2, OR ALL 3 AT THE SAME TIME)
+  const handleStageFile = (category, fileList) => {
+    if (!fileList || fileList.length === 0) return;
+    if (category === 'certificate') {
+      setStagedFiles(prev => ({ ...prev, certificate: fileList[0] }));
+    } else if (category === 'drawings') {
+      setStagedFiles(prev => ({ ...prev, drawings: [...prev.drawings, ...Array.from(fileList)] }));
+    } else if (category === 'permitForm') {
+      setStagedFiles(prev => ({ ...prev, permitForm: [...prev.permitForm, ...Array.from(fileList)] }));
+    }
+  };
 
-    setUploadingCategory(category);
+  const handleRemoveStagedFile = (category, index = null) => {
+    if (category === 'certificate') {
+      setStagedFiles(prev => ({ ...prev, certificate: null }));
+    } else if (category === 'drawings') {
+      if (index === null) {
+        setStagedFiles(prev => ({ ...prev, drawings: [] }));
+      } else {
+        setStagedFiles(prev => ({ ...prev, drawings: prev.drawings.filter((_, i) => i !== index) }));
+      }
+    } else if (category === 'permitForm') {
+      if (index === null) {
+        setStagedFiles(prev => ({ ...prev, permitForm: [] }));
+      } else {
+        setStagedFiles(prev => ({ ...prev, permitForm: prev.permitForm.filter((_, i) => i !== index) }));
+      }
+    }
+  };
+
+  // SAVE ALL STAGED DOCUMENTS AT THE SAME TIME
+  const handleSaveStagedDocuments = async () => {
+    if (!selectedPermit || !token) return;
+    const hasFiles = stagedFiles.certificate || stagedFiles.drawings.length > 0 || stagedFiles.permitForm.length > 0;
+    if (!hasFiles) {
+      alert("Please select at least one document to save.");
+      return;
+    }
+
+    setIsSavingDocs(true);
 
     try {
       const formData = new FormData();
-      formData.append('category', category);
-      Array.from(fileList).forEach(file => {
-        formData.append('files', file);
-      });
+      if (stagedFiles.certificate) {
+        formData.append('certificate', stagedFiles.certificate);
+      }
+      stagedFiles.drawings.forEach(f => formData.append('drawings', f));
+      stagedFiles.permitForm.forEach(f => formData.append('permitForm', f));
 
       const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/upload-document`, {
         method: 'POST',
@@ -298,38 +335,45 @@ const Dashboard = () => {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || "Failed to upload document to Google Drive.");
+        throw new Error(data.message || "Failed to upload documents to Google Drive.");
       }
 
-      const columnMap = {
-        certificate: 'certificate_link',
-        drawings: 'drawings_links',
-        permitForm: 'permit_form_link'
-      };
+      const updatedCert = data.permit?.certificate_link || data.certificate_link || selectedPermit.certificate_link;
+      const updatedDrawings = data.permit?.drawings_links || data.drawings_links || selectedPermit.drawings_links;
+      const updatedForm = data.permit?.permit_form_link || data.permit_form_link || selectedPermit.permit_form_link;
 
-      const targetCol = columnMap[category];
-      const updatedLinks = data.new_links || null;
-
-      // Update local states immediately
+      // Update selectedPermit immediately
       setSelectedPermit(prev => ({
         ...prev,
-        [targetCol]: updatedLinks
+        certificate_link: updatedCert,
+        drawings_links: updatedDrawings,
+        permit_form_link: updatedForm
       }));
 
-      setRecentPermits(prev => prev.map(p => 
-        String(p.id) === String(selectedPermit.id) 
-          ? { ...p, [targetCol]: updatedLinks } 
-          : p
-      ));
+      // Update recentPermits list
+      setRecentPermits(prev => prev.map(p => {
+        if (String(p.id) === String(selectedPermit.id)) {
+          return {
+            ...p,
+            certificate_link: updatedCert,
+            drawings_links: updatedDrawings,
+            permit_form_link: updatedForm
+          };
+        }
+        return p;
+      }));
 
-      alert("Document attached and archived to Google Drive successfully!");
+      // Reset staged files
+      setStagedFiles({ certificate: null, drawings: [], permitForm: [] });
+
+      alert("All documents saved and archived to Google Drive successfully!");
 
       fetchDashboardData();
     } catch (err) {
-      console.error("View Upload Error:", err);
+      console.error("Save Staged Documents Error:", err);
       alert("Upload failed: " + err.message);
     } finally {
-      setUploadingCategory(null);
+      setIsSavingDocs(false);
     }
   };
 
@@ -691,7 +735,7 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* 3 DOCUMENT CARDS WITH INLINE ATTACHMENT */}
+                {/* 3 DOCUMENT CARDS WITH STAGING SUPPORT */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* CARD 1: CERTIFICATE */}
                   <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
@@ -707,18 +751,37 @@ const Dashboard = () => {
                           <span className="text-xs text-gray-400 italic">No certificate uploaded yet</span>
                         )}
                       </div>
+
+                      {/* Staged Certificate Preview */}
+                      {stagedFiles.certificate && (
+                        <div className="mt-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between text-xs animate-fadeIn">
+                          <div className="truncate pr-2">
+                            <span className="font-bold text-blue-900 block text-[11px]">📌 Selected for upload:</span>
+                            <span className="text-blue-700 truncate font-medium text-[11px] block">{stagedFiles.certificate.name}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveStagedFile('certificate')}
+                            disabled={isSavingDocs}
+                            className="text-red-500 hover:text-red-700 font-bold px-1.5 py-0.5 rounded hover:bg-red-50 cursor-pointer"
+                            title="Remove"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'certificate' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
-                          <span>{uploadingCategory === 'certificate' ? '⏳ Uploading...' : (selectedPermit.certificate_link && selectedPermit.certificate_link !== 'null' ? '🔄 Replace Certificate' : '📁 Attach Certificate')}</span>
+                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.certificate ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
+                          <span>{stagedFiles.certificate ? '🔄 Change Selected Certificate' : (selectedPermit.certificate_link && selectedPermit.certificate_link !== 'null' ? '🔄 Replace Certificate' : '📁 Attach Certificate')}</span>
                           <input
                             type="file"
                             accept=".pdf,image/*"
-                            disabled={uploadingCategory !== null}
+                            disabled={isSavingDocs}
                             onChange={(e) => {
-                              handleViewUpload('certificate', e.target.files);
+                              handleStageFile('certificate', e.target.files);
                               e.target.value = '';
                             }}
                             className="hidden"
@@ -742,19 +805,51 @@ const Dashboard = () => {
                           <span className="text-xs text-gray-400 italic">No drawings uploaded yet</span>
                         )}
                       </div>
+
+                      {/* Staged Drawings Preview */}
+                      {stagedFiles.drawings.length > 0 && (
+                        <div className="mt-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg space-y-1.5 text-xs animate-fadeIn">
+                          <div className="flex justify-between items-center text-blue-900 font-bold text-[11px]">
+                            <span>📌 Selected ({stagedFiles.drawings.length} file{stagedFiles.drawings.length > 1 ? 's' : ''}):</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveStagedFile('drawings')}
+                              disabled={isSavingDocs}
+                              className="text-[10px] text-red-600 hover:underline cursor-pointer"
+                            >
+                              Clear all
+                            </button>
+                          </div>
+                          <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
+                            {stagedFiles.drawings.map((f, idx) => (
+                              <div key={idx} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-blue-100 text-[11px]">
+                                <span className="truncate pr-1 text-gray-700">{f.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveStagedFile('drawings', idx)}
+                                  disabled={isSavingDocs}
+                                  className="text-red-500 hover:text-red-700 cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'drawings' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
-                          <span>{uploadingCategory === 'drawings' ? '⏳ Uploading Drawings...' : '+ Add Architectural Drawings'}</span>
+                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.drawings.length > 0 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
+                          <span>{stagedFiles.drawings.length > 0 ? `+ Add More Drawings (${stagedFiles.drawings.length} selected)` : '+ Add Architectural Drawings'}</span>
                           <input
                             type="file"
                             multiple
                             accept=".pdf,image/*"
-                            disabled={uploadingCategory !== null}
+                            disabled={isSavingDocs}
                             onChange={(e) => {
-                              handleViewUpload('drawings', e.target.files);
+                              handleStageFile('drawings', e.target.files);
                               e.target.value = '';
                             }}
                             className="hidden"
@@ -778,19 +873,51 @@ const Dashboard = () => {
                           <span className="text-xs text-gray-400 italic">No permit form uploaded yet</span>
                         )}
                       </div>
+
+                      {/* Staged Permit Form Preview */}
+                      {stagedFiles.permitForm.length > 0 && (
+                        <div className="mt-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg space-y-1.5 text-xs animate-fadeIn">
+                          <div className="flex justify-between items-center text-blue-900 font-bold text-[11px]">
+                            <span>📌 Selected ({stagedFiles.permitForm.length} file{stagedFiles.permitForm.length > 1 ? 's' : ''}):</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveStagedFile('permitForm')}
+                              disabled={isSavingDocs}
+                              className="text-[10px] text-red-600 hover:underline cursor-pointer"
+                            >
+                              Clear all
+                            </button>
+                          </div>
+                          <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
+                            {stagedFiles.permitForm.map((f, idx) => (
+                              <div key={idx} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-blue-100 text-[11px]">
+                                <span className="truncate pr-1 text-gray-700">{f.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveStagedFile('permitForm', idx)}
+                                  disabled={isSavingDocs}
+                                  className="text-red-500 hover:text-red-700 cursor-pointer"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${uploadingCategory === 'permitForm' ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200'}`}>
-                          <span>{uploadingCategory === 'permitForm' ? '⏳ Uploading Form...' : '+ Attach Permit Form'}</span>
+                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.permitForm.length > 0 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
+                          <span>{stagedFiles.permitForm.length > 0 ? `+ Add More Forms (${stagedFiles.permitForm.length} selected)` : '+ Attach Permit Form'}</span>
                           <input
                             type="file"
                             multiple
                             accept=".pdf,image/*"
-                            disabled={uploadingCategory !== null}
+                            disabled={isSavingDocs}
                             onChange={(e) => {
-                              handleViewUpload('permitForm', e.target.files);
+                              handleStageFile('permitForm', e.target.files);
                               e.target.value = '';
                             }}
                             className="hidden"
@@ -800,6 +927,55 @@ const Dashboard = () => {
                     )}
                   </div>
                 </div>
+
+                {/* SAVE ACTION BAR: APPEARS WHEN ANY DOCUMENT IS STAGED */}
+                {Boolean(stagedFiles.certificate || stagedFiles.drawings.length > 0 || stagedFiles.permitForm.length > 0) && (
+                  <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-xl p-4 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4 border border-blue-700">
+                    <div className="flex items-center space-x-3 text-left w-full sm:w-auto">
+                      <span className="text-2xl">💾</span>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">
+                          Ready to save {(stagedFiles.certificate ? 1 : 0) + stagedFiles.drawings.length + stagedFiles.permitForm.length} document update(s)
+                        </h4>
+                        <p className="text-xs text-blue-200 mt-0.5">
+                          {[
+                            stagedFiles.certificate && '📜 Certificate',
+                            stagedFiles.drawings.length > 0 && `📐 ${stagedFiles.drawings.length} Drawing(s)`,
+                            stagedFiles.permitForm.length > 0 && `📑 ${stagedFiles.permitForm.length} Permit Form(s)`
+                          ].filter(Boolean).join('  •  ')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setStagedFiles({ certificate: null, drawings: [], permitForm: [] })}
+                        disabled={isSavingDocs}
+                        className="px-3.5 py-2 text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveStagedDocuments}
+                        disabled={isSavingDocs}
+                        className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-md hover:shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingDocs ? (
+                          <>
+                            <span className="animate-spin">⏳</span>
+                            <span>Saving to Google Drive...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>💾 Save Document Updates</span>
+                            <span>→</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-2 flex justify-end">
                   <button

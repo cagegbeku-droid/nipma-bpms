@@ -24,7 +24,14 @@ const upload = multer({ storage: storage });
 const archivalUploads = upload.fields([
   { name: 'certificate', maxCount: 1 }, 
   { name: 'drawings', maxCount: 100 },
-  { name: 'permitForm', maxCount: 20 }
+  { name: 'permitForm', maxCount: 50 }
+]);
+
+const documentUploads = upload.fields([
+  { name: 'certificate', maxCount: 1 }, 
+  { name: 'drawings', maxCount: 100 },
+  { name: 'permitForm', maxCount: 50 },
+  { name: 'files', maxCount: 100 }
 ]);
 
 // --- GOOGLE OAUTH 2.0 USER AUTHENTICATION HELPER ---
@@ -537,7 +544,8 @@ router.get('/monthly-stats', getMonthlyStats);
 router.get('/', getPermits);
 
 router.post('/archive', requireAuth, archivalUploads, archivePermit);
-router.post('/:id/upload-document', requireAuth, upload.array('files', 50), uploadPermitDocument);
+router.post('/:id/upload-document', requireAuth, documentUploads, uploadPermitDocument);
+router.post('/:id/upload-documents', requireAuth, documentUploads, uploadPermitDocument);
 router.delete('/:id', requireAuth, deletePermit);
 router.put('/:id', requireAuth, updatePermit);
 router.put('/:id/remove-file', requireAuth, removePermitFile);

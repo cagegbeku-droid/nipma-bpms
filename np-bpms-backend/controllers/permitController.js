@@ -170,40 +170,13 @@ const archivePermit = async (req, res) => {
 };
 
 // ==========================================
-// 4. DIRECT MULTIPART DOCUMENT ATTACHMENT ROUTE (FOR VIEW MODAL & EDITS)
+// 4. DIRECT MULTIPART DOCUMENT ATTACHMENT ROUTE (SUPPORTS 1, 2, OR ALL 3 AT ONCE)
 // ==========================================
 const uploadPermitDocument = async (req, res) => {
   try {
     const { id } = req.params;
     const { category } = req.body;
-    const files = req.files;
-
-    if (!category) {
-      return res.status(400).json({ success: false, message: "Category is required (certificate, drawings, permitForm)." });
-    }
-
-    if (!files || files.length === 0) {
-      return res.status(400).json({ success: false, message: "No files received for upload." });
-    }
-
-    const columnMap = {
-      certificate: 'certificate_link',
-      drawings: 'drawings_links',
-      permitForm: 'permit_form_link'
-    };
-
-    const subfolderNameMap = {
-      certificate: '1. Permit Certificates',
-      drawings: '2. Architectural Drawings',
-      permitForm: '3. Permit Forms'
-    };
-
-    const targetColumn = columnMap[category];
-    const targetSubfolder = subfolderNameMap[category];
-
-    if (!targetColumn || !targetSubfolder) {
-      return res.status(400).json({ success: false, message: `Invalid document category: ${category}` });
-    }
+    const files = req.files || {};
 
     // 1. Fetch current permit record
     const { data: permit, error: fetchError } = await supabase
@@ -216,36 +189,74 @@ const uploadPermitDocument = async (req, res) => {
       return res.status(404).json({ success: false, message: "Permit record not found." });
     }
 
+    // Determine files per category
+    let certFiles = [];
+    let drawingFiles = [];
+    let formFiles = [];
+
+    if (Array.isArray(files)) {
+      if (category === 'certificate') certFiles = files;
+      else if (category === 'drawings') drawingFiles = files;
+      else if (category === 'permitForm') formFiles = files;
+    } else {
+      if (files['certificate']) certFiles = files['certificate'];
+      if (files['drawings']) drawingFiles = files['drawings'];
+      if (files['permitForm']) formFiles = files['permitForm'];
+      if (files['files']) {
+        if (category === 'certificate') certFiles = files['files'];
+        else if (category === 'drawings') drawingFiles = files['files'];
+        else if (category === 'permitForm') formFiles = files['files'];
+      }
+    }
+
+    const totalFiles = certFiles.length + drawingFiles.length + formFiles.length;
+    if (totalFiles === 0) {
+      return res.status(400).json({ success: false, message: "No files received for upload." });
+    }
+
     const cleanNum = (permit.permit_number || `PERMIT_${id}`).replace(/[\/\\]/g, '_').trim();
     const cleanApplicant = (permit.applicant_name || 'APPLICANT').replace(/[^a-zA-Z0-9]/g, '_').trim();
     const masterFolderName = `${cleanNum} - ${cleanApplicant}`;
 
-    // 2. Resolve Master Folder and Category Subfolder in Google Drive
     const masterFolderId = await getOrCreateGoogleDriveFolder(masterFolderName);
-    const subFolderId = await getOrCreateGoogleDriveFolder(targetSubfolder, masterFolderId);
 
-    // 3. Upload all files into target subfolder
-    const uploadTasks = files.map(file => uploadFileToDrive(file, subFolderId));
-    const newDriveLinks = await Promise.all(uploadTasks);
+    const updatePayload = {
+      upload_status: 'completed'
+    };
 
-    // 4. Merge links with existing record
-    let finalLinksString = '';
-    if (category === 'certificate') {
-      finalLinksString = newDriveLinks[0] || '';
-    } else {
-      const existingLinks = (permit[targetColumn] && permit[targetColumn] !== 'null')
-        ? permit[targetColumn].split(',').map(s => s.trim()).filter(Boolean)
-        : [];
-      finalLinksString = [...existingLinks, ...newDriveLinks.filter(Boolean)].join(', ');
+    // 1. Process Certificate
+    if (certFiles.length > 0) {
+      const subFolderId = await getOrCreateGoogleDriveFolder('1. Permit Certificates', masterFolderId);
+      const link = await uploadFileToDrive(certFiles[0], subFolderId);
+      updatePayload.certificate_link = link;
     }
 
-    // 5. Update Supabase record
+    // 2. Process Drawings
+    if (drawingFiles.length > 0) {
+      const subFolderId = await getOrCreateGoogleDriveFolder('2. Architectural Drawings', masterFolderId);
+      const uploadTasks = drawingFiles.map(f => uploadFileToDrive(f, subFolderId));
+      const newLinks = await Promise.all(uploadTasks);
+      const existing = (permit.drawings_links && permit.drawings_links !== 'null')
+        ? permit.drawings_links.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+      updatePayload.drawings_links = [...existing, ...newLinks.filter(Boolean)].join(', ');
+    }
+
+    // 3. Process Permit Form
+    if (formFiles.length > 0) {
+      const subFolderId = await getOrCreateGoogleDriveFolder('3. Permit Forms', masterFolderId);
+      const uploadTasks = formFiles.map(f => uploadFileToDrive(f, subFolderId));
+      const newLinks = await Promise.all(uploadTasks);
+      const existing = (permit.permit_form_link && permit.permit_form_link !== 'null')
+        ? permit.permit_form_link.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+      updatePayload.permit_form_link = [...existing, ...newLinks.filter(Boolean)].join(', ');
+    }
+
+    // 4. Update Supabase record in one single query
     const { data: updatedPermit, error: updateError } = await supabase
       .from('permits')
-      .update({
-        [targetColumn]: finalLinksString || null,
-        upload_status: 'completed'
-      })
+      .update(updatePayload)
       .eq('id', id)
       .select()
       .single();
@@ -254,11 +265,12 @@ const uploadPermitDocument = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `${targetSubfolder} uploaded and archived successfully.`,
-      category,
-      column_name: targetColumn,
-      new_links: finalLinksString || null,
-      permit: updatedPermit
+      message: "Documents uploaded and archived to Google Drive successfully.",
+      permit: updatedPermit,
+      certificate_link: updatedPermit.certificate_link,
+      drawings_links: updatedPermit.drawings_links,
+      permit_form_link: updatedPermit.permit_form_link,
+      new_links: updatePayload.certificate_link || updatePayload.drawings_links || updatePayload.permit_form_link
     });
 
   } catch (error) {
