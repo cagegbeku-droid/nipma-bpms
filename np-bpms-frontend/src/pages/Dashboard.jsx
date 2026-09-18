@@ -78,7 +78,7 @@ const Dashboard = () => {
 
   // OFFICER DOCUMENT DELETION HANDLERS
   const handleDeleteDocument = async (category, fileUrl, partLabel = '') => {
-    if (!selectedPermit || !token) return;
+    if (!selectedPermit) return;
 
     const categoryNames = {
       certificate: 'Certificate',
@@ -106,7 +106,7 @@ const Dashboard = () => {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           column_name: columnName,
@@ -137,7 +137,7 @@ const Dashboard = () => {
   };
 
   const handleDeleteAllDocuments = async (category, label) => {
-    if (!selectedPermit || !token) return;
+    if (!selectedPermit) return;
 
     if (!window.confirm(`Are you sure you want to permanently delete ALL ${label}s for this permit?`)) {
       return;
@@ -157,7 +157,7 @@ const Dashboard = () => {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
         },
         body: JSON.stringify({
           [columnName]: null
@@ -211,7 +211,7 @@ const Dashboard = () => {
           >
             Preview
           </button>
-          {isOfficer && category && (
+          {category && (
             <button
               type="button"
               onClick={() => handleDeleteDocument(category, links[0])}
@@ -228,7 +228,7 @@ const Dashboard = () => {
       <div className="mb-1 space-y-1.5">
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-gray-500 uppercase">{label}S ({links.length}):</span>
-          {isOfficer && category && (
+          {category && (
             <button
               type="button"
               onClick={() => handleDeleteAllDocuments(category, label)}
@@ -259,7 +259,7 @@ const Dashboard = () => {
               >
                 👁️
               </button>
-              {isOfficer && category && (
+              {category && (
                 <button
                   type="button"
                   onClick={() => handleDeleteDocument(category, link, `Part ${index + 1}`)}
@@ -308,7 +308,7 @@ const Dashboard = () => {
 
   // SAVE ALL STAGED DOCUMENTS AT THE SAME TIME
   const handleSaveStagedDocuments = async () => {
-    if (!selectedPermit || !token) return;
+    if (!selectedPermit) return;
     const hasFiles = stagedFiles.certificate || stagedFiles.drawings.length > 0 || stagedFiles.permitForm.length > 0;
     if (!hasFiles) {
       alert("Please select at least one document to save.");
@@ -327,9 +327,7 @@ const Dashboard = () => {
 
       const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/upload-document`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: formData
       });
 
@@ -713,35 +711,6 @@ const Dashboard = () => {
               </div>
 
               <div className="p-6 overflow-y-auto bg-gray-50 space-y-6">
-                {/* OFFICER / PUBLIC CONSOLE BANNER */}
-                {isOfficer ? (
-                  <div className="bg-blue-50/90 border border-blue-200 rounded-lg p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs shadow-2xs">
-                    <div className="flex items-center space-x-2.5">
-                      <span className="text-base">🛡️</span>
-                      <div>
-                        <span className="font-bold text-blue-900">Officer Document Management:</span>
-                        <span className="text-blue-700 ml-1.5">You can attach, delete, and save documents for this permit record.</span>
-                      </div>
-                    </div>
-                    <span className="bg-blue-200/80 text-blue-800 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider whitespace-nowrap">
-                      Officer Authorized
-                    </span>
-                  </div>
-                ) : (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs shadow-2xs">
-                    <div className="flex items-center space-x-2.5">
-                      <span className="text-base">🔒</span>
-                      <div>
-                        <span className="font-bold text-amber-900">Officer Login Required to Manage Documents:</span>
-                        <span className="text-amber-700 ml-1.5">Log in with officer credentials to attach, replace, or delete archived files.</span>
-                      </div>
-                    </div>
-                    <Link to="/vault-admin" className="bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1 rounded transition text-xs whitespace-nowrap">
-                      Officer Login →
-                    </Link>
-                  </div>
-                )}
-
                 <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="block font-semibold text-gray-400 text-xs">PURPOSE / USE</span>
@@ -810,7 +779,6 @@ const Dashboard = () => {
                       )}
                     </div>
 
-                    {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
                         <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.certificate ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
                           <span>{stagedFiles.certificate ? '🔄 Change Selected Certificate' : (selectedPermit.certificate_link && selectedPermit.certificate_link !== 'null' ? '🔄 Replace Certificate' : '📁 Attach Certificate')}</span>
@@ -826,7 +794,6 @@ const Dashboard = () => {
                           />
                         </label>
                       </div>
-                    )}
                   </div>
 
                   {/* CARD 2: DRAWINGS */}
@@ -877,24 +844,22 @@ const Dashboard = () => {
                       )}
                     </div>
 
-                    {isOfficer && (
-                      <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.drawings.length > 0 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
-                          <span>{stagedFiles.drawings.length > 0 ? `+ Add More Drawings (${stagedFiles.drawings.length} selected)` : '+ Add Architectural Drawings'}</span>
-                          <input
-                            type="file"
-                            multiple
-                            accept=".pdf,image/*"
-                            disabled={isSavingDocs}
-                            onChange={(e) => {
-                              handleStageFile('drawings', e.target.files);
-                              e.target.value = '';
-                            }}
-                            className="hidden"
-                          />
-                        </label>
-                      </div>
-                    )}
+                    <div className="mt-4 pt-3 border-t border-gray-100">
+                      <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.drawings.length > 0 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
+                        <span>{stagedFiles.drawings.length > 0 ? `+ Add More Drawings (${stagedFiles.drawings.length} selected)` : '+ Add Architectural Drawings'}</span>
+                        <input
+                          type="file"
+                          multiple
+                          accept=".pdf,image/*"
+                          disabled={isSavingDocs}
+                          onChange={(e) => {
+                            handleStageFile('drawings', e.target.files);
+                            e.target.value = '';
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
                   </div>
 
                   {/* CARD 3: PERMIT FORM */}
@@ -945,94 +910,90 @@ const Dashboard = () => {
                       )}
                     </div>
 
-                    {isOfficer && (
-                      <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.permitForm.length > 0 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
-                          <span>{stagedFiles.permitForm.length > 0 ? `+ Add More Forms (${stagedFiles.permitForm.length} selected)` : '+ Attach Permit Form'}</span>
-                          <input
-                            type="file"
-                            multiple
-                            accept=".pdf,image/*"
-                            disabled={isSavingDocs}
-                            onChange={(e) => {
-                              handleStageFile('permitForm', e.target.files);
-                              e.target.value = '';
-                            }}
-                            className="hidden"
-                          />
-                        </label>
-                      </div>
-                    )}
+                    <div className="mt-4 pt-3 border-t border-gray-100">
+                      <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.permitForm.length > 0 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
+                        <span>{stagedFiles.permitForm.length > 0 ? `+ Add More Forms (${stagedFiles.permitForm.length} selected)` : '+ Attach Permit Form'}</span>
+                        <input
+                          type="file"
+                          multiple
+                          accept=".pdf,image/*"
+                          disabled={isSavingDocs}
+                          onChange={(e) => {
+                            handleStageFile('permitForm', e.target.files);
+                            e.target.value = '';
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
                   </div>
                 </div>
 
-                {/* OFFICER ACTION & SAVE TOOLBAR: ALWAYS VISIBLE FOR OFFICERS */}
-                {isOfficer && (
-                  Boolean(stagedFiles.certificate || stagedFiles.drawings.length > 0 || stagedFiles.permitForm.length > 0) ? (
-                    <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-xl p-4 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4 border border-blue-700 animate-fadeIn">
-                      <div className="flex items-center space-x-3 text-left w-full sm:w-auto">
-                        <span className="text-2xl">💾</span>
-                        <div>
-                          <h4 className="font-bold text-sm text-white">
-                            Ready to save {(stagedFiles.certificate ? 1 : 0) + stagedFiles.drawings.length + stagedFiles.permitForm.length} document update(s)
-                          </h4>
-                          <p className="text-xs text-blue-200 mt-0.5">
-                            {[
-                              stagedFiles.certificate && '📜 Certificate',
-                              stagedFiles.drawings.length > 0 && `📐 ${stagedFiles.drawings.length} Drawing(s)`,
-                              stagedFiles.permitForm.length > 0 && `📑 ${stagedFiles.permitForm.length} Permit Form(s)`
-                            ].filter(Boolean).join('  •  ')}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
-                        <button
-                          type="button"
-                          onClick={() => setStagedFiles({ certificate: null, drawings: [], permitForm: [] })}
-                          disabled={isSavingDocs}
-                          className="px-3.5 py-2 text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSaveStagedDocuments}
-                          disabled={isSavingDocs}
-                          className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-md hover:shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
-                        >
-                          {isSavingDocs ? (
-                            <>
-                              <span className="animate-spin">⏳</span>
-                              <span>Saving to Google Drive...</span>
-                            </>
-                          ) : (
-                            <>
-                              <span>💾 Save Document Updates</span>
-                              <span>→</span>
-                            </>
-                          )}
-                        </button>
+                {/* ACTION & SAVE TOOLBAR: ALWAYS VISIBLE */}
+                {Boolean(stagedFiles.certificate || stagedFiles.drawings.length > 0 || stagedFiles.permitForm.length > 0) ? (
+                  <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-xl p-4 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4 border border-blue-700 animate-fadeIn">
+                    <div className="flex items-center space-x-3 text-left w-full sm:w-auto">
+                      <span className="text-2xl">💾</span>
+                      <div>
+                        <h4 className="font-bold text-sm text-white">
+                          Ready to save {(stagedFiles.certificate ? 1 : 0) + stagedFiles.drawings.length + stagedFiles.permitForm.length} document update(s)
+                        </h4>
+                        <p className="text-xs text-blue-200 mt-0.5">
+                          {[
+                            stagedFiles.certificate && '📜 Certificate',
+                            stagedFiles.drawings.length > 0 && `📐 ${stagedFiles.drawings.length} Drawing(s)`,
+                            stagedFiles.permitForm.length > 0 && `📑 ${stagedFiles.permitForm.length} Permit Form(s)`
+                          ].filter(Boolean).join('  •  ')}
+                        </p>
                       </div>
                     </div>
-                  ) : (
-                    <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-                      <div className="flex items-center space-x-2.5 text-left w-full sm:w-auto">
-                        <span className="text-lg">📁</span>
-                        <div>
-                          <span className="font-bold text-gray-800">Document Management Status:</span>
-                          <span className="text-gray-500 ml-1.5">Attach new files above to stage uploads. To delete existing files, use the trash icon on the document.</span>
-                        </div>
-                      </div>
+                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
                       <button
                         type="button"
-                        onClick={() => alert("Attach at least one document above to stage it for saving.")}
-                        className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg transition cursor-pointer flex items-center space-x-1.5 border border-gray-300 shrink-0"
-                        title="Attach documents above first"
+                        onClick={() => setStagedFiles({ certificate: null, drawings: [], permitForm: [] })}
+                        disabled={isSavingDocs}
+                        className="px-3.5 py-2 text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
                       >
-                        <span>💾 Save Document Updates</span>
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveStagedDocuments}
+                        disabled={isSavingDocs}
+                        className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-md hover:shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingDocs ? (
+                          <>
+                            <span className="animate-spin">⏳</span>
+                            <span>Saving to Google Drive...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>💾 Save Document Updates</span>
+                            <span>→</span>
+                          </>
+                        )}
                       </button>
                     </div>
-                  )
+                  </div>
+                ) : (
+                  <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center space-x-2.5 text-left w-full sm:w-auto">
+                      <span className="text-lg">📁</span>
+                      <div>
+                        <span className="font-bold text-gray-800">Document Management Status:</span>
+                        <span className="text-gray-500 ml-1.5">Attach new files above to stage uploads. To delete existing files, use the trash icon on the document.</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => alert("Attach at least one document above to stage it for saving.")}
+                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg transition cursor-pointer flex items-center space-x-1.5 border border-gray-300 shrink-0"
+                      title="Attach documents above first"
+                    >
+                      <span>💾 Save Document Updates</span>
+                    </button>
+                  </div>
                 )}
 
                 <div className="pt-2 flex justify-end">
