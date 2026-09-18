@@ -648,10 +648,7 @@ const Dashboard = () => {
                       </td>
                       <td className="py-3.5 px-4 text-right">
                         <button
-                          onClick={() => {
-                            setStagedFiles({ certificate: null, drawings: [], permitForm: [] });
-                            setSelectedPermit(permit);
-                          }}
+                          onClick={() => setSelectedPermit(permit)}
                           className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap cursor-pointer"
                         >
                           <span>👁️</span>
@@ -681,10 +678,7 @@ const Dashboard = () => {
                   <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold text-blue-900">{selectedPermit.permit_number}</span></p>
                 </div>
                 <button 
-                  onClick={() => {
-                    setStagedFiles({ certificate: null, drawings: [], permitForm: [] });
-                    setSelectedPermit(null);
-                  }} 
+                  onClick={() => setSelectedPermit(null)} 
                   className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer"
                 >
                   ✕

@@ -999,10 +999,7 @@ const PermitList = () => {
                       <td className="p-4 align-middle text-center action-buttons">
                         <div className="flex items-center justify-center space-x-2">
                           <button 
-                            onClick={() => {
-                              setStagedFiles({ certificate: null, drawings: [], permitForm: [] });
-                              setSelectedPermit(permit);
-                            }} 
+                            onClick={() => setSelectedPermit(permit)} 
                             className="bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer shadow-2xs" 
                             title="View Documents"
                           >
@@ -1167,10 +1164,7 @@ const PermitList = () => {
                   <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold text-blue-900">{selectedPermit.permit_number}</span></p>
                 </div>
                 <button 
-                  onClick={() => {
-                    setStagedFiles({ certificate: null, drawings: [], permitForm: [] });
-                    setSelectedPermit(null);
-                  }} 
+                  onClick={() => setSelectedPermit(null)} 
                   className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer"
                 >
                   ✕
