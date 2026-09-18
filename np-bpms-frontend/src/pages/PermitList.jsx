@@ -42,8 +42,7 @@ const PermitList = () => {
   const [editingPermit, setEditingPermit] = useState(null);   
   const [editFormData, setEditFormData] = useState({});       
   const [isSaving, setIsSaving] = useState(false);            
-  const [stagedFiles, setStagedFiles] = useState({ certificate: null, drawings: [], permitForm: [] });
-  const [isSavingDocs, setIsSavingDocs] = useState(false);
+  const [uploadingDoc, setUploadingDoc] = useState(null); // 'certificate' | 'drawings' | 'permitForm' | null
 
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
   const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
@@ -395,61 +394,30 @@ const PermitList = () => {
     }
   };
 
-  // STAGE DOCUMENTS LOCALLY (SUPPORTS 1, 2, OR ALL 3 AT THE SAME TIME)
-  const handleStageFile = (category, fileList) => {
-    if (!fileList || fileList.length === 0) return;
-    if (category === 'certificate') {
-      setStagedFiles(prev => ({ ...prev, certificate: fileList[0] }));
-    } else if (category === 'drawings') {
-      setStagedFiles(prev => ({ ...prev, drawings: [...prev.drawings, ...Array.from(fileList)] }));
-    } else if (category === 'permitForm') {
-      setStagedFiles(prev => ({ ...prev, permitForm: [...prev.permitForm, ...Array.from(fileList)] }));
-    }
-  };
+  // DIRECT IMMEDIATE UPLOAD UPON FILE SELECTION
+  const handleDirectUpload = async (category, fileList) => {
+    if (!selectedPermit || !fileList || fileList.length === 0) return;
 
-  const handleRemoveStagedFile = (category, index = null) => {
-    if (category === 'certificate') {
-      setStagedFiles(prev => ({ ...prev, certificate: null }));
-    } else if (category === 'drawings') {
-      if (index === null) {
-        setStagedFiles(prev => ({ ...prev, drawings: [] }));
-      } else {
-        setStagedFiles(prev => ({ ...prev, drawings: prev.drawings.filter((_, i) => i !== index) }));
-      }
-    } else if (category === 'permitForm') {
-      if (index === null) {
-        setStagedFiles(prev => ({ ...prev, permitForm: [] }));
-      } else {
-        setStagedFiles(prev => ({ ...prev, permitForm: prev.permitForm.filter((_, i) => i !== index) }));
-      }
-    }
-  };
+    const filesArray = Array.from(fileList);
+    setUploadingDoc(category);
 
-  // SAVE STAGED DOCUMENTS (SUPPORTS INDIVIDUAL CATEGORY OR ALL AT ONCE)
-  const handleSaveStagedDocuments = async (targetCategory = null) => {
-    if (!selectedPermit) return;
+    const categoryLabels = {
+      certificate: 'Certificate',
+      drawings: filesArray.length > 1 ? `${filesArray.length} Architectural Drawings` : 'Architectural Drawing',
+      permitForm: filesArray.length > 1 ? `${filesArray.length} Permit Forms` : 'Permit Form'
+    };
 
-    const saveCert = (!targetCategory || targetCategory === 'certificate') && Boolean(stagedFiles.certificate);
-    const saveDrawings = (!targetCategory || targetCategory === 'drawings') && stagedFiles.drawings.length > 0;
-    const saveForm = (!targetCategory || targetCategory === 'permitForm') && stagedFiles.permitForm.length > 0;
-
-    if (!saveCert && !saveDrawings && !saveForm) {
-      alert("Please select at least one document to save.");
-      return;
-    }
-
-    setIsSavingDocs(true);
+    const docName = categoryLabels[category] || 'Document';
+    showToast(`⏳ Uploading ${docName} to Google Drive...`, 'info');
 
     try {
       const formData = new FormData();
-      if (saveCert) {
-        formData.append('certificate', stagedFiles.certificate);
-      }
-      if (saveDrawings) {
-        stagedFiles.drawings.forEach(f => formData.append('drawings', f));
-      }
-      if (saveForm) {
-        stagedFiles.permitForm.forEach(f => formData.append('permitForm', f));
+      if (category === 'certificate') {
+        formData.append('certificate', filesArray[0]);
+      } else if (category === 'drawings') {
+        filesArray.forEach(f => formData.append('drawings', f));
+      } else if (category === 'permitForm') {
+        filesArray.forEach(f => formData.append('permitForm', f));
       }
 
       const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/upload-document`, {
@@ -460,12 +428,12 @@ const PermitList = () => {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.message || "Failed to upload documents to Google Drive.");
+        throw new Error(data.message || "Failed to upload document to Google Drive.");
       }
 
-      const updatedCert = data.permit?.certificate_link || data.certificate_link || (saveCert ? data.new_links : selectedPermit.certificate_link);
-      const updatedDrawings = data.permit?.drawings_links || data.drawings_links || (saveDrawings ? data.new_links : selectedPermit.drawings_links);
-      const updatedForm = data.permit?.permit_form_link || data.permit_form_link || (saveForm ? data.new_links : selectedPermit.permit_form_link);
+      const updatedCert = data.permit?.certificate_link || data.certificate_link || (category === 'certificate' ? data.new_links : selectedPermit.certificate_link);
+      const updatedDrawings = data.permit?.drawings_links || data.drawings_links || (category === 'drawings' ? data.new_links : selectedPermit.drawings_links);
+      const updatedForm = data.permit?.permit_form_link || data.permit_form_link || (category === 'permitForm' ? data.new_links : selectedPermit.permit_form_link);
 
       // Update selectedPermit immediately
       setSelectedPermit(prev => ({
@@ -488,23 +456,17 @@ const PermitList = () => {
         return p;
       }));
 
-      // Reset only the files that were saved
-      setStagedFiles(prev => ({
-        certificate: saveCert ? null : prev.certificate,
-        drawings: saveDrawings ? [] : prev.drawings,
-        permitForm: saveForm ? [] : prev.permitForm
-      }));
-
-      showToast("Documents archived to Google Drive and saved successfully!", "success");
+      showToast(`✅ ${docName} archived to Google Drive successfully!`, 'success');
 
       // Refresh in background to ensure 100% sync
       fetchPermits();
 
     } catch (err) {
-      console.error("Save Staged Documents Error:", err);
-      alert("Save failed: " + err.message);
+      console.error("Direct Upload Error:", err);
+      showToast(`Upload failed: ${err.message}`, 'error');
+      alert("Upload failed: " + err.message);
     } finally {
-      setIsSavingDocs(false);
+      setUploadingDoc(null);
     }
   };
 
@@ -1247,7 +1209,7 @@ const PermitList = () => {
                   </div>
                 </div>
 
-                {/* 3 DOCUMENT CARDS WITH STAGING SUPPORT */}
+                {/* 3 DOCUMENT CARDS WITH DIRECT INSTANT UPLOAD */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* CARD 1: CERTIFICATE */}
                   <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
@@ -1264,51 +1226,36 @@ const PermitList = () => {
                         )}
                       </div>
 
-                      {/* Staged Certificate Preview */}
-                      {stagedFiles.certificate && (
-                        <div className="mt-3 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg space-y-2 text-xs animate-fadeIn">
-                          <div className="flex items-center justify-between">
-                            <div className="truncate pr-2">
-                              <span className="font-bold text-emerald-900 block text-[11px]">📌 Ready to save:</span>
-                              <span className="text-emerald-800 truncate font-semibold text-[11px] block">{stagedFiles.certificate.name}</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveStagedFile('certificate')}
-                              disabled={isSavingDocs}
-                              className="text-red-500 hover:text-red-700 font-bold px-1.5 py-0.5 rounded hover:bg-red-100 cursor-pointer"
-                              title="Remove"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveStagedDocuments('certificate')}
-                            disabled={isSavingDocs}
-                            className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {isSavingDocs ? <span>⏳ Saving Certificate...</span> : <span>💾 Save Certificate Now</span>}
-                          </button>
+                      {uploadingDoc === 'certificate' && (
+                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
+                          <span className="animate-spin text-base">⏳</span>
+                          <span>Uploading certificate to Google Drive...</span>
                         </div>
                       )}
                     </div>
 
-                      <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.certificate ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
-                          <span>{stagedFiles.certificate ? '🔄 Change Selected Certificate' : (selectedPermit.certificate_link && selectedPermit.certificate_link !== 'null' ? '🔄 Replace Certificate' : '📁 Attach Certificate')}</span>
-                          <input 
-                            type="file" 
-                            accept=".pdf,image/*" 
-                            disabled={isSavingDocs} 
-                            onChange={(e) => {
-                              handleStageFile('certificate', e.target.files);
-                              e.target.value = '';
-                            }} 
-                            className="hidden" 
-                          />
-                        </label>
-                      </div>
+                    <div className="mt-4 pt-3 border-t border-gray-100">
+                      <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDoc ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
+                        {uploadingDoc === 'certificate' ? (
+                          <>
+                            <span className="animate-spin">⏳</span>
+                            <span>Uploading...</span>
+                          </>
+                        ) : (
+                          <span>{selectedPermit.certificate_link && selectedPermit.certificate_link !== 'null' ? '🔄 Replace Certificate' : '📁 Attach Certificate'}</span>
+                        )}
+                        <input 
+                          type="file" 
+                          accept=".pdf,image/*" 
+                          disabled={Boolean(uploadingDoc)} 
+                          onChange={(e) => {
+                            handleDirectUpload('certificate', e.target.files);
+                            e.target.value = '';
+                          }} 
+                          className="hidden" 
+                        />
+                      </label>
+                    </div>
                   </div>
 
                   {/* CARD 2: DRAWINGS */}
@@ -1326,57 +1273,31 @@ const PermitList = () => {
                         )}
                       </div>
 
-                      {/* Staged Drawings Preview */}
-                      {stagedFiles.drawings.length > 0 && (
-                        <div className="mt-3 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg space-y-2 text-xs animate-fadeIn">
-                          <div className="flex justify-between items-center text-emerald-900 font-bold text-[11px]">
-                            <span>📌 Ready to save ({stagedFiles.drawings.length} file{stagedFiles.drawings.length > 1 ? 's' : ''}):</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveStagedFile('drawings')}
-                              disabled={isSavingDocs}
-                              className="text-[10px] text-red-600 hover:underline cursor-pointer"
-                            >
-                              Clear all
-                            </button>
-                          </div>
-                          <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
-                            {stagedFiles.drawings.map((f, idx) => (
-                              <div key={idx} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-emerald-200 text-[11px]">
-                                <span className="truncate pr-1 text-gray-700">{f.name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveStagedFile('drawings', idx)}
-                                  disabled={isSavingDocs}
-                                  className="text-red-500 hover:text-red-700 cursor-pointer"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveStagedDocuments('drawings')}
-                            disabled={isSavingDocs}
-                            className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {isSavingDocs ? <span>⏳ Saving Drawings...</span> : <span>💾 Save Drawings Now</span>}
-                          </button>
+                      {uploadingDoc === 'drawings' && (
+                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
+                          <span className="animate-spin text-base">⏳</span>
+                          <span>Uploading drawings to Google Drive...</span>
                         </div>
                       )}
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-gray-100">
-                      <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.drawings.length > 0 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
-                        <span>{stagedFiles.drawings.length > 0 ? `+ Add More Drawings (${stagedFiles.drawings.length} selected)` : '+ Add Architectural Drawings'}</span>
+                      <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDoc ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
+                        {uploadingDoc === 'drawings' ? (
+                          <>
+                            <span className="animate-spin">⏳</span>
+                            <span>Uploading...</span>
+                          </>
+                        ) : (
+                          <span>{selectedPermit.drawings_links && selectedPermit.drawings_links !== 'null' ? '+ Add More Drawings' : '+ Add Architectural Drawings'}</span>
+                        )}
                         <input 
                           type="file" 
                           multiple 
                           accept=".pdf,image/*" 
-                          disabled={isSavingDocs} 
+                          disabled={Boolean(uploadingDoc)} 
                           onChange={(e) => {
-                            handleStageFile('drawings', e.target.files);
+                            handleDirectUpload('drawings', e.target.files);
                             e.target.value = '';
                           }} 
                           className="hidden" 
@@ -1400,57 +1321,31 @@ const PermitList = () => {
                         )}
                       </div>
 
-                      {/* Staged Permit Form Preview */}
-                      {stagedFiles.permitForm.length > 0 && (
-                        <div className="mt-3 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg space-y-2 text-xs animate-fadeIn">
-                          <div className="flex justify-between items-center text-emerald-900 font-bold text-[11px]">
-                            <span>📌 Ready to save ({stagedFiles.permitForm.length} file{stagedFiles.permitForm.length > 1 ? 's' : ''}):</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveStagedFile('permitForm')}
-                              disabled={isSavingDocs}
-                              className="text-[10px] text-red-600 hover:underline cursor-pointer"
-                            >
-                              Clear all
-                            </button>
-                          </div>
-                          <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
-                            {stagedFiles.permitForm.map((f, idx) => (
-                              <div key={idx} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-emerald-200 text-[11px]">
-                                <span className="truncate pr-1 text-gray-700">{f.name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveStagedFile('permitForm', idx)}
-                                  disabled={isSavingDocs}
-                                  className="text-red-500 hover:text-red-700 cursor-pointer"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleSaveStagedDocuments('permitForm')}
-                            disabled={isSavingDocs}
-                            className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {isSavingDocs ? <span>⏳ Saving Permit Form...</span> : <span>💾 Save Permit Form Now</span>}
-                          </button>
+                      {uploadingDoc === 'permitForm' && (
+                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
+                          <span className="animate-spin text-base">⏳</span>
+                          <span>Uploading permit form to Google Drive...</span>
                         </div>
                       )}
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-gray-100">
-                      <label className={`w-full py-2 px-3 text-xs font-bold rounded flex items-center justify-center space-x-1.5 transition cursor-pointer border ${isSavingDocs ? 'bg-gray-100 text-gray-400 pointer-events-none' : (stagedFiles.permitForm.length > 0 ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200')}`}>
-                        <span>{stagedFiles.permitForm.length > 0 ? `+ Add More Forms (${stagedFiles.permitForm.length} selected)` : '+ Attach Permit Form'}</span>
+                      <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDoc ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
+                        {uploadingDoc === 'permitForm' ? (
+                          <>
+                            <span className="animate-spin">⏳</span>
+                            <span>Uploading...</span>
+                          </>
+                        ) : (
+                          <span>{selectedPermit.permit_form_link && selectedPermit.permit_form_link !== 'null' ? '+ Add More Forms' : '+ Attach Permit Form'}</span>
+                        )}
                         <input 
                           type="file" 
                           multiple 
                           accept=".pdf,image/*" 
-                          disabled={isSavingDocs} 
+                          disabled={Boolean(uploadingDoc)} 
                           onChange={(e) => {
-                            handleStageFile('permitForm', e.target.files);
+                            handleDirectUpload('permitForm', e.target.files);
                             e.target.value = '';
                           }} 
                           className="hidden" 
@@ -1460,72 +1355,19 @@ const PermitList = () => {
                   </div>
                 </div>
 
-                {/* ACTION & SAVE TOOLBAR: ALWAYS VISIBLE */}
-                {Boolean(stagedFiles.certificate || stagedFiles.drawings.length > 0 || stagedFiles.permitForm.length > 0) ? (
-                  <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-xl p-4 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4 border border-blue-700 animate-fadeIn">
-                    <div className="flex items-center space-x-3 text-left w-full sm:w-auto">
-                      <span className="text-2xl">💾</span>
-                      <div>
-                        <h4 className="font-bold text-sm text-white">
-                          Ready to save {(stagedFiles.certificate ? 1 : 0) + stagedFiles.drawings.length + stagedFiles.permitForm.length} document update(s)
-                        </h4>
-                        <p className="text-xs text-blue-200 mt-0.5">
-                          {[
-                            stagedFiles.certificate && '📜 Certificate',
-                            stagedFiles.drawings.length > 0 && `📐 ${stagedFiles.drawings.length} Drawing(s)`,
-                            stagedFiles.permitForm.length > 0 && `📑 ${stagedFiles.permitForm.length} Permit Form(s)`
-                          ].filter(Boolean).join('  •  ')}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setStagedFiles({ certificate: null, drawings: [], permitForm: [] })}
-                        disabled={isSavingDocs}
-                        className="px-3.5 py-2 text-xs font-semibold text-blue-200 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveStagedDocuments}
-                        disabled={isSavingDocs}
-                        className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-md hover:shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
-                      >
-                        {isSavingDocs ? (
-                          <>
-                            <span className="animate-spin">⏳</span>
-                            <span>Saving to Google Drive...</span>
-                          </>
-                        ) : (
-                          <>
-                            <span>💾 Save Document Updates</span>
-                            <span>→</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
+                {/* STATUS BAR: INSTANT AUTO-UPLOAD NOTICE */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between text-xs text-slate-600">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-base">⚡</span>
+                    <span><strong>Instant Archival Sync:</strong> Selecting any document on your device immediately uploads and archives it to Google Drive and Supabase.</span>
                   </div>
-                ) : (
-                  <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-2xs flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center space-x-2.5 text-left w-full sm:w-auto">
-                      <span className="text-lg">📁</span>
-                      <div>
-                        <span className="font-bold text-gray-800">Document Management Status:</span>
-                        <span className="text-gray-500 ml-1.5">Attach new files above to stage uploads. To delete existing files, use the trash icon on the document.</span>
-                      </div>
+                  {uploadingDoc && (
+                    <div className="flex items-center space-x-1.5 text-blue-600 font-bold shrink-0">
+                      <span className="animate-spin">⏳</span>
+                      <span>Uploading to Google Drive...</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => showToast("Attach at least one document above to stage it for saving.", "info")}
-                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg transition cursor-pointer flex items-center space-x-1.5 border border-gray-300 shrink-0"
-                      title="Attach documents above first"
-                    >
-                      <span>💾 Save Document Updates</span>
-                    </button>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 <div className="pt-2 flex justify-end">
                   <button 
