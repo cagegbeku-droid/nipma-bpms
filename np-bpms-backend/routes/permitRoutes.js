@@ -82,19 +82,66 @@ const ensureTablesExist = async () => {
 };
 
 // --- JWT OFFICER AUTHENTICATION MIDDLEWARE ---
-// Graciously processes JWT if present, allowing authenticated officers full identity tracking,
-// while permitting municipal operations to proceed without blocking if session token is absent.
+// Enforces that only an authenticated officer who logs in can upload, archive, update, or delete documents.
+const requireOfficerAuth = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      message: 'Access Denied: Only logged-in officers can upload or modify documents.'
+    });
+  }
+
+  const token = authHeader.split(' ')[1];
+  if (!token || token === 'null' || token === 'undefined') {
+    return res.status(401).json({
+      success: false,
+      message: 'Access Denied: Invalid officer token. Please log in.'
+    });
+  }
+
+  const secrets = [
+    process.env.JWT_SECRET,
+    'fallback_secret_key_2026',
+    'nipda_secret_key_2026'
+  ].filter(Boolean);
+
+  let verifiedUser = null;
+  for (const secret of secrets) {
+    try {
+      verifiedUser = jwt.verify(token, secret);
+      if (verifiedUser) break;
+    } catch (e) {
+      // try next secret
+    }
+  }
+
+  if (!verifiedUser) {
+    return res.status(401).json({
+      success: false,
+      message: 'Session expired or unauthorized. Please log in with officer credentials.'
+    });
+  }
+
+  req.user = verifiedUser;
+  return next();
+};
+
 const requireAuth = (req, res, next) => {
   const authHeader = req.headers['authorization'];
 
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     if (token && token !== 'null' && token !== 'undefined') {
-      try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'nipda_secret_key_2026');
-        req.user = decoded;
-      } catch (err) {
-        console.warn("Notice: JWT token invalid or expired, proceeding without token identity");
+      const secrets = [process.env.JWT_SECRET, 'fallback_secret_key_2026', 'nipda_secret_key_2026'].filter(Boolean);
+      for (const secret of secrets) {
+        try {
+          req.user = jwt.verify(token, secret);
+          break;
+        } catch (e) {
+          // ignore
+        }
       }
     }
   }
@@ -540,11 +587,11 @@ router.get('/stats', getPermitStats);
 router.get('/monthly-stats', getMonthlyStats); 
 router.get('/', getPermits);
 
-router.post('/archive', requireAuth, archivalUploads, archivePermit);
-router.post('/:id/upload-document', requireAuth, documentUploads, uploadPermitDocument);
-router.post('/:id/upload-documents', requireAuth, documentUploads, uploadPermitDocument);
-router.delete('/:id', requireAuth, deletePermit);
-router.put('/:id', requireAuth, updatePermit);
-router.put('/:id/remove-file', requireAuth, removePermitFile);
+router.post('/archive', requireOfficerAuth, archivalUploads, archivePermit);
+router.post('/:id/upload-document', requireOfficerAuth, documentUploads, uploadPermitDocument);
+router.post('/:id/upload-documents', requireOfficerAuth, documentUploads, uploadPermitDocument);
+router.delete('/:id', requireOfficerAuth, deletePermit);
+router.put('/:id', requireOfficerAuth, updatePermit);
+router.put('/:id/remove-file', requireOfficerAuth, removePermitFile);
 
 module.exports = router;
