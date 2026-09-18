@@ -307,10 +307,15 @@ const Dashboard = () => {
   };
 
   // SAVE ALL STAGED DOCUMENTS AT THE SAME TIME
-  const handleSaveStagedDocuments = async () => {
+  // SAVE STAGED DOCUMENTS (SUPPORTS INDIVIDUAL CATEGORY OR ALL AT ONCE)
+  const handleSaveStagedDocuments = async (targetCategory = null) => {
     if (!selectedPermit) return;
-    const hasFiles = stagedFiles.certificate || stagedFiles.drawings.length > 0 || stagedFiles.permitForm.length > 0;
-    if (!hasFiles) {
+
+    const saveCert = (!targetCategory || targetCategory === 'certificate') && Boolean(stagedFiles.certificate);
+    const saveDrawings = (!targetCategory || targetCategory === 'drawings') && stagedFiles.drawings.length > 0;
+    const saveForm = (!targetCategory || targetCategory === 'permitForm') && stagedFiles.permitForm.length > 0;
+
+    if (!saveCert && !saveDrawings && !saveForm) {
       alert("Please select at least one document to save.");
       return;
     }
@@ -319,11 +324,15 @@ const Dashboard = () => {
 
     try {
       const formData = new FormData();
-      if (stagedFiles.certificate) {
+      if (saveCert) {
         formData.append('certificate', stagedFiles.certificate);
       }
-      stagedFiles.drawings.forEach(f => formData.append('drawings', f));
-      stagedFiles.permitForm.forEach(f => formData.append('permitForm', f));
+      if (saveDrawings) {
+        stagedFiles.drawings.forEach(f => formData.append('drawings', f));
+      }
+      if (saveForm) {
+        stagedFiles.permitForm.forEach(f => formData.append('permitForm', f));
+      }
 
       const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/upload-document`, {
         method: 'POST',
@@ -336,9 +345,9 @@ const Dashboard = () => {
         throw new Error(data.message || "Failed to upload documents to Google Drive.");
       }
 
-      const updatedCert = data.permit?.certificate_link || data.certificate_link || selectedPermit.certificate_link;
-      const updatedDrawings = data.permit?.drawings_links || data.drawings_links || selectedPermit.drawings_links;
-      const updatedForm = data.permit?.permit_form_link || data.permit_form_link || selectedPermit.permit_form_link;
+      const updatedCert = data.permit?.certificate_link || data.certificate_link || (saveCert ? data.new_links : selectedPermit.certificate_link);
+      const updatedDrawings = data.permit?.drawings_links || data.drawings_links || (saveDrawings ? data.new_links : selectedPermit.drawings_links);
+      const updatedForm = data.permit?.permit_form_link || data.permit_form_link || (saveForm ? data.new_links : selectedPermit.permit_form_link);
 
       // Update selectedPermit immediately
       setSelectedPermit(prev => ({
@@ -361,10 +370,14 @@ const Dashboard = () => {
         return p;
       }));
 
-      // Reset staged files
-      setStagedFiles({ certificate: null, drawings: [], permitForm: [] });
+      // Reset only the files that were saved
+      setStagedFiles(prev => ({
+        certificate: saveCert ? null : prev.certificate,
+        drawings: saveDrawings ? [] : prev.drawings,
+        permitForm: saveForm ? [] : prev.permitForm
+      }));
 
-      alert("All documents saved and archived to Google Drive successfully!");
+      alert("Documents archived to Google Drive and saved successfully!");
 
       fetchDashboardData();
     } catch (err) {
@@ -761,19 +774,29 @@ const Dashboard = () => {
 
                       {/* Staged Certificate Preview */}
                       {stagedFiles.certificate && (
-                        <div className="mt-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between text-xs animate-fadeIn">
-                          <div className="truncate pr-2">
-                            <span className="font-bold text-blue-900 block text-[11px]">📌 Selected for upload:</span>
-                            <span className="text-blue-700 truncate font-medium text-[11px] block">{stagedFiles.certificate.name}</span>
+                        <div className="mt-3 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg space-y-2 text-xs animate-fadeIn">
+                          <div className="flex items-center justify-between">
+                            <div className="truncate pr-2">
+                              <span className="font-bold text-emerald-900 block text-[11px]">📌 Ready to save:</span>
+                              <span className="text-emerald-800 truncate font-semibold text-[11px] block">{stagedFiles.certificate.name}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveStagedFile('certificate')}
+                              disabled={isSavingDocs}
+                              className="text-red-500 hover:text-red-700 font-bold px-1.5 py-0.5 rounded hover:bg-red-100 cursor-pointer"
+                              title="Remove"
+                            >
+                              ✕
+                            </button>
                           </div>
                           <button
                             type="button"
-                            onClick={() => handleRemoveStagedFile('certificate')}
+                            onClick={() => handleSaveStagedDocuments('certificate')}
                             disabled={isSavingDocs}
-                            className="text-red-500 hover:text-red-700 font-bold px-1.5 py-0.5 rounded hover:bg-red-50 cursor-pointer"
-                            title="Remove"
+                            className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
                           >
-                            ✕
+                            {isSavingDocs ? <span>⏳ Saving Certificate...</span> : <span>💾 Save Certificate Now</span>}
                           </button>
                         </div>
                       )}
@@ -813,9 +836,9 @@ const Dashboard = () => {
 
                       {/* Staged Drawings Preview */}
                       {stagedFiles.drawings.length > 0 && (
-                        <div className="mt-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg space-y-1.5 text-xs animate-fadeIn">
-                          <div className="flex justify-between items-center text-blue-900 font-bold text-[11px]">
-                            <span>📌 Selected ({stagedFiles.drawings.length} file{stagedFiles.drawings.length > 1 ? 's' : ''}):</span>
+                        <div className="mt-3 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg space-y-2 text-xs animate-fadeIn">
+                          <div className="flex justify-between items-center text-emerald-900 font-bold text-[11px]">
+                            <span>📌 Ready to save ({stagedFiles.drawings.length} file{stagedFiles.drawings.length > 1 ? 's' : ''}):</span>
                             <button
                               type="button"
                               onClick={() => handleRemoveStagedFile('drawings')}
@@ -827,7 +850,7 @@ const Dashboard = () => {
                           </div>
                           <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
                             {stagedFiles.drawings.map((f, idx) => (
-                              <div key={idx} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-blue-100 text-[11px]">
+                              <div key={idx} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-emerald-200 text-[11px]">
                                 <span className="truncate pr-1 text-gray-700">{f.name}</span>
                                 <button
                                   type="button"
@@ -840,6 +863,14 @@ const Dashboard = () => {
                               </div>
                             ))}
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveStagedDocuments('drawings')}
+                            disabled={isSavingDocs}
+                            className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isSavingDocs ? <span>⏳ Saving Drawings...</span> : <span>💾 Save Drawings Now</span>}
+                          </button>
                         </div>
                       )}
                     </div>
@@ -879,9 +910,9 @@ const Dashboard = () => {
 
                       {/* Staged Permit Form Preview */}
                       {stagedFiles.permitForm.length > 0 && (
-                        <div className="mt-3 p-2.5 bg-blue-50 border border-blue-200 rounded-lg space-y-1.5 text-xs animate-fadeIn">
-                          <div className="flex justify-between items-center text-blue-900 font-bold text-[11px]">
-                            <span>📌 Selected ({stagedFiles.permitForm.length} file{stagedFiles.permitForm.length > 1 ? 's' : ''}):</span>
+                        <div className="mt-3 p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg space-y-2 text-xs animate-fadeIn">
+                          <div className="flex justify-between items-center text-emerald-900 font-bold text-[11px]">
+                            <span>📌 Ready to save ({stagedFiles.permitForm.length} file{stagedFiles.permitForm.length > 1 ? 's' : ''}):</span>
                             <button
                               type="button"
                               onClick={() => handleRemoveStagedFile('permitForm')}
@@ -893,7 +924,7 @@ const Dashboard = () => {
                           </div>
                           <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
                             {stagedFiles.permitForm.map((f, idx) => (
-                              <div key={idx} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-blue-100 text-[11px]">
+                              <div key={idx} className="flex justify-between items-center bg-white px-2 py-1 rounded border border-emerald-200 text-[11px]">
                                 <span className="truncate pr-1 text-gray-700">{f.name}</span>
                                 <button
                                   type="button"
@@ -906,6 +937,14 @@ const Dashboard = () => {
                               </div>
                             ))}
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveStagedDocuments('permitForm')}
+                            disabled={isSavingDocs}
+                            className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs transition flex items-center justify-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isSavingDocs ? <span>⏳ Saving Permit Form...</span> : <span>💾 Save Permit Form Now</span>}
+                          </button>
                         </div>
                       )}
                     </div>
