@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Login from '../Login';
+import { API_BASE_URL } from '../config/api';
 
 // Segmented Date Input Sub-Component with pre-rendered slashes and auto-focusing segments
 const SegmentedDateInput = ({ value, onChange, onBlur, disabled }) => {
@@ -323,7 +324,7 @@ const NewPermit = () => {
     if (!permitNum || !permitNum.trim()) return;
     
     try {
-      const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits");
+      const response = await fetch(`${API_BASE_URL}/api/permits`);
       const data = await response.json();
       
       if (data.success && Array.isArray(data.data)) {
@@ -402,7 +403,7 @@ const NewPermit = () => {
         setMessage(`Importing ${records.length} permit records...`);
 
         const token = sessionStorage.getItem('token') || localStorage.getItem('token');
-        const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/bulk-import", {
+        const response = await fetch(`${API_BASE_URL}/api/permits/bulk-import`, {
           method: "POST",
           headers: {
             'Content-Type': 'application/json',
@@ -467,7 +468,7 @@ const NewPermit = () => {
       files.drawings.forEach(f => formDataToSend.append('drawings', f));
       files.permitForm.forEach(f => formDataToSend.append('permitForm', f));
 
-      const archiveRes = await fetch("https://nipma-bpms-backend.onrender.com/api/permits/archive", {
+      const archiveRes = await fetch(`${API_BASE_URL}/api/permits/archive`, {
         method: "POST",
         headers: {
           'Authorization': `Bearer ${token}`
@@ -482,7 +483,7 @@ const NewPermit = () => {
 
       // STEP 3: GENERATE QR BADGE
       try {
-        const qrRes = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(formattedPermitNumber)}`);
+        const qrRes = await fetch(`${API_BASE_URL}/api/permits/qr/${encodeURIComponent(formattedPermitNumber)}`);
         const qrJson = await qrRes.json();
         if (qrJson.success && qrJson.qrCode) {
           setQrCodeData({

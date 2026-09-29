@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
+import { API_BASE_URL } from '../config/api';
 
 const VerifyPermit = () => {
   const [searchParams] = useSearchParams();
@@ -20,7 +21,7 @@ const VerifyPermit = () => {
     const verifyRecord = async () => {
       const cleanPermitNum = decodeURIComponent(rawPermitNum).trim();
       const encodedNum = encodeURIComponent(cleanPermitNum);
-      const BACKEND_URL = 'https://nipma-bpms-backend.onrender.com/api/permits';
+      const BACKEND_URL = `${API_BASE_URL}/api/permits`;
 
       const fetchWithRetry = async (url, retries = 2) => {
         for (let attempt = 0; attempt <= retries; attempt++) {

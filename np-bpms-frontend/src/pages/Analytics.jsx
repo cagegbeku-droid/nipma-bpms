@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../config/api';
 import {
   ResponsiveContainer,
   BarChart,
@@ -27,7 +28,7 @@ const Analytics = () => {
   useEffect(() => {
     const fetchRecords = async () => {
       try {
-        const res = await fetch("https://nipma-bpms-backend.onrender.com/api/permits");
+        const res = await fetch(`${API_BASE_URL}/api/permits`);
         const data = await res.json();
         if (data.success && Array.isArray(data.data)) {
           setPermits(data.data);

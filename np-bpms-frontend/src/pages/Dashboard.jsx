@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PermitQRBadge from '../components/PermitQRBadge';
+import { API_BASE_URL } from '../config/api';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -63,7 +64,7 @@ const Dashboard = () => {
 
   const handleShowQrBadge = async (permit) => {
     try {
-      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(permit.permit_number)}`);
+      const res = await fetch(`${API_BASE_URL}/api/permits/qr/${encodeURIComponent(permit.permit_number)}`);
       const data = await res.json();
       if (data.success && data.qrCode) {
         setQrModal({
@@ -111,7 +112,7 @@ const Dashboard = () => {
     if (!columnName) return;
 
     try {
-      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/remove-file`, {
+      const res = await fetch(`${API_BASE_URL}/api/permits/${selectedPermit.id}/remove-file`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -166,7 +167,7 @@ const Dashboard = () => {
     if (!columnName) return;
 
     try {
-      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/permits/${selectedPermit.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -320,7 +321,7 @@ const Dashboard = () => {
         filesArray.forEach(f => formData.append('permitForm', f));
       }
 
-      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/upload-document`, {
+      const res = await fetch(`${API_BASE_URL}/api/permits/${selectedPermit.id}/upload-document`, {
         method: 'POST',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: formData
@@ -371,8 +372,8 @@ const Dashboard = () => {
   const fetchDashboardData = async () => {
     try {
       const [statsRes, permitsRes] = await Promise.all([
-        fetch("https://nipma-bpms-backend.onrender.com/api/permits/stats"),
-        fetch("https://nipma-bpms-backend.onrender.com/api/permits")
+        fetch(`${API_BASE_URL}/api/permits/stats`),
+        fetch(`${API_BASE_URL}/api/permits`)
       ]);
 
       const statsData = await statsRes.json();

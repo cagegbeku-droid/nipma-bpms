@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import PermitQRBadge from '../components/PermitQRBadge';
+import { API_BASE_URL } from '../config/api';
 
 const PermitList = () => {
   const [searchParams] = useSearchParams();
@@ -85,7 +86,7 @@ const PermitList = () => {
 
   const fetchPermits = async () => {
     try {
-      const response = await fetch("https://nipma-bpms-backend.onrender.com/api/permits");
+      const response = await fetch(`${API_BASE_URL}/api/permits`);
       const data = await response.json();
       if (data.success) {
         setPermits(data.data);
@@ -113,7 +114,7 @@ const PermitList = () => {
     if (!id) return;
 
     try {
-      const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/permits/${id}`, {
         method: "DELETE",
         headers: { 
           'Authorization': `Bearer ${token}`
@@ -134,7 +135,7 @@ const PermitList = () => {
 
   const handleShowQrBadge = async (permit) => {
     try {
-      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/qr/${encodeURIComponent(permit.permit_number)}`);
+      const res = await fetch(`${API_BASE_URL}/api/permits/qr/${encodeURIComponent(permit.permit_number)}`);
       const data = await res.json();
       if (data.success && data.qrCode) {
         setQrModal({
@@ -369,7 +370,7 @@ const PermitList = () => {
     };
 
     try {
-      const response = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${editingPermit.id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/permits/${editingPermit.id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
@@ -424,7 +425,7 @@ const PermitList = () => {
         filesArray.forEach(f => formData.append('permitForm', f));
       }
 
-      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/upload-document`, {
+      const res = await fetch(`${API_BASE_URL}/api/permits/${selectedPermit.id}/upload-document`, {
         method: 'POST',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: formData
@@ -504,7 +505,7 @@ const PermitList = () => {
     if (!columnName) return;
 
     try {
-      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}/remove-file`, {
+      const res = await fetch(`${API_BASE_URL}/api/permits/${selectedPermit.id}/remove-file`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -559,7 +560,7 @@ const PermitList = () => {
     if (!columnName) return;
 
     try {
-      const res = await fetch(`https://nipma-bpms-backend.onrender.com/api/permits/${selectedPermit.id}`, {
+      const res = await fetch(`${API_BASE_URL}/api/permits/${selectedPermit.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
