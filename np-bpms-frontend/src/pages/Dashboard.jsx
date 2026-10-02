@@ -31,7 +31,8 @@ const Dashboard = () => {
 
   // Modals & Document Attachment States
   const [selectedPermit, setSelectedPermit] = useState(null);
-  const [uploadingDoc, setUploadingDoc] = useState(null); // 'certificate' | 'drawings' | 'permitForm' | null
+  const [uploadingDocs, setUploadingDocs] = useState({ certificate: false, drawings: false, permitForm: false });
+  const isAnyUploading = Boolean(uploadingDocs.certificate || uploadingDocs.drawings || uploadingDocs.permitForm);
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
 
   const showToast = (message, type = 'info') => {
@@ -300,7 +301,7 @@ const Dashboard = () => {
     if (!selectedPermit || !fileList || fileList.length === 0) return;
 
     const filesArray = Array.from(fileList);
-    setUploadingDoc(category);
+    setUploadingDocs(prev => ({ ...prev, [category]: true }));
 
     const categoryLabels = {
       certificate: 'Certificate',
@@ -332,26 +333,29 @@ const Dashboard = () => {
         throw new Error(data.message || "Failed to upload document to Google Drive.");
       }
 
-      const updatedCert = data.permit?.certificate_link || data.certificate_link || (category === 'certificate' ? data.new_links : selectedPermit.certificate_link);
-      const updatedDrawings = data.permit?.drawings_links || data.drawings_links || (category === 'drawings' ? data.new_links : selectedPermit.drawings_links);
-      const updatedForm = data.permit?.permit_form_link || data.permit_form_link || (category === 'permitForm' ? data.new_links : selectedPermit.permit_form_link);
+      const updatedCert = data.permit?.certificate_link || data.certificate_link || (category === 'certificate' ? data.new_links : undefined);
+      const updatedDrawings = data.permit?.drawings_links || data.drawings_links || (category === 'drawings' ? data.new_links : undefined);
+      const updatedForm = data.permit?.permit_form_link || data.permit_form_link || (category === 'permitForm' ? data.new_links : undefined);
 
-      // Update selectedPermit immediately
-      setSelectedPermit(prev => ({
-        ...prev,
-        certificate_link: updatedCert,
-        drawings_links: updatedDrawings,
-        permit_form_link: updatedForm
-      }));
+      // Functional state update so concurrent uploads do NOT overwrite each other
+      setSelectedPermit(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ...(updatedCert !== undefined ? { certificate_link: updatedCert } : {}),
+          ...(updatedDrawings !== undefined ? { drawings_links: updatedDrawings } : {}),
+          ...(updatedForm !== undefined ? { permit_form_link: updatedForm } : {})
+        };
+      });
 
       // Update recentPermits list
       setRecentPermits(prev => prev.map(p => {
         if (String(p.id) === String(selectedPermit.id)) {
           return {
             ...p,
-            certificate_link: updatedCert,
-            drawings_links: updatedDrawings,
-            permit_form_link: updatedForm
+            ...(updatedCert !== undefined ? { certificate_link: updatedCert } : {}),
+            ...(updatedDrawings !== undefined ? { drawings_links: updatedDrawings } : {}),
+            ...(updatedForm !== undefined ? { permit_form_link: updatedForm } : {})
           };
         }
         return p;
@@ -365,7 +369,7 @@ const Dashboard = () => {
       showToast(`Upload failed: ${err.message}`, 'error');
       alert("Upload failed: " + err.message);
     } finally {
-      setUploadingDoc(null);
+      setUploadingDocs(prev => ({ ...prev, [category]: false }));
     }
   };
 
@@ -760,7 +764,7 @@ const Dashboard = () => {
                         )}
                       </div>
 
-                      {isOfficer && uploadingDoc === 'certificate' && (
+                      {isOfficer && uploadingDocs.certificate && (
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
                           <span className="animate-spin text-base">⏳</span>
                           <span>Uploading certificate to Google Drive...</span>
@@ -770,8 +774,8 @@ const Dashboard = () => {
 
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDoc ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
-                          {uploadingDoc === 'certificate' ? (
+                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDocs.certificate ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
+                          {uploadingDocs.certificate ? (
                             <>
                               <span className="animate-spin">⏳</span>
                               <span>Uploading...</span>
@@ -782,7 +786,7 @@ const Dashboard = () => {
                           <input
                             type="file"
                             accept=".pdf,image/*"
-                            disabled={Boolean(uploadingDoc)}
+                            disabled={uploadingDocs.certificate}
                             onChange={(e) => {
                               handleDirectUpload('certificate', e.target.files);
                               e.target.value = '';
@@ -809,7 +813,7 @@ const Dashboard = () => {
                         )}
                       </div>
 
-                      {isOfficer && uploadingDoc === 'drawings' && (
+                      {isOfficer && uploadingDocs.drawings && (
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
                           <span className="animate-spin text-base">⏳</span>
                           <span>Uploading drawings to Google Drive...</span>
@@ -819,8 +823,8 @@ const Dashboard = () => {
 
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDoc ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
-                          {uploadingDoc === 'drawings' ? (
+                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDocs.drawings ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
+                          {uploadingDocs.drawings ? (
                             <>
                               <span className="animate-spin">⏳</span>
                               <span>Uploading...</span>
@@ -832,7 +836,7 @@ const Dashboard = () => {
                             type="file"
                             multiple
                             accept=".pdf,image/*"
-                            disabled={Boolean(uploadingDoc)}
+                            disabled={uploadingDocs.drawings}
                             onChange={(e) => {
                               handleDirectUpload('drawings', e.target.files);
                               e.target.value = '';
@@ -859,7 +863,7 @@ const Dashboard = () => {
                         )}
                       </div>
 
-                      {isOfficer && uploadingDoc === 'permitForm' && (
+                      {isOfficer && uploadingDocs.permitForm && (
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
                           <span className="animate-spin text-base">⏳</span>
                           <span>Uploading permit form to Google Drive...</span>
@@ -869,8 +873,8 @@ const Dashboard = () => {
 
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDoc ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
-                          {uploadingDoc === 'permitForm' ? (
+                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDocs.permitForm ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
+                          {uploadingDocs.permitForm ? (
                             <>
                               <span className="animate-spin">⏳</span>
                               <span>Uploading...</span>
@@ -882,7 +886,7 @@ const Dashboard = () => {
                             type="file"
                             multiple
                             accept=".pdf,image/*"
-                            disabled={Boolean(uploadingDoc)}
+                            disabled={uploadingDocs.permitForm}
                             onChange={(e) => {
                               handleDirectUpload('permitForm', e.target.files);
                               e.target.value = '';
@@ -895,32 +899,19 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* STATUS BAR: OFFICER VS PUBLIC READ-ONLY VIEW */}
-                {isOfficer ? (
+                {/* STATUS BAR: OFFICER DOCUMENT MANAGEMENT STATUS */}
+                {isOfficer && (
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between text-xs text-slate-600">
                     <div className="flex items-center space-x-2">
                       <span className="text-base">⚡</span>
-                      <span><strong>Officer Document Management:</strong> Selecting any document on your device immediately uploads and archives it to Google Drive and Supabase.</span>
+                      <span><strong>Officer Document Management:</strong> Selecting any document immediately archives it to Google Drive and Supabase. You can attach multiple categories at the same time.</span>
                     </div>
-                    {uploadingDoc && (
+                    {isAnyUploading && (
                       <div className="flex items-center space-x-1.5 text-blue-600 font-bold shrink-0">
                         <span className="animate-spin">⏳</span>
                         <span>Uploading to Google Drive...</span>
                       </div>
                     )}
-                  </div>
-                ) : (
-                  <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-3 shadow-2xs flex items-center justify-between text-xs text-blue-800">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-base">👁️</span>
-                      <span><strong>Public Document Viewer:</strong> You are viewing archived municipal records. To attach, update, or manage documents, please log in with authorized officer credentials.</span>
-                    </div>
-                    <Link 
-                      to="/vault-admin" 
-                      className="text-xs font-semibold text-blue-700 hover:text-blue-900 hover:underline shrink-0 ml-3"
-                    >
-                      Officer Login →
-                    </Link>
                   </div>
                 )}
 
