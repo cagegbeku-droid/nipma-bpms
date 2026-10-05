@@ -55,7 +55,7 @@ const Sidebar = () => {
         <div className="flex flex-col items-center justify-center py-5 border-b border-gray-800 px-4 text-center">
           <div className="w-16 h-16 md:w-20 md:h-20 mb-3 drop-shadow-lg">
             <img
-              src="/nipma-bpms-logo.svg"
+              src="/465783232_1385047576154895_1881211722468502227_n.jpg"
               alt="NiPMA BPMS Emblem"
               className="w-full h-full object-contain"
             />
