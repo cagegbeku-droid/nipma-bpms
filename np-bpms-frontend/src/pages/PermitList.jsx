@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import PermitQRBadge from '../components/PermitQRBadge';
 import DocumentViewerModal from '../components/DocumentViewerModal';
@@ -47,6 +47,21 @@ const PermitList = () => {
   const [dragOverCategory, setDragOverCategory] = useState(null); // 'certificate' | 'drawings' | 'permitForm' | null
   const [uploadingDocs, setUploadingDocs] = useState({ certificate: false, drawings: false, permitForm: false });
   const isAnyUploading = Boolean(uploadingDocs.certificate || uploadingDocs.drawings || uploadingDocs.permitForm);
+
+  const searchInputRef = useRef(null);
+
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setCurrentPage(1);
+    if (searchInputRef.current) {
+      searchInputRef.current.blur();
+    }
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev);
+      newParams.delete('search');
+      return newParams;
+    }, { replace: true });
+  };
 
   // Extract all attached document links for a permit
   const getAllDocUrls = (permit) => {
@@ -818,21 +833,33 @@ const PermitList = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <div className="md:col-span-2">
             <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5">Search Keywords</label>
-            <div className="relative">
+            <div className="relative flex items-center">
+              <span className="absolute left-3 text-gray-400 text-sm pointer-events-none">🔍</span>
               <input 
+                ref={searchInputRef}
                 type="text" 
                 placeholder="Search permit #, applicant name, location, address..." 
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-8 py-2 bg-gray-50/70 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition"
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    handleClearSearch();
+                  }
+                }}
+                className="w-full pl-9 pr-20 py-2 bg-gray-50/70 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm transition"
               />
-              <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
               {searchTerm && (
                 <button 
-                  onClick={() => setSearchTerm('')} 
-                  className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600 text-xs font-bold"
+                  type="button"
+                  onClick={handleClearSearch} 
+                  className="absolute right-2 px-2 py-1 text-gray-400 hover:text-gray-700 hover:bg-gray-200 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                  title="Cancel search & clear cursor (Esc)"
                 >
-                  ✕
+                  <span>✕</span>
+                  <span className="text-[10px] font-semibold">Clear</span>
                 </button>
               )}
             </div>
@@ -937,8 +964,9 @@ const PermitList = () => {
 
           <div className="flex items-end col-span-2 sm:col-span-1">
             <button
+              type="button"
               onClick={() => {
-                setSearchTerm('');
+                handleClearSearch();
                 setSelectedMonth('ALL');
                 setSelectedYear('ALL');
                 setSelectedPurpose('ALL');
@@ -952,10 +980,26 @@ const PermitList = () => {
           </div>
         </div>
 
-        {/* Results Counter */}
-        <div className="text-xs text-gray-500 font-medium pt-1">
-          Found <span className="font-bold text-gray-900">{sortedPermits.length}</span> matching records 
-          {(searchTerm || selectedPurpose !== 'ALL' || selectedLocation !== 'ALL' || selectedMonth !== 'ALL' || selectedYear !== 'ALL') && ' (filters active)'}
+        {/* Results Counter & Active Search Badge */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-gray-100 text-xs">
+          <div className="text-gray-500 font-medium">
+            Found <span className="font-bold text-gray-900">{sortedPermits.length}</span> matching records 
+            {(searchTerm || selectedPurpose !== 'ALL' || selectedLocation !== 'ALL' || selectedMonth !== 'ALL' || selectedYear !== 'ALL') && ' (filters active)'}
+          </div>
+
+          {searchTerm && (
+            <div className="flex items-center space-x-1.5 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1 text-blue-800">
+              <span>Matching: <strong>"{searchTerm}"</strong></span>
+              <button
+                type="button"
+                onClick={handleClearSearch}
+                className="text-blue-600 hover:text-blue-900 font-bold ml-1 cursor-pointer"
+                title="Cancel search"
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

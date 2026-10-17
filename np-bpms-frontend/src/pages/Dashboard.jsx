@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PermitQRBadge from '../components/PermitQRBadge';
 import DocumentViewerModal from '../components/DocumentViewerModal';
@@ -62,17 +62,40 @@ const Dashboard = () => {
     return urls;
   };
 
-  // Filter recent records dynamically by purpose
+  const quickSearchRef = useRef(null);
+
+  const handleClearQuickSearch = () => {
+    setQuickSearch('');
+    if (quickSearchRef.current) {
+      quickSearchRef.current.blur();
+    }
+  };
+
+  // Filter recent records dynamically by purpose and quick search
   const filteredRecentPermits = useMemo(() => {
-    if (recentFilter === 'ALL') return recentPermits;
-    return recentPermits.filter(p => {
+    let list = recentPermits;
+    if (quickSearch.trim()) {
+      const q = quickSearch.toLowerCase().trim();
+      list = list.filter(p => {
+        const applicantName = (p.applicant_name || `${p.first_name || ''} ${p.last_name || ''}`).toLowerCase();
+        return (
+          p.permit_number?.toLowerCase().includes(q) ||
+          applicantName.includes(q) ||
+          p.purpose?.toLowerCase().includes(q) ||
+          p.location?.toLowerCase().includes(q) ||
+          p.address?.toLowerCase().includes(q)
+        );
+      });
+    }
+    if (recentFilter === 'ALL') return list;
+    return list.filter(p => {
       const purp = (p.purpose || '').toUpperCase();
       if (recentFilter === 'RESIDENTIAL') return purp.includes('RESIDENTIAL');
       if (recentFilter === 'COMMERCIAL') return purp.includes('COMMERCIAL') || purp.includes('CIVIC') || purp.includes('INSTITUT');
       if (recentFilter === 'OTHER') return !purp.includes('RESIDENTIAL') && !purp.includes('COMMERCIAL');
       return true;
     });
-  }, [recentPermits, recentFilter]);
+  }, [recentPermits, recentFilter, quickSearch]);
 
   const handleOpenDocViewer = (url, title) => {
     if (!url) return;
@@ -449,6 +472,9 @@ const Dashboard = () => {
 
   const handleQuickSearch = (e) => {
     e.preventDefault();
+    if (quickSearchRef.current) {
+      quickSearchRef.current.blur();
+    }
     if (quickSearch.trim()) {
       navigate(`/permits/historical?search=${encodeURIComponent(quickSearch.trim())}`);
     } else {
@@ -467,22 +493,41 @@ const Dashboard = () => {
           </h1>
         </div>
 
-        {/* Quick Search Bar */}
+        {/* Quick Search Bar with Instant Clear & Cursor Dismissal */}
         <form onSubmit={handleQuickSearch} className="relative w-full lg:w-96">
           <input
+            ref={quickSearchRef}
             type="text"
             placeholder="Quick search permits..."
             value={quickSearch}
             onChange={(e) => setQuickSearch(e.target.value)}
-            className="w-full pl-9 pr-24 py-2 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none shadow-xs"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                handleClearQuickSearch();
+              }
+            }}
+            className="w-full pl-9 pr-28 py-2 bg-white border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none shadow-xs transition"
           />
-          <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
-          <button
-            type="submit"
-            className="absolute right-1.5 top-1.5 px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
-          >
-            Search
-          </button>
+          <span className="absolute left-3 top-2.5 text-gray-400 text-sm pointer-events-none">🔍</span>
+          
+          <div className="absolute right-1.5 top-1.5 flex items-center space-x-1">
+            {quickSearch && (
+              <button
+                type="button"
+                onClick={handleClearQuickSearch}
+                className="px-2 py-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded text-xs font-bold transition cursor-pointer"
+                title="Cancel search & clear cursor (Esc)"
+              >
+                ✕
+              </button>
+            )}
+            <button
+              type="submit"
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+            >
+              Search
+            </button>
+          </div>
         </form>
       </div>
 
