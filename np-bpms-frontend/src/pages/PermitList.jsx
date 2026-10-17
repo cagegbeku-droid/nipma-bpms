@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import PermitQRBadge from '../components/PermitQRBadge';
+import DocumentViewerModal from '../components/DocumentViewerModal';
 import { API_BASE_URL } from '../config/api';
 
 const PermitList = () => {
@@ -43,8 +44,26 @@ const PermitList = () => {
   const [editingPermit, setEditingPermit] = useState(null);   
   const [editFormData, setEditFormData] = useState({});       
   const [isSaving, setIsSaving] = useState(false);            
+  const [dragOverCategory, setDragOverCategory] = useState(null); // 'certificate' | 'drawings' | 'permitForm' | null
   const [uploadingDocs, setUploadingDocs] = useState({ certificate: false, drawings: false, permitForm: false });
   const isAnyUploading = Boolean(uploadingDocs.certificate || uploadingDocs.drawings || uploadingDocs.permitForm);
+
+  // Extract all attached document links for a permit
+  const getAllDocUrls = (permit) => {
+    if (!permit) return [];
+    const urls = [];
+    const parse = (val) => {
+      if (!val || val === 'null' || val === 'undefined') return;
+      val.split(',').forEach(link => {
+        const clean = link.trim();
+        if (clean && clean !== 'null' && clean !== 'undefined') urls.push(clean);
+      });
+    };
+    parse(permit.certificate_link);
+    parse(permit.drawings_links);
+    parse(permit.permit_form_link);
+    return urls;
+  };
 
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
   const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
@@ -1233,10 +1252,28 @@ const PermitList = () => {
                   </div>
                 </div>
 
-                {/* 3 DOCUMENT CARDS WITH DIRECT INSTANT UPLOAD */}
+                {/* 3 DOCUMENT CARDS WITH DRAG & DROP & CONCURRENT STAGING */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* CARD 1: CERTIFICATE */}
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                  <div 
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (isOfficer && !uploadingDocs.certificate) setDragOverCategory('certificate');
+                    }}
+                    onDragLeave={() => setDragOverCategory(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverCategory(null);
+                      if (isOfficer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleDirectUpload('certificate', e.dataTransfer.files);
+                      }
+                    }}
+                    className={`bg-white p-5 rounded-lg border shadow-sm flex flex-col justify-between transition-all duration-200 relative ${
+                      dragOverCategory === 'certificate' 
+                        ? 'border-2 border-dashed border-blue-500 bg-blue-50/70 ring-2 ring-blue-300 ring-opacity-50 scale-[1.01]' 
+                        : 'border-gray-200'
+                    }`}
+                  >
                     <div>
                       <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
                         <span>📜 Certificate</span>
@@ -1254,6 +1291,12 @@ const PermitList = () => {
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
                           <span className="animate-spin text-base">⏳</span>
                           <span>Uploading certificate to Google Drive...</span>
+                        </div>
+                      )}
+
+                      {dragOverCategory === 'certificate' && (
+                        <div className="mt-3 p-2 bg-blue-100 border border-blue-300 rounded text-center text-xs text-blue-800 font-bold animate-pulse">
+                          📥 Drop Certificate file to upload
                         </div>
                       )}
                     </div>
@@ -1285,7 +1328,25 @@ const PermitList = () => {
                   </div>
 
                   {/* CARD 2: DRAWINGS */}
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                  <div 
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (isOfficer && !uploadingDocs.drawings) setDragOverCategory('drawings');
+                    }}
+                    onDragLeave={() => setDragOverCategory(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverCategory(null);
+                      if (isOfficer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleDirectUpload('drawings', e.dataTransfer.files);
+                      }
+                    }}
+                    className={`bg-white p-5 rounded-lg border shadow-sm flex flex-col justify-between transition-all duration-200 relative ${
+                      dragOverCategory === 'drawings' 
+                        ? 'border-2 border-dashed border-blue-500 bg-blue-50/70 ring-2 ring-blue-300 ring-opacity-50 scale-[1.01]' 
+                        : 'border-gray-200'
+                    }`}
+                  >
                     <div>
                       <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
                         <span>📐 Architectural Drawings</span>
@@ -1303,6 +1364,12 @@ const PermitList = () => {
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
                           <span className="animate-spin text-base">⏳</span>
                           <span>Uploading drawings to Google Drive...</span>
+                        </div>
+                      )}
+
+                      {dragOverCategory === 'drawings' && (
+                        <div className="mt-3 p-2 bg-blue-100 border border-blue-300 rounded text-center text-xs text-blue-800 font-bold animate-pulse">
+                          📥 Drop Architectural Drawings to upload
                         </div>
                       )}
                     </div>
@@ -1335,7 +1402,25 @@ const PermitList = () => {
                   </div>
 
                   {/* CARD 3: PERMIT FORM */}
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                  <div 
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (isOfficer && !uploadingDocs.permitForm) setDragOverCategory('permitForm');
+                    }}
+                    onDragLeave={() => setDragOverCategory(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverCategory(null);
+                      if (isOfficer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleDirectUpload('permitForm', e.dataTransfer.files);
+                      }
+                    }}
+                    className={`bg-white p-5 rounded-lg border shadow-sm flex flex-col justify-between transition-all duration-200 relative ${
+                      dragOverCategory === 'permitForm' 
+                        ? 'border-2 border-dashed border-blue-500 bg-blue-50/70 ring-2 ring-blue-300 ring-opacity-50 scale-[1.01]' 
+                        : 'border-gray-200'
+                    }`}
+                  >
                     <div>
                       <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
                         <span>📑 Permit Form</span>
@@ -1353,6 +1438,12 @@ const PermitList = () => {
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
                           <span className="animate-spin text-base">⏳</span>
                           <span>Uploading permit form to Google Drive...</span>
+                        </div>
+                      )}
+
+                      {dragOverCategory === 'permitForm' && (
+                        <div className="mt-3 p-2 bg-blue-100 border border-blue-300 rounded text-center text-xs text-blue-800 font-bold animate-pulse">
+                          📥 Drop Permit Form to upload
                         </div>
                       )}
                     </div>
@@ -1390,7 +1481,7 @@ const PermitList = () => {
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between text-xs text-slate-600">
                     <div className="flex items-center space-x-2">
                       <span className="text-base">⚡</span>
-                      <span><strong>Officer Document Management:</strong> Selecting any document immediately archives it to Google Drive and Supabase. You can attach multiple categories at the same time.</span>
+                      <span><strong>Officer Document Management:</strong> Drag and drop files onto any card or click attach. Supports simultaneous multi-category uploads to Google Drive.</span>
                     </div>
                     {isAnyUploading && (
                       <div className="flex items-center space-x-1.5 text-blue-600 font-bold shrink-0">
@@ -1401,7 +1492,28 @@ const PermitList = () => {
                   </div>
                 )}
 
-                <div className="pt-2 flex justify-end">
+                {/* MODAL BOTTOM ACTION BAR */}
+                <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200">
+                  {/* Batch Open All Documents Button */}
+                  <div>
+                    {getAllDocUrls(selectedPermit).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const urls = getAllDocUrls(selectedPermit);
+                          showToast(`Opening ${urls.length} document tab(s)...`, 'info');
+                          urls.forEach((url, i) => {
+                            setTimeout(() => window.open(url, '_blank'), i * 250);
+                          });
+                        }}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-lg text-xs flex items-center space-x-1.5 shadow transition cursor-pointer"
+                        title="Open all attached documents in separate browser tabs"
+                      >
+                        <span>📦 Open All Attachments ({getAllDocUrls(selectedPermit).length})</span>
+                      </button>
+                    )}
+                  </div>
+
                   <button 
                     onClick={() => handleShowQrBadge(selectedPermit)}
                     className="bg-purple-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-purple-700 transition text-xs flex items-center space-x-1.5 shadow"
@@ -1415,57 +1527,13 @@ const PermitList = () => {
         );
       })()}
 
-      {/* DOCUMENT PREVIEW MODAL */}
-      {viewerDoc.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-gray-200">
-            <div className="flex justify-between items-center px-6 py-4 bg-gray-900 text-white border-b border-gray-800">
-              <div className="flex items-center space-x-2 truncate">
-                <span className="text-xl">📄</span>
-                <h3 className="font-bold text-lg truncate text-gray-100">
-                  {viewerDoc.title || 'Document Preview'}
-                </h3>
-              </div>
-              
-              <div className="flex items-center space-x-3">
-                <a 
-                  href={viewerDoc.url} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white px-3 py-1.5 rounded border border-gray-700 transition"
-                >
-                  Open External ↗
-                </a>
-                <button 
-                  onClick={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
-                  className="text-gray-400 hover:text-white text-2xl font-bold w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800 transition cursor-pointer"
-                >
-                  &times;
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 bg-gray-100 relative">
-              <iframe 
-                src={getEmbedUrl(viewerDoc.url)} 
-                className="w-full h-full border-0"
-                title={viewerDoc.title || 'Document Preview'}
-                allow="autoplay"
-              />
-            </div>
-            
-            <div className="bg-white px-6 py-2.5 border-t border-gray-200 text-xs text-gray-500 flex justify-between items-center">
-              <span>Building Permit Records Management System</span>
-              <button 
-                onClick={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
-                className="px-4 py-1.5 bg-gray-200 text-gray-800 font-semibold rounded hover:bg-gray-300 transition cursor-pointer"
-              >
-                Close Viewer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* UPGRADED INTERACTIVE DOCUMENT VIEWER MODAL */}
+      <DocumentViewerModal
+        isOpen={viewerDoc.isOpen}
+        onClose={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
+        documentUrl={viewerDoc.url}
+        title={viewerDoc.title}
+      />
 
       {/* QR BADGE MODAL */}
       {qrModal.isOpen && (

@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import PermitQRBadge from '../components/PermitQRBadge';
+import DocumentViewerModal from '../components/DocumentViewerModal';
 import { API_BASE_URL } from '../config/api';
 
 const Dashboard = () => {
@@ -26,11 +27,13 @@ const Dashboard = () => {
   const [commercialCount, setCommercialCount] = useState(0);
   const [zonesCount, setZonesCount] = useState(0);
   const [quickSearch, setQuickSearch] = useState('');
+  const [recentFilter, setRecentFilter] = useState('ALL'); // 'ALL' | 'RESIDENTIAL' | 'COMMERCIAL' | 'OTHER'
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
   // Modals & Document Attachment States
   const [selectedPermit, setSelectedPermit] = useState(null);
+  const [dragOverCategory, setDragOverCategory] = useState(null); // 'certificate' | 'drawings' | 'permitForm' | null
   const [uploadingDocs, setUploadingDocs] = useState({ certificate: false, drawings: false, permitForm: false });
   const isAnyUploading = Boolean(uploadingDocs.certificate || uploadingDocs.drawings || uploadingDocs.permitForm);
   const [toast, setToast] = useState({ show: false, message: '', type: 'info' });
@@ -41,6 +44,35 @@ const Dashboard = () => {
   };
   const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
   const [qrModal, setQrModal] = useState({ isOpen: false, code: '', permitNum: '', applicantName: '' });
+
+  // Extract all attached document links for a permit
+  const getAllDocUrls = (permit) => {
+    if (!permit) return [];
+    const urls = [];
+    const parse = (val) => {
+      if (!val || val === 'null' || val === 'undefined') return;
+      val.split(',').forEach(link => {
+        const clean = link.trim();
+        if (clean && clean !== 'null' && clean !== 'undefined') urls.push(clean);
+      });
+    };
+    parse(permit.certificate_link);
+    parse(permit.drawings_links);
+    parse(permit.permit_form_link);
+    return urls;
+  };
+
+  // Filter recent records dynamically by purpose
+  const filteredRecentPermits = useMemo(() => {
+    if (recentFilter === 'ALL') return recentPermits;
+    return recentPermits.filter(p => {
+      const purp = (p.purpose || '').toUpperCase();
+      if (recentFilter === 'RESIDENTIAL') return purp.includes('RESIDENTIAL');
+      if (recentFilter === 'COMMERCIAL') return purp.includes('COMMERCIAL') || purp.includes('CIVIC') || purp.includes('INSTITUT');
+      if (recentFilter === 'OTHER') return !purp.includes('RESIDENTIAL') && !purp.includes('COMMERCIAL');
+      return true;
+    });
+  }, [recentPermits, recentFilter]);
 
   const handleOpenDocViewer = (url, title) => {
     if (!url) return;
@@ -590,19 +622,48 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* RECENT RECORDS SECTION */}
+      {/* RECENT RECORDS SECTION WITH QUICK FILTERS & RESPONSIVE VIEWS */}
       <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 pb-4 border-b border-gray-100">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-gray-100">
           <div>
             <h2 className="text-xl font-bold text-gray-900">Recent Records</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Latest municipal permit files and archived blueprints</p>
           </div>
           <Link
             to="/permits/historical"
             className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline"
           >
-            <span>View Full Records</span>
+            <span>View Full Records Registry</span>
             <span>→</span>
           </Link>
+        </div>
+
+        {/* Quick Filter Purpose Pills */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-2 scrollbar-none text-xs">
+          <button
+            onClick={() => setRecentFilter('ALL')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap cursor-pointer ${recentFilter === 'ALL' ? 'bg-blue-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            All Recent ({recentPermits.length})
+          </button>
+          <button
+            onClick={() => setRecentFilter('RESIDENTIAL')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap cursor-pointer ${recentFilter === 'RESIDENTIAL' ? 'bg-blue-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            🏡 Residential ({recentPermits.filter(p => (p.purpose || '').toUpperCase().includes('RESIDENTIAL')).length})
+          </button>
+          <button
+            onClick={() => setRecentFilter('COMMERCIAL')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap cursor-pointer ${recentFilter === 'COMMERCIAL' ? 'bg-blue-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            🏢 Commercial & Civic ({recentPermits.filter(p => { const purp = (p.purpose || '').toUpperCase(); return purp.includes('COMMERCIAL') || purp.includes('CIVIC') || purp.includes('INSTITUT'); }).length})
+          </button>
+          <button
+            onClick={() => setRecentFilter('OTHER')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap cursor-pointer ${recentFilter === 'OTHER' ? 'bg-blue-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+          >
+            📍 Mixed Use & Other ({recentPermits.filter(p => { const purp = (p.purpose || '').toUpperCase(); return !purp.includes('RESIDENTIAL') && !purp.includes('COMMERCIAL'); }).length})
+          </button>
         </div>
 
         {isLoading ? (
@@ -611,73 +672,131 @@ const Dashboard = () => {
               <div key={n} className="animate-pulse h-12 bg-gray-100 rounded-lg"></div>
             ))}
           </div>
-        ) : recentPermits.length === 0 ? (
+        ) : filteredRecentPermits.length === 0 ? (
           <div className="text-center py-12">
             <span className="text-3xl mb-2 inline-block">📂</span>
-            <p className="text-sm font-medium text-gray-600">No permits archived yet.</p>
+            <p className="text-sm font-medium text-gray-600">No permits found matching this filter.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50/70">
-                  <th className="py-3 px-4 rounded-l-lg">Permit Number</th>
-                  <th className="py-3 px-4">Applicant / Entity</th>
-                  <th className="py-3 px-4">Purpose</th>
-                  <th className="py-3 px-4">Location</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right rounded-r-lg">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
-                {recentPermits.map(permit => {
-                  const isArchived = permit.status === 'Synced' || permit.upload_status === 'completed' || permit.status === 'Archived';
-                  const purpose = (permit.purpose || 'RESIDENTIAL').toUpperCase();
-                  const isResidential = purpose.includes('RESIDENTIAL');
+          <>
+            {/* Desktop Table View (Hidden on small mobile screens) */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50/70">
+                    <th className="py-3 px-4 rounded-l-lg">Permit Number</th>
+                    <th className="py-3 px-4">Applicant / Entity</th>
+                    <th className="py-3 px-4">Purpose</th>
+                    <th className="py-3 px-4">Location</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right rounded-r-lg">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
+                  {filteredRecentPermits.map(permit => {
+                    const isArchived = permit.status === 'Synced' || permit.upload_status === 'completed' || permit.status === 'Archived';
+                    const purpose = (permit.purpose || 'RESIDENTIAL').toUpperCase();
+                    const isResidential = purpose.includes('RESIDENTIAL');
 
-                  return (
-                    <tr key={permit.id} className="hover:bg-blue-50/30 transition-colors group">
-                      <td className="py-3.5 px-4 font-bold text-gray-900 font-mono tracking-tight">
-                        {permit.permit_number}
-                      </td>
-                      <td className="py-3.5 px-4 font-medium text-gray-900 uppercase">
-                        {permit.applicant_name || 'N/A'}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className={`text-xs px-2.5 py-1 rounded-md font-medium ${isResidential
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'bg-purple-50 text-purple-700 border border-purple-200'
-                          }`}>
-                          {permit.purpose || 'RESIDENTIAL'}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 uppercase text-gray-600">
-                        {permit.location || 'N/A'}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold ${isArchived
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                          }`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${isArchived ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
-                          {isArchived ? 'Archived' : 'In Review'}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <button
-                          onClick={() => setSelectedPermit(permit)}
-                          className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap cursor-pointer"
-                        >
-                          <span>👁️</span>
-                          <span>View</span>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                    return (
+                      <tr key={permit.id} className="hover:bg-blue-50/30 transition-colors group">
+                        <td className="py-3.5 px-4 font-bold text-gray-900 font-mono tracking-tight">
+                          {permit.permit_number}
+                        </td>
+                        <td className="py-3.5 px-4 font-medium text-gray-900 uppercase">
+                          {permit.applicant_name || 'N/A'}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className={`text-xs px-2.5 py-1 rounded-md font-medium ${isResidential
+                              ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                              : 'bg-purple-50 text-purple-700 border border-purple-200'
+                            }`}>
+                            {permit.purpose || 'RESIDENTIAL'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 uppercase text-gray-600">
+                          <div className="flex items-center space-x-1.5">
+                            <span>{permit.location || 'N/A'}</span>
+                            {permit.location && (
+                              <a
+                                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(permit.location + ', Ghana')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-gray-400 hover:text-red-500 transition text-xs"
+                                title="Open location in Google Maps"
+                              >
+                                📍
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-semibold ${isArchived
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                            }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${isArchived ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                            {isArchived ? 'Archived' : 'In Review'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            onClick={() => setSelectedPermit(permit)}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline whitespace-nowrap cursor-pointer"
+                          >
+                            <span>👁️</span>
+                            <span>View</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Card View (Optimized for phones and small tablets) */}
+            <div className="md:hidden space-y-3">
+              {filteredRecentPermits.map(permit => {
+                const isArchived = permit.status === 'Synced' || permit.upload_status === 'completed' || permit.status === 'Archived';
+                const purpose = (permit.purpose || 'RESIDENTIAL').toUpperCase();
+                const isResidential = purpose.includes('RESIDENTIAL');
+
+                return (
+                  <div key={permit.id} className="p-4 bg-gray-50/70 border border-gray-200 rounded-xl space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="font-mono font-bold text-sm text-gray-900 block">{permit.permit_number}</span>
+                        <span className="text-xs font-medium text-gray-700 uppercase block">{permit.applicant_name || 'N/A'}</span>
+                      </div>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-md font-semibold ${isResidential ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-purple-50 text-purple-700 border border-purple-200'}`}>
+                        {permit.purpose || 'RESIDENTIAL'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-gray-600 pt-1 border-t border-gray-200/60">
+                      <div className="flex items-center space-x-1">
+                        <span>📍 {permit.location || 'N/A'}</span>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-semibold ${isArchived ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${isArchived ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                        {isArchived ? 'Archived' : 'In Review'}
+                      </span>
+                    </div>
+
+                    <div className="pt-2 flex justify-end">
+                      <button
+                        onClick={() => setSelectedPermit(permit)}
+                        className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition flex items-center justify-center space-x-1.5 shadow-2xs"
+                      >
+                        <span>👁️ View Documents & Details</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
 
@@ -747,10 +866,28 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* 3 DOCUMENT CARDS WITH STAGING SUPPORT */}
+                {/* 3 DOCUMENT CARDS WITH DRAG & DROP & CONCURRENT STAGING */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* CARD 1: CERTIFICATE */}
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                  <div 
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (isOfficer && !uploadingDocs.certificate) setDragOverCategory('certificate');
+                    }}
+                    onDragLeave={() => setDragOverCategory(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverCategory(null);
+                      if (isOfficer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleDirectUpload('certificate', e.dataTransfer.files);
+                      }
+                    }}
+                    className={`bg-white p-5 rounded-lg border shadow-sm flex flex-col justify-between transition-all duration-200 relative ${
+                      dragOverCategory === 'certificate' 
+                        ? 'border-2 border-dashed border-blue-500 bg-blue-50/70 ring-2 ring-blue-300 ring-opacity-50 scale-[1.01]' 
+                        : 'border-gray-200'
+                    }`}
+                  >
                     <div>
                       <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
                         <span>📜 Certificate</span>
@@ -768,6 +905,12 @@ const Dashboard = () => {
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
                           <span className="animate-spin text-base">⏳</span>
                           <span>Uploading certificate to Google Drive...</span>
+                        </div>
+                      )}
+
+                      {dragOverCategory === 'certificate' && (
+                        <div className="mt-3 p-2 bg-blue-100 border border-blue-300 rounded text-center text-xs text-blue-800 font-bold animate-pulse">
+                          📥 Drop Certificate file to upload
                         </div>
                       )}
                     </div>
@@ -799,7 +942,25 @@ const Dashboard = () => {
                   </div>
 
                   {/* CARD 2: DRAWINGS */}
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                  <div 
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (isOfficer && !uploadingDocs.drawings) setDragOverCategory('drawings');
+                    }}
+                    onDragLeave={() => setDragOverCategory(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverCategory(null);
+                      if (isOfficer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleDirectUpload('drawings', e.dataTransfer.files);
+                      }
+                    }}
+                    className={`bg-white p-5 rounded-lg border shadow-sm flex flex-col justify-between transition-all duration-200 relative ${
+                      dragOverCategory === 'drawings' 
+                        ? 'border-2 border-dashed border-blue-500 bg-blue-50/70 ring-2 ring-blue-300 ring-opacity-50 scale-[1.01]' 
+                        : 'border-gray-200'
+                    }`}
+                  >
                     <div>
                       <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
                         <span>📐 Architectural Drawings</span>
@@ -817,6 +978,12 @@ const Dashboard = () => {
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
                           <span className="animate-spin text-base">⏳</span>
                           <span>Uploading drawings to Google Drive...</span>
+                        </div>
+                      )}
+
+                      {dragOverCategory === 'drawings' && (
+                        <div className="mt-3 p-2 bg-blue-100 border border-blue-300 rounded text-center text-xs text-blue-800 font-bold animate-pulse">
+                          📥 Drop Architectural Drawings to upload
                         </div>
                       )}
                     </div>
@@ -849,7 +1016,25 @@ const Dashboard = () => {
                   </div>
 
                   {/* CARD 3: PERMIT FORM */}
-                  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm flex flex-col justify-between">
+                  <div 
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (isOfficer && !uploadingDocs.permitForm) setDragOverCategory('permitForm');
+                    }}
+                    onDragLeave={() => setDragOverCategory(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverCategory(null);
+                      if (isOfficer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                        handleDirectUpload('permitForm', e.dataTransfer.files);
+                      }
+                    }}
+                    className={`bg-white p-5 rounded-lg border shadow-sm flex flex-col justify-between transition-all duration-200 relative ${
+                      dragOverCategory === 'permitForm' 
+                        ? 'border-2 border-dashed border-blue-500 bg-blue-50/70 ring-2 ring-blue-300 ring-opacity-50 scale-[1.01]' 
+                        : 'border-gray-200'
+                    }`}
+                  >
                     <div>
                       <h4 className="font-bold text-gray-800 mb-2 border-b pb-2 flex items-center justify-between">
                         <span>📑 Permit Form</span>
@@ -867,6 +1052,12 @@ const Dashboard = () => {
                         <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
                           <span className="animate-spin text-base">⏳</span>
                           <span>Uploading permit form to Google Drive...</span>
+                        </div>
+                      )}
+
+                      {dragOverCategory === 'permitForm' && (
+                        <div className="mt-3 p-2 bg-blue-100 border border-blue-300 rounded text-center text-xs text-blue-800 font-bold animate-pulse">
+                          📥 Drop Permit Form to upload
                         </div>
                       )}
                     </div>
@@ -904,7 +1095,7 @@ const Dashboard = () => {
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between text-xs text-slate-600">
                     <div className="flex items-center space-x-2">
                       <span className="text-base">⚡</span>
-                      <span><strong>Officer Document Management:</strong> Selecting any document immediately archives it to Google Drive and Supabase. You can attach multiple categories at the same time.</span>
+                      <span><strong>Officer Document Management:</strong> Drag and drop files onto any card or click attach. Supports simultaneous multi-category uploads to Google Drive.</span>
                     </div>
                     {isAnyUploading && (
                       <div className="flex items-center space-x-1.5 text-blue-600 font-bold shrink-0">
@@ -915,7 +1106,28 @@ const Dashboard = () => {
                   </div>
                 )}
 
-                <div className="pt-2 flex justify-end">
+                {/* MODAL BOTTOM ACTION BAR */}
+                <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200">
+                  {/* Batch Open All Documents Button */}
+                  <div>
+                    {getAllDocUrls(selectedPermit).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const urls = getAllDocUrls(selectedPermit);
+                          showToast(`Opening ${urls.length} document tab(s)...`, 'info');
+                          urls.forEach((url, i) => {
+                            setTimeout(() => window.open(url, '_blank'), i * 250);
+                          });
+                        }}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-lg text-xs flex items-center space-x-1.5 shadow transition cursor-pointer"
+                        title="Open all attached documents in separate browser tabs"
+                      >
+                        <span>📦 Open All Attachments ({getAllDocUrls(selectedPermit).length})</span>
+                      </button>
+                    )}
+                  </div>
+
                   <button
                     onClick={() => handleShowQrBadge(selectedPermit)}
                     className="bg-purple-600 text-white font-bold px-4 py-2 rounded-lg hover:bg-purple-700 transition text-xs flex items-center space-x-1.5 shadow"
@@ -929,40 +1141,13 @@ const Dashboard = () => {
         );
       })()}
 
-      {/* DOCUMENT PREVIEW MODAL */}
-      {viewerDoc.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden border border-gray-200">
-            <div className="px-6 py-4 bg-gray-900 text-white flex justify-between items-center">
-              <span className="font-bold text-sm tracking-wide truncate max-w-lg">{viewerDoc.title}</span>
-              <div className="flex items-center space-x-3">
-                <a
-                  href={viewerDoc.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded transition"
-                >
-                  Open in New Tab ↗
-                </a>
-                <button
-                  onClick={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
-                  className="text-gray-400 hover:text-white p-1 rounded transition text-lg"
-                >
-                  ✕
-                </button>
-              </div>
-            </div>
-            <div className="flex-1 bg-gray-100 flex items-center justify-center relative">
-              <iframe
-                src={getEmbedUrl(viewerDoc.url)}
-                title={viewerDoc.title}
-                className="w-full h-full border-0"
-                allow="autoplay"
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      {/* UPGRADED INTERACTIVE DOCUMENT VIEWER MODAL */}
+      <DocumentViewerModal
+        isOpen={viewerDoc.isOpen}
+        onClose={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
+        documentUrl={viewerDoc.url}
+        title={viewerDoc.title}
+      />
 
       {/* QR BADGE MODAL */}
       {qrModal.isOpen && (
