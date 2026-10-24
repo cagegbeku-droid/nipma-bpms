@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import PermitQRBadge from '../components/PermitQRBadge';
 import DocumentViewerModal from '../components/DocumentViewerModal';
+import CircularProgress from '../components/CircularProgress';
 import { API_BASE_URL } from '../config/api';
 
 const PermitList = () => {
@@ -57,6 +58,7 @@ const PermitList = () => {
   const [isSaving, setIsSaving] = useState(false);            
   const [dragOverCategory, setDragOverCategory] = useState(null); // 'certificate' | 'drawings' | 'permitForm' | null
   const [uploadingDocs, setUploadingDocs] = useState({ certificate: false, drawings: false, permitForm: false });
+  const [uploadProgress, setUploadProgress] = useState({ certificate: 0, drawings: 0, permitForm: 0 });
   const isAnyUploading = Boolean(uploadingDocs.certificate || uploadingDocs.drawings || uploadingDocs.permitForm);
 
   const searchInputRef = useRef(null);
@@ -402,33 +404,49 @@ const PermitList = () => {
   };
 
   const handleEditChange = (e) => {
-    const { name, value } = e.target;
+    const { name, value, selectionStart, selectionEnd } = e.target;
+    const inputEl = e.target;
+
+    // Do NOT mutate string on keypress so browser cursor remains exactly where the user is typing
     setEditFormData(prev => ({ 
       ...prev, 
-      [name]: name === 'date_issued' || name === 'phone' ? value : value.toUpperCase() 
+      [name]: value 
     }));
+
+    if (selectionStart !== null && selectionEnd !== null) {
+      requestAnimationFrame(() => {
+        if (inputEl && inputEl.setSelectionRange && document.activeElement === inputEl) {
+          inputEl.setSelectionRange(selectionStart, selectionEnd);
+        }
+      });
+    }
   };
 
-  const handlePermitNumberBlur = () => {
-    const formatted = formatPermitNumberInput(editFormData.permit_number);
-    setEditFormData(prev => ({ ...prev, permit_number: formatted }));
+  const handleEditBlur = (e) => {
+    const { name, value } = e.target;
+    if (name === 'permit_number') {
+      const formatted = formatPermitNumberInput(value);
+      setEditFormData(prev => ({ ...prev, permit_number: formatted }));
+    } else if (name !== 'phone' && name !== 'date_issued') {
+      setEditFormData(prev => ({ ...prev, [name]: (value || '').toUpperCase() }));
+    }
   };
 
   const submitEdit = async (e) => {
     e.preventDefault();
     setIsSaving(true);
 
-    const finalPurpose = editFormData.purpose === 'OTHER' ? editFormData.custom_purpose : editFormData.purpose;
-    const formattedPermitNum = formatPermitNumberInput(editFormData.permit_number);
+    const finalPurpose = (editFormData.purpose === 'OTHER' ? editFormData.custom_purpose : editFormData.purpose).toUpperCase();
+    const formattedPermitNum = formatPermitNumberInput(editFormData.permit_number).toUpperCase();
 
     const payload = {
       permit_number: formattedPermitNum,
       date_issued: editFormData.date_issued,
       purpose: finalPurpose,
-      applicant_name: editFormData.applicant_name,
-      phone: editFormData.phone,
-      address: editFormData.address,
-      location: editFormData.location
+      applicant_name: (editFormData.applicant_name || '').toUpperCase().trim(),
+      phone: (editFormData.phone || '').trim(),
+      address: (editFormData.address || '').toUpperCase().trim(),
+      location: (editFormData.location || '').toUpperCase().trim()
     };
 
     try {
@@ -448,16 +466,20 @@ const PermitList = () => {
       }
 
       setPermits(prev => prev.map(p => p.id === editingPermit.id ? { ...p, ...payload } : p));
+      if (selectedPermit && selectedPermit.id === editingPermit.id) {
+        setSelectedPermit(prev => ({ ...prev, ...payload }));
+      }
       setEditingPermit(null);
+      showToast("Record updated successfully!", "success");
     } catch (err) {
       console.error("Edit Error:", err);
-      alert("Server connection error during update.");
+      alert("Server connection error during update: " + err.message);
     } finally {
       setIsSaving(false);
     }
   };
 
-  // DIRECT IMMEDIATE UPLOAD UPON FILE SELECTION (OFFICERS ONLY)
+  // DIRECT IMMEDIATE UPLOAD UPON FILE SELECTION (OFFICERS ONLY) WITH LIVE CIRCULAR PROGRESS
   const handleDirectUpload = async (category, fileList) => {
     if (!isOfficer || !token) {
       alert("Access Denied: Only authenticated officers who log in can upload documents.");
@@ -467,6 +489,7 @@ const PermitList = () => {
 
     const filesArray = Array.from(fileList);
     setUploadingDocs(prev => ({ ...prev, [category]: true }));
+    setUploadProgress(prev => ({ ...prev, [category]: 10 }));
 
     const categoryLabels = {
       certificate: 'Certificate',
@@ -475,7 +498,7 @@ const PermitList = () => {
     };
 
     const docName = categoryLabels[category] || 'Document';
-    showToast(`⏳ Uploading ${docName} to Google Drive...`, 'info');
+    showToast(`⏳ Uploading ${docName}...`, 'info');
 
     try {
       const formData = new FormData();
@@ -487,15 +510,45 @@ const PermitList = () => {
         filesArray.forEach(f => formData.append('permitForm', f));
       }
 
-      const res = await fetch(`${API_BASE_URL}/api/permits/${selectedPermit.id}/upload-document`, {
-        method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        body: formData
+      const data = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE_URL}/api/permits/${selectedPermit.id}/upload-document`);
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        }
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.min(Math.round((e.loaded / e.total) * 95), 95);
+            setUploadProgress(prev => ({ ...prev, [category]: Math.max(pct, 12) }));
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const resData = JSON.parse(xhr.responseText);
+              setUploadProgress(prev => ({ ...prev, [category]: 100 }));
+              resolve(resData);
+            } catch (err) {
+              reject(new Error("Invalid response from server."));
+            }
+          } else {
+            try {
+              const errData = JSON.parse(xhr.responseText);
+              reject(new Error(errData.message || `Upload failed with status ${xhr.status}`));
+            } catch {
+              reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+          }
+        };
+
+        xhr.onerror = () => reject(new Error("Network connection error during document upload."));
+        xhr.send(formData);
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || "Failed to upload document to Google Drive.");
+      if (!data || !data.success) {
+        throw new Error(data?.message || "Failed to upload document to Google Drive.");
       }
 
       const updatedCert = data.permit?.certificate_link || data.certificate_link || (category === 'certificate' ? data.new_links : undefined);
@@ -536,7 +589,10 @@ const PermitList = () => {
       showToast(`Upload failed: ${err.message}`, 'error');
       alert("Upload failed: " + err.message);
     } finally {
-      setUploadingDocs(prev => ({ ...prev, [category]: false }));
+      setTimeout(() => {
+        setUploadingDocs(prev => ({ ...prev, [category]: false }));
+        setUploadProgress(prev => ({ ...prev, [category]: 0 }));
+      }, 700);
     }
   };
 
@@ -1367,9 +1423,18 @@ const PermitList = () => {
                       </div>
 
                       {isOfficer && uploadingDocs.certificate && (
-                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
-                          <span className="animate-spin text-base">⏳</span>
-                          <span>Uploading certificate to Google Drive...</span>
+                        <div className="mt-3 p-3 bg-blue-50/90 border border-blue-200 rounded-lg flex items-center justify-between text-xs text-blue-900 shadow-2xs">
+                          <div className="flex items-center space-x-2.5">
+                            <CircularProgress progress={uploadProgress.certificate || 10} size={32} strokeWidth={3} color="#2563eb" />
+                            <div>
+                              <p className="font-bold text-blue-900">
+                                {uploadProgress.certificate >= 95 ? 'Archiving to Google Drive...' : 'Uploading Certificate...'}
+                              </p>
+                              <p className="text-[11px] text-blue-600">
+                                {uploadProgress.certificate >= 95 ? 'Saving link to database' : `${uploadProgress.certificate || 10}% completed`}
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -1382,12 +1447,12 @@ const PermitList = () => {
 
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDocs.certificate ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
+                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDocs.certificate ? 'bg-blue-50 text-blue-700 border-blue-200 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
                           {uploadingDocs.certificate ? (
-                            <>
-                              <span className="animate-spin">⏳</span>
-                              <span>Uploading...</span>
-                            </>
+                            <div className="flex items-center space-x-2">
+                              <CircularProgress progress={uploadProgress.certificate || 10} size={20} strokeWidth={2.5} color="#2563eb" />
+                              <span>Uploading ({uploadProgress.certificate || 10}%)...</span>
+                            </div>
                           ) : (
                             <span>{selectedPermit.certificate_link && selectedPermit.certificate_link !== 'null' ? '🔄 Replace Certificate' : '📁 Attach Certificate'}</span>
                           )}
@@ -1440,9 +1505,18 @@ const PermitList = () => {
                       </div>
 
                       {isOfficer && uploadingDocs.drawings && (
-                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
-                          <span className="animate-spin text-base">⏳</span>
-                          <span>Uploading drawings to Google Drive...</span>
+                        <div className="mt-3 p-3 bg-blue-50/90 border border-blue-200 rounded-lg flex items-center justify-between text-xs text-blue-900 shadow-2xs">
+                          <div className="flex items-center space-x-2.5">
+                            <CircularProgress progress={uploadProgress.drawings || 10} size={32} strokeWidth={3} color="#2563eb" />
+                            <div>
+                              <p className="font-bold text-blue-900">
+                                {uploadProgress.drawings >= 95 ? 'Archiving to Google Drive...' : 'Uploading Drawings...'}
+                              </p>
+                              <p className="text-[11px] text-blue-600">
+                                {uploadProgress.drawings >= 95 ? 'Saving links to database' : `${uploadProgress.drawings || 10}% completed`}
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -1455,12 +1529,12 @@ const PermitList = () => {
 
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDocs.drawings ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
+                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDocs.drawings ? 'bg-blue-50 text-blue-700 border-blue-200 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
                           {uploadingDocs.drawings ? (
-                            <>
-                              <span className="animate-spin">⏳</span>
-                              <span>Uploading...</span>
-                            </>
+                            <div className="flex items-center space-x-2">
+                              <CircularProgress progress={uploadProgress.drawings || 10} size={20} strokeWidth={2.5} color="#2563eb" />
+                              <span>Uploading ({uploadProgress.drawings || 10}%)...</span>
+                            </div>
                           ) : (
                             <span>{selectedPermit.drawings_links && selectedPermit.drawings_links !== 'null' ? '+ Add More Drawings' : '+ Add Architectural Drawings'}</span>
                           )}
@@ -1514,9 +1588,18 @@ const PermitList = () => {
                       </div>
 
                       {isOfficer && uploadingDocs.permitForm && (
-                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center space-x-2 text-xs text-blue-700 animate-pulse font-semibold">
-                          <span className="animate-spin text-base">⏳</span>
-                          <span>Uploading permit form to Google Drive...</span>
+                        <div className="mt-3 p-3 bg-blue-50/90 border border-blue-200 rounded-lg flex items-center justify-between text-xs text-blue-900 shadow-2xs">
+                          <div className="flex items-center space-x-2.5">
+                            <CircularProgress progress={uploadProgress.permitForm || 10} size={32} strokeWidth={3} color="#2563eb" />
+                            <div>
+                              <p className="font-bold text-blue-900">
+                                {uploadProgress.permitForm >= 95 ? 'Archiving to Google Drive...' : 'Uploading Permit Form...'}
+                              </p>
+                              <p className="text-[11px] text-blue-600">
+                                {uploadProgress.permitForm >= 95 ? 'Saving link to database' : `${uploadProgress.permitForm || 10}% completed`}
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -1529,12 +1612,12 @@ const PermitList = () => {
 
                     {isOfficer && (
                       <div className="mt-4 pt-3 border-t border-gray-100">
-                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDocs.permitForm ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
+                        <label className={`w-full py-2.5 px-3 text-xs font-bold rounded-lg flex items-center justify-center space-x-2 transition cursor-pointer border ${uploadingDocs.permitForm ? 'bg-blue-50 text-blue-700 border-blue-200 pointer-events-none' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'}`}>
                           {uploadingDocs.permitForm ? (
-                            <>
-                              <span className="animate-spin">⏳</span>
-                              <span>Uploading...</span>
-                            </>
+                            <div className="flex items-center space-x-2">
+                              <CircularProgress progress={uploadProgress.permitForm || 10} size={20} strokeWidth={2.5} color="#2563eb" />
+                              <span>Uploading ({uploadProgress.permitForm || 10}%)...</span>
+                            </div>
                           ) : (
                             <span>{selectedPermit.permit_form_link && selectedPermit.permit_form_link !== 'null' ? '+ Add More Forms' : '+ Attach Permit Form'}</span>
                           )}
@@ -1654,7 +1737,7 @@ const PermitList = () => {
                     name="permit_number" 
                     value={editFormData.permit_number} 
                     onChange={handleEditChange} 
-                    onBlur={handlePermitNumberBlur}
+                    onBlur={handleEditBlur}
                     required 
                     className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" 
                     placeholder="E.G., NIPDA/PRAM/25/17"
@@ -1680,25 +1763,66 @@ const PermitList = () => {
                 {editFormData.purpose === 'OTHER' && (
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Specify Other Purpose</label>
-                    <input type="text" name="custom_purpose" value={editFormData.custom_purpose} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" placeholder="E.G., INDUSTRIAL WAREHOUSE" />
+                    <input 
+                      type="text" 
+                      name="custom_purpose" 
+                      value={editFormData.custom_purpose} 
+                      onChange={handleEditChange} 
+                      onBlur={handleEditBlur}
+                      required 
+                      className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" 
+                      placeholder="E.G., INDUSTRIAL WAREHOUSE" 
+                    />
                   </div>
                 )}
 
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Applicant / Organization Name</label>
-                  <input type="text" name="applicant_name" value={editFormData.applicant_name} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" />
+                  <input 
+                    type="text" 
+                    name="applicant_name" 
+                    value={editFormData.applicant_name} 
+                    onChange={handleEditChange} 
+                    onBlur={handleEditBlur}
+                    required 
+                    className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" 
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                  <input type="text" name="phone" value={editFormData.phone} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md text-sm" placeholder="Optional" />
+                  <input 
+                    type="text" 
+                    name="phone" 
+                    value={editFormData.phone} 
+                    onChange={handleEditChange} 
+                    onBlur={handleEditBlur}
+                    className="w-full p-2 border border-gray-300 rounded-md text-sm" 
+                    placeholder="Optional" 
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                  <input type="text" name="location" value={editFormData.location} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" />
+                  <input 
+                    type="text" 
+                    name="location" 
+                    value={editFormData.location} 
+                    onChange={handleEditChange} 
+                    onBlur={handleEditBlur}
+                    required 
+                    className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" 
+                  />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-                  <input type="text" name="address" value={editFormData.address} onChange={handleEditChange} required className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" />
+                  <input 
+                    type="text" 
+                    name="address" 
+                    value={editFormData.address} 
+                    onChange={handleEditChange} 
+                    onBlur={handleEditBlur}
+                    required 
+                    className="w-full p-2 border border-gray-300 rounded-md uppercase text-sm" 
+                  />
                 </div>
               </div>
 

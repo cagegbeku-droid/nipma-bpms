@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Login from '../Login';
+import CircularProgress from '../components/CircularProgress';
 import { API_BASE_URL } from '../config/api';
 
 // Segmented Date Input Sub-Component with pre-rendered slashes and auto-focusing segments
@@ -283,6 +284,7 @@ const NewPermit = () => {
   const [message, setMessage] = useState('');
   const [duplicateWarning, setDuplicateWarning] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [createdPermitNumber, setCreatedPermitNumber] = useState('');
 
   const [qrCodeData, setQrCodeData] = useState({ isOpen: false, code: '', permitNum: '' });
@@ -468,17 +470,45 @@ const NewPermit = () => {
       files.drawings.forEach(f => formDataToSend.append('drawings', f));
       files.permitForm.forEach(f => formDataToSend.append('permitForm', f));
 
-      const archiveRes = await fetch(`${API_BASE_URL}/api/permits/archive`, {
-        method: "POST",
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
-        body: formDataToSend
+      setUploadProgress(10);
+
+      const archiveData = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${API_BASE_URL}/api/permits/archive`);
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.min(Math.round((e.loaded / e.total) * 95), 95);
+            setUploadProgress(Math.max(pct, 12));
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const resData = JSON.parse(xhr.responseText);
+              setUploadProgress(100);
+              resolve(resData);
+            } catch (err) {
+              reject(new Error("Invalid response from server."));
+            }
+          } else {
+            try {
+              const errData = JSON.parse(xhr.responseText);
+              reject(new Error(errData.message || `Failed to archive permit record (Status ${xhr.status}).`));
+            } catch {
+              reject(new Error(`Failed to archive permit record (Status ${xhr.status}).`));
+            }
+          }
+        };
+
+        xhr.onerror = () => reject(new Error("Network connection error during archive."));
+        xhr.send(formDataToSend);
       });
 
-      const archiveData = await archiveRes.json();
-      if (!archiveRes.ok || !archiveData.success) {
-        throw new Error(archiveData.message || "Failed to archive permit record.");
+      if (!archiveData || !archiveData.success) {
+        throw new Error(archiveData?.message || "Failed to archive permit record.");
       }
 
       // STEP 3: GENERATE QR BADGE
@@ -507,7 +537,10 @@ const NewPermit = () => {
       console.error("Submit Error:", err);
       setMessage("Error saving record: " + err.message);
     } finally {
-      setIsSubmitting(false);
+      setTimeout(() => {
+        setIsSubmitting(false);
+        setUploadProgress(0);
+      }, 600);
     }
   };
 
@@ -780,9 +813,20 @@ const NewPermit = () => {
           className="w-full bg-blue-600 text-white font-semibold py-4 rounded-md hover:bg-blue-700 transition shadow-md flex items-center justify-center space-x-2 disabled:opacity-70 cursor-pointer"
         >
           {isSubmitting ? (
-            <span className="flex items-center gap-2">
-              <span className="animate-spin text-lg">⏳</span>
-              <span>{files.certificate.length > 0 || files.drawings.length > 0 || files.permitForm.length > 0 ? 'Archiving & Uploading Documents...' : 'Saving Permit Record...'}</span>
+            <span className="flex items-center gap-2.5">
+              <CircularProgress 
+                progress={uploadProgress || 10} 
+                size={22} 
+                strokeWidth={2.5} 
+                color="#ffffff" 
+                bgColor="rgba(255,255,255,0.3)" 
+                textColor="#ffffff" 
+              />
+              <span>
+                {files.certificate.length > 0 || files.drawings.length > 0 || files.permitForm.length > 0 
+                  ? (uploadProgress >= 95 ? 'Finalizing on Google Drive...' : `Archiving & Uploading (${uploadProgress || 10}%)...`) 
+                  : 'Saving Permit Record...'}
+              </span>
             </span>
           ) : (
             <span>Save Permit Record</span>
