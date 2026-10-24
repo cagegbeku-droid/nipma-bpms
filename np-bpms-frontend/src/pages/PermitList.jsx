@@ -20,7 +20,17 @@ const PermitList = () => {
   // Only users who log in with a valid officer session token are authenticated officers
   const isOfficer = Boolean(token && token !== 'null' && token !== 'undefined');
 
-  const [permits, setPermits] = useState([]);
+  // Read instant cached permits from localStorage for 0ms initial load time
+  const cachedPermits = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('bpms_cached_permits');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const [permits, setPermits] = useState(cachedPermits || []);
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
@@ -29,7 +39,8 @@ const PermitList = () => {
   const [sortBy, setSortBy] = useState('date-desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!cachedPermits || cachedPermits.length === 0);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
   
   const [confirmDeleteModal, setConfirmDeleteModal] = useState({ isOpen: false, permitId: null, permitNumber: '' });
@@ -115,23 +126,39 @@ const PermitList = () => {
     setCurrentPage(1);
   }, [searchTerm, selectedMonth, selectedYear, selectedPurpose, selectedLocation, sortBy, pageSize]);
 
+  // Auto-sync permits changes to localStorage cache
+  useEffect(() => {
+    if (permits && permits.length > 0) {
+      try {
+        localStorage.setItem('bpms_cached_permits', JSON.stringify(permits));
+      } catch (e) {
+        console.warn("Failed to update permits cache:", e);
+      }
+    }
+  }, [permits]);
+
   useEffect(() => {
     fetchPermits();
   }, []);
 
   const fetchPermits = async () => {
     try {
+      setIsSyncing(true);
       const response = await fetch(`${API_BASE_URL}/api/permits`);
       const data = await response.json();
-      if (data.success) {
+      if (data.success && Array.isArray(data.data)) {
         setPermits(data.data);
-      } else {
+        setError('');
+      } else if (!cachedPermits || cachedPermits.length === 0) {
         setError("Failed to load records. Please try again.");
       }
     } catch (err) {
-      setError("Unable to connect to records registry. Please try again later.");
+      if (!cachedPermits || cachedPermits.length === 0) {
+        setError("Unable to connect to records registry. Please try again later.");
+      }
     } finally {
       setIsLoading(false);
+      setIsSyncing(false);
     }
   };
 
@@ -794,9 +821,17 @@ const PermitList = () => {
       {/* REGISTRY HEADER & ACTIONS */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 no-print">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
-            Building Permit Records Registry
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
+              Building Permit Records Registry
+            </h1>
+            {isSyncing && (
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                Syncing...
+              </span>
+            )}
+          </div>
         </div>
         
         <div className="flex flex-wrap items-center gap-2.5">

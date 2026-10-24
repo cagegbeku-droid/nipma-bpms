@@ -21,14 +21,25 @@ const Dashboard = () => {
   const isOfficer = Boolean(token && token !== 'null' && token !== 'undefined');
   const isUploader = isOfficer;
 
-  const [totalPermits, setTotalPermits] = useState(0);
-  const [recentPermits, setRecentPermits] = useState([]);
-  const [residentialCount, setResidentialCount] = useState(0);
-  const [commercialCount, setCommercialCount] = useState(0);
-  const [zonesCount, setZonesCount] = useState(0);
+  // Read instant cached stats from localStorage for 0ms load time
+  const cachedStats = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('bpms_cached_dashboard');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const [totalPermits, setTotalPermits] = useState(cachedStats?.total || 0);
+  const [recentPermits, setRecentPermits] = useState(cachedStats?.recent || []);
+  const [residentialCount, setResidentialCount] = useState(cachedStats?.residential || 0);
+  const [commercialCount, setCommercialCount] = useState(cachedStats?.commercial || 0);
+  const [zonesCount, setZonesCount] = useState(cachedStats?.zones || 0);
   const [quickSearch, setQuickSearch] = useState('');
   const [recentFilter, setRecentFilter] = useState('ALL'); // 'ALL' | 'RESIDENTIAL' | 'COMMERCIAL' | 'OTHER'
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!cachedStats);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
 
   // Modals & Document Attachment States
@@ -430,6 +441,7 @@ const Dashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
+      setIsSyncing(true);
       const [statsRes, permitsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/permits/stats`),
         fetch(`${API_BASE_URL}/api/permits`)
@@ -438,31 +450,64 @@ const Dashboard = () => {
       const statsData = await statsRes.json();
       const permitsData = await permitsRes.json();
 
-      if (statsData.success) {
-        setTotalPermits(statsData.total || (Array.isArray(permitsData.data) ? permitsData.data.length : 0));
-      } else {
-        setError("Unable to load summary statistics.");
-      }
+      let calculatedTotal = 0;
+      let calculatedRecent = [];
+      let resCount = 0;
+      let commCount = 0;
+      let uniqueLocations = 0;
 
       if (permitsData.success && Array.isArray(permitsData.data)) {
         const records = permitsData.data;
-        setRecentPermits(records.slice(0, 6));
+        calculatedRecent = records.slice(0, 6);
+        setRecentPermits(calculatedRecent);
 
-        const resCount = records.filter(p => (p.purpose || '').toUpperCase().includes('RESIDENTIAL')).length;
-        const commCount = records.filter(p => {
+        resCount = statsData.residential ?? records.filter(p => (p.purpose || '').toUpperCase().includes('RESIDENTIAL')).length;
+        commCount = statsData.commercial ?? records.filter(p => {
           const purp = (p.purpose || '').toUpperCase();
           return purp.includes('COMMERCIAL') || purp.includes('INDUSTRIAL') || purp.includes('CIVIC') || purp.includes('INSTITUTIONAL');
         }).length;
-        const uniqueLocations = new Set(records.map(p => (p.location || '').trim().toUpperCase()).filter(Boolean)).size;
+        const uniqueLocSet = new Set(records.map(p => (p.location || '').trim().toUpperCase()).filter(Boolean));
+        uniqueLocations = statsData.zones ?? (uniqueLocSet.size || 1);
 
         setResidentialCount(resCount);
         setCommercialCount(commCount || (records.length - resCount));
         setZonesCount(uniqueLocations || 1);
+
+        // Pre-cache the full permits list for instant loading on the historical registry and analytics pages
+        try {
+          localStorage.setItem('bpms_cached_permits', JSON.stringify(records));
+        } catch (e) {
+          console.warn("Could not cache permits records:", e);
+        }
+      }
+
+      if (statsData.success) {
+        calculatedTotal = statsData.total || (Array.isArray(permitsData.data) ? permitsData.data.length : 0);
+        setTotalPermits(calculatedTotal);
+      } else if (!cachedStats) {
+        setError("Unable to load summary statistics.");
+      }
+
+      // Save instant stats cache for next visit
+      try {
+        localStorage.setItem('bpms_cached_dashboard', JSON.stringify({
+          total: calculatedTotal,
+          recent: calculatedRecent,
+          residential: resCount,
+          commercial: commCount || (permitsData?.data?.length ? permitsData.data.length - resCount : 0),
+          zones: uniqueLocations || 1,
+          timestamp: Date.now()
+        }));
+      } catch (cacheErr) {
+        console.warn("Could not cache dashboard data:", cacheErr);
       }
     } catch (err) {
-      setError("Unable to retrieve records at this time. Please try again later.");
+      if (!cachedStats) {
+        setError("Unable to retrieve records at this time. Please try again later.");
+      }
     } finally {
       setIsLoading(false);
+      setIsSyncing(false);
     }
   };
 
@@ -488,9 +533,17 @@ const Dashboard = () => {
       {/* Header Section with Quick Search */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 pb-6 border-b border-gray-200">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
-            Building Permit Records Management System
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
+              Building Permit Records Management System
+            </h1>
+            {isSyncing && (
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                Syncing...
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Quick Search Bar with Instant Clear & Cursor Dismissal */}

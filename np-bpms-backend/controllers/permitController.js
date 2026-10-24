@@ -52,12 +52,36 @@ const getPermits = async (req, res) => {
 // ==========================================
 const getPermitStats = async (req, res) => {
   try {
-    const { count, error } = await supabase
+    const { data, count, error } = await supabase
       .from('permits')
-      .select('id', { count: 'exact', head: true });
+      .select('id, purpose, location', { count: 'exact' });
 
     if (error) throw error;
-    res.status(200).json({ success: true, total: count || 0 });
+
+    const total = count !== null ? count : (data ? data.length : 0);
+    let residential = 0;
+    let commercial = 0;
+    const locations = new Set();
+
+    (data || []).forEach(p => {
+      const purp = (p.purpose || '').toUpperCase();
+      if (purp.includes('RESIDENTIAL')) {
+        residential++;
+      } else if (purp.includes('COMMERCIAL') || purp.includes('INDUSTRIAL') || purp.includes('CIVIC') || purp.includes('INSTITUT')) {
+        commercial++;
+      }
+      if (p.location && p.location.trim() && p.location.trim().toUpperCase() !== 'N/A') {
+        locations.add(p.location.trim().toUpperCase());
+      }
+    });
+
+    res.status(200).json({ 
+      success: true, 
+      total,
+      residential,
+      commercial: commercial || (total - residential),
+      zones: locations.size || 1
+    });
   } catch (error) {
     console.error("Get Stats Error:", error);
     res.status(500).json({ success: false, message: "Failed to fetch stats." });

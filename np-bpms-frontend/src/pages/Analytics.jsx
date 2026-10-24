@@ -20,25 +20,46 @@ const PURPOSE_COLORS = ['#2563eb', '#10b981', '#8b5cf6', '#f59e0b', '#06b6d4', '
 const Analytics = () => {
   const navigate = useNavigate();
 
-  const [permits, setPermits] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Read instant cached permits from localStorage for 0ms initial load time
+  const cachedPermits = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('bpms_cached_permits');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const [permits, setPermits] = useState(cachedPermits || []);
+  const [isLoading, setIsLoading] = useState(!cachedPermits || cachedPermits.length === 0);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
   const [timeRange, setTimeRange] = useState('ALL'); // 'ALL', '12M', '6M'
 
   useEffect(() => {
     const fetchRecords = async () => {
       try {
+        setIsSyncing(true);
         const res = await fetch(`${API_BASE_URL}/api/permits`);
         const data = await res.json();
         if (data.success && Array.isArray(data.data)) {
           setPermits(data.data);
-        } else {
+          setError('');
+          try {
+            localStorage.setItem('bpms_cached_permits', JSON.stringify(data.data));
+          } catch (e) {
+            console.warn("Could not cache permits:", e);
+          }
+        } else if (!cachedPermits || cachedPermits.length === 0) {
           setError("Failed to load records.");
         }
       } catch (err) {
-        setError("Unable to connect to records registry.");
+        if (!cachedPermits || cachedPermits.length === 0) {
+          setError("Unable to connect to records registry.");
+        }
       } finally {
         setIsLoading(false);
+        setIsSyncing(false);
       }
     };
 
