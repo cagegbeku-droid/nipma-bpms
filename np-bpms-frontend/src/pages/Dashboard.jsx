@@ -1259,9 +1259,18 @@ const Dashboard = () => {
                       <span><strong>Officer Document Management:</strong> Drag and drop files onto any card or click attach. Supports simultaneous multi-category uploads to Google Drive.</span>
                     </div>
                     {isAnyUploading && (
-                      <div className="flex items-center space-x-1.5 text-blue-600 font-bold shrink-0">
-                        <span className="animate-spin">⏳</span>
-                        <span>Uploading to Google Drive...</span>
+                      <div className="flex items-center space-x-2 bg-blue-50/90 text-blue-800 font-bold px-3 py-1.5 rounded-lg border border-blue-200 shrink-0">
+                        <CircularProgress 
+                          progress={Math.max(uploadProgress.certificate, uploadProgress.drawings, uploadProgress.permitForm) || 10} 
+                          size={20} 
+                          strokeWidth={2.5} 
+                          color="#2563eb" 
+                        />
+                        <span>
+                          {Math.max(uploadProgress.certificate, uploadProgress.drawings, uploadProgress.permitForm) >= 95 
+                            ? 'Archiving to Google Drive...' 
+                            : `Uploading (${Math.max(uploadProgress.certificate, uploadProgress.drawings, uploadProgress.permitForm) || 10}%)...`}
+                        </span>
                       </div>
                     )}
                   </div>
