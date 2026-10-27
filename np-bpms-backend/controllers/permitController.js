@@ -128,6 +128,26 @@ const archivePermit = async (req, res) => {
 
     const cleanNum = permitNumber.trim().toUpperCase();
     const cleanApplicant = applicantName.trim().toUpperCase();
+    const cleanDate = (dateIssued || '').split('T')[0].trim();
+
+    // DUPLICATE CHECK: Prevent archiving if Permit Number, Applicant Name, AND Date Issued are all identical
+    if (cleanNum && cleanApplicant && cleanDate) {
+      const { data: existingDup } = await supabase
+        .from('permits')
+        .select('id, permit_number, applicant_name, date_issued')
+        .ilike('permit_number', cleanNum)
+        .ilike('applicant_name', cleanApplicant)
+        .eq('date_issued', cleanDate)
+        .limit(1);
+
+      if (existingDup && existingDup.length > 0) {
+        return res.status(409).json({ 
+          success: false, 
+          message: `Duplicate Error: A permit with number "${cleanNum}", applicant "${cleanApplicant}", and date issued "${cleanDate}" is already archived in the registry.` 
+        });
+      }
+    }
+
     const hasFiles = req.files && Object.keys(req.files).length > 0;
 
     let certificate_link = null;

@@ -269,6 +269,43 @@ const PermitList = () => {
     return Array.from(purps).sort();
   }, [permits]);
 
+  // Set of duplicate permit IDs: A permit is classified as duplicate ONLY when
+  // Permit Number, Applicant Name, AND Date Issued are ALL identical.
+  const duplicatePermitIds = useMemo(() => {
+    const keyMap = {};
+    const normalizeDate = (d) => {
+      if (!d) return '';
+      const str = String(d).split('T')[0].trim();
+      const parts = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})$/);
+      if (parts) {
+        let [, day, month, yr] = parts;
+        if (yr.length === 2) yr = parseInt(yr, 10) <= 30 ? `20${yr}` : `19${yr}`;
+        return `${yr}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+      return str;
+    };
+
+    permits.forEach(p => {
+      const pNum = (p.permit_number || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const name = (p.applicant_name || `${p.first_name || ''} ${p.last_name || ''}` || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const date = normalizeDate(p.date_issued);
+
+      if (pNum && name && date) {
+        const key = `${pNum}___${name}___${date}`;
+        if (!keyMap[key]) keyMap[key] = [];
+        keyMap[key].push(p.id);
+      }
+    });
+
+    const dupSet = new Set();
+    Object.values(keyMap).forEach(ids => {
+      if (ids.length > 1) {
+        ids.forEach(id => dupSet.add(id));
+      }
+    });
+    return dupSet;
+  }, [permits]);
+
   const filteredPermits = useMemo(() => {
     return permits.filter(permit => {
       const search = searchTerm.toLowerCase().trim();
@@ -448,6 +485,25 @@ const PermitList = () => {
       address: (editFormData.address || '').toUpperCase().trim(),
       location: (editFormData.location || '').toUpperCase().trim()
     };
+
+    // Verify no exact duplicate collision with another permit
+    const cleanNum = formattedPermitNum.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanName = (payload.applicant_name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanDate = (payload.date_issued || '').split('T')[0].trim();
+
+    const isDuplicate = permits.some(p => {
+      if (p.id === editingPermit.id) return false;
+      const dbNum = (p.permit_number || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const dbName = (p.applicant_name || `${p.first_name || ''} ${p.last_name || ''}` || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const dbDate = (p.date_issued || '').split('T')[0].trim();
+      return dbNum === cleanNum && dbName === cleanName && dbDate === cleanDate;
+    });
+
+    if (isDuplicate) {
+      alert(`⚠️ Duplicate Warning: Another permit with Number "${formattedPermitNum}", Applicant "${payload.applicant_name}", and Date Issued "${payload.date_issued}" is already archived.`);
+      setIsSaving(false);
+      return;
+    }
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/permits/${editingPermit.id}`, {
@@ -1073,9 +1129,16 @@ const PermitList = () => {
 
         {/* Results Counter & Active Search Badge */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-gray-100 text-xs">
-          <div className="text-gray-500 font-medium">
-            Found <span className="font-bold text-gray-900">{sortedPermits.length}</span> matching records 
-            {(searchTerm || selectedPurpose !== 'ALL' || selectedLocation !== 'ALL' || selectedMonth !== 'ALL' || selectedYear !== 'ALL') && ' (filters active)'}
+          <div className="text-gray-500 font-medium flex items-center gap-2 flex-wrap">
+            <span>
+              Found <span className="font-bold text-gray-900">{sortedPermits.length}</span> matching records 
+              {(searchTerm || selectedPurpose !== 'ALL' || selectedLocation !== 'ALL' || selectedMonth !== 'ALL' || selectedYear !== 'ALL') && ' (filters active)'}
+            </span>
+            {duplicatePermitIds.size > 0 && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200" title="Records sharing the same Permit #, Applicant Name, and Date Issued">
+                ⚠️ {duplicatePermitIds.size} Duplicate Permits Found
+              </span>
+            )}
           </div>
 
           {searchTerm && (
@@ -1124,11 +1187,22 @@ const PermitList = () => {
                   const displayName = permit.applicant_name || `${permit.first_name || ''} ${permit.last_name || ''}`.trim();
                   const displayPurpose = permit.purpose || 'RESIDENTIAL';
                   const isResidential = displayPurpose.toUpperCase().includes('RESIDENTIAL');
+                  const isDuplicate = duplicatePermitIds.has(permit.id);
 
                   return (
                     <tr key={permit.id} className="hover:bg-blue-50/25 transition group">
                       <td className="p-4 align-middle">
-                        <div className="font-bold text-gray-900 font-mono tracking-tight text-base">{permit.permit_number}</div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-gray-900 font-mono tracking-tight text-base">{permit.permit_number}</span>
+                          {isDuplicate && (
+                            <span 
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded shadow-2xs"
+                              title="Duplicate Record: Permit Number, Applicant Name, and Date Issued match another permit in the registry"
+                            >
+                              ⚠️ Duplicate
+                            </span>
+                          )}
+                        </div>
                         <div className="mt-1">
                           <span className={`text-[10px] px-2 py-0.5 rounded font-semibold uppercase ${
                             isResidential 

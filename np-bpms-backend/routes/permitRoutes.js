@@ -346,6 +346,30 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
       drawingsLinks, permitFormLink, uploadStatus 
     } = req.body;
 
+    // Check if duplicate exists (Permit Number + Applicant Name + Date Issued)
+    const cleanNum = String(permitNumber || '').trim();
+    const cleanApplicant = String(applicantName || '').trim();
+    const cleanDate = String(dateIssued || '').split('T')[0].trim();
+
+    const existingCheck = await db.query(`
+      SELECT id FROM permits 
+      WHERE REGEXP_REPLACE(LOWER(permit_number), '[^a-z0-9]', '', 'g') = REGEXP_REPLACE(LOWER($1), '[^a-z0-9]', '', 'g')
+        AND REGEXP_REPLACE(LOWER(applicant_name), '[^a-z0-9]', '', 'g') = REGEXP_REPLACE(LOWER($2), '[^a-z0-9]', '', 'g')
+        AND (date_issued = $3 OR date_issued LIKE $4)
+      LIMIT 1;
+    `, [cleanNum, cleanApplicant, cleanDate, `%${cleanDate}%`]);
+
+    let existingRows = Array.isArray(existingCheck) ? existingCheck : (existingCheck?.rows || []);
+    while (Array.isArray(existingRows) && existingRows.length > 0 && Array.isArray(existingRows[0])) {
+      existingRows = existingRows[0];
+    }
+    if (existingRows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: `Duplicate Error: A permit with Number "${cleanNum}", Applicant "${cleanApplicant}", and Date Issued "${cleanDate}" is already archived.`
+      });
+    }
+
     const query = `
       INSERT INTO permits 
       (permit_number, date_issued, purpose, applicant_name, phone, address, location, certificate_link, drawings_links, permit_form_link, upload_status, status)
@@ -371,7 +395,7 @@ router.post('/archive-metadata', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// 4. BULK PERMIT IMPORT ENDPOINT (STRICT PERMIT NUMBER UNIQUE CHECK)
+// 4. BULK PERMIT IMPORT ENDPOINT (DUPLICATE CHECK: PERMIT #, NAME & DATE ISSUED)
 // ==========================================
 router.post('/bulk-import', requireAuth, async (req, res) => {
   try {
@@ -385,9 +409,28 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       });
     }
 
-    // Single fast query to fetch all existing normalized permit numbers
+    const normalizeDateStr = (rawDate) => {
+      if (!rawDate) return '';
+      const str = String(rawDate).split('T')[0].trim();
+      const dmy = str.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})$/);
+      if (dmy) {
+        let [, d, m, y] = dmy;
+        if (y.length === 2) y = parseInt(y, 10) <= 30 ? `20${y}` : `19${y}`;
+        return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+      return str;
+    };
+
+    const makeDuplicateKey = (pNum, appName, date) => {
+      const cleanNum = String(pNum || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanName = String(appName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanDate = normalizeDateStr(date);
+      return `${cleanNum}___${cleanName}___${cleanDate}`;
+    };
+
+    // Query existing permit number, applicant name, and date issued
     const existingDbRes = await db.query(`
-      SELECT REGEXP_REPLACE(LOWER(permit_number), '[^a-z0-9]', '', 'g') AS norm_num
+      SELECT permit_number, applicant_name, date_issued
       FROM permits 
       WHERE permit_number IS NOT NULL AND TRIM(permit_number) != ''
     `);
@@ -400,11 +443,14 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       existingRows = existingRows[0];
     }
 
-    // Build lookup set of normalized permit numbers strictly in Supabase
+    // Build lookup set of normalized compound keys (permit number + applicant name + date issued)
     const existingPermitSet = new Set(
       existingRows
-        .map(r => r.norm_num || (r.rows && r.rows.norm_num))
-        .filter(Boolean)
+        .map(r => {
+          const row = r.rows || r;
+          return makeDuplicateKey(row.permit_number, row.applicant_name, row.date_issued);
+        })
+        .filter(k => !k.startsWith('______'))
     );
 
     let insertedCount = 0;
@@ -414,18 +460,20 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       const rawPermitNum = record.permitNumber || record.permit_number;
       if (!rawPermitNum || !String(rawPermitNum).trim()) continue;
 
-      const cleanPermitNum = String(rawPermitNum).trim().toUpperCase();
-      // Normalize string: "NIPDA/PRAM/26/09" -> "nipdapram2609"
-      const normKey = cleanPermitNum.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const rawApplicant = record.applicantName || record.applicant_name;
+      const rawDate = record.dateIssued || record.date_issued || new Date().toISOString().split('T')[0];
 
-      // Skip strictly if permit number already exists in DB OR earlier in this CSV
-      if (existingPermitSet.has(normKey)) {
+      const cleanPermitNum = String(rawPermitNum).trim().toUpperCase();
+      const cleanApplicant = String(rawApplicant || 'N/A').trim().toUpperCase();
+      const cleanDate = String(rawDate).split('T')[0].trim();
+
+      const dupKey = makeDuplicateKey(cleanPermitNum, cleanApplicant, cleanDate);
+
+      // Skip strictly if permit number, applicant name, AND date issued all match an existing record
+      if (existingPermitSet.has(dupKey)) {
         skippedCount++;
         continue;
       }
-
-      const rawApplicant = record.applicantName || record.applicant_name;
-      const rawDate = record.dateIssued || record.date_issued || new Date().toISOString().split('T')[0];
 
       const insertQuery = `
         INSERT INTO permits 
@@ -435,9 +483,9 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       
       const values = [
         cleanPermitNum,
-        String(rawDate).split('T')[0].trim(),
+        cleanDate,
         String(record.purpose || 'RESIDENTIAL').trim().toUpperCase(),
-        String(rawApplicant || 'N/A').trim().toUpperCase(),
+        cleanApplicant,
         record.phone || null,
         String(record.address || record.location || 'N/A').trim().toUpperCase(),
         String(record.location || 'N/A').trim().toUpperCase()
@@ -446,7 +494,7 @@ router.post('/bulk-import', requireAuth, async (req, res) => {
       await db.query(insertQuery, values);
 
       // Block duplicates within the same batch
-      existingPermitSet.add(normKey);
+      existingPermitSet.add(dupKey);
       insertedCount++;
     }
 

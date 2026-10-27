@@ -304,6 +304,63 @@ const NewPermit = () => {
     return cleanVal;
   };
 
+  // REAL-TIME DUPLICATE CHECK: A permit is classified as duplicate ONLY when
+  // Permit Number, Applicant Name, AND Date Issued are ALL identical.
+  const checkDuplicateRecord = async (permitNum, appName, dateVal) => {
+    const pNumber = (permitNum || '').trim();
+    const applicant = (appName || '').trim();
+    const dateStr = (dateVal || '').trim();
+
+    // Only classify as duplicate when all three fields have been provided
+    if (!pNumber || !applicant || !dateStr) {
+      setDuplicateWarning('');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/permits`);
+      const data = await response.json();
+
+      if (data.success && Array.isArray(data.data)) {
+        const cleanInputNumber = pNumber.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanInputName = applicant.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanInputDate = parseFlexibleDate(dateStr);
+
+        const duplicate = data.data.find(p => {
+          const dbNumber = (p.permit_number || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const dbName = (p.applicant_name || `${p.first_name || ''} ${p.last_name || ''}` || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const dbDate = parseFlexibleDate(p.date_issued || '');
+
+          return (
+            dbNumber === cleanInputNumber &&
+            dbName === cleanInputName &&
+            dbDate === cleanInputDate
+          );
+        });
+
+        if (duplicate) {
+          setDuplicateWarning(`⚠️ Duplicate Warning: A permit with Number "${pNumber}", Applicant "${applicant}", and Date Issued "${dateStr}" is already archived in the registry.`);
+        } else {
+          setDuplicateWarning('');
+        }
+      }
+    } catch (err) {
+      console.error('Duplicate check error:', err);
+    }
+  };
+
+  // Debounced check whenever permitNumber, applicantName, or dateIssued changes
+  useEffect(() => {
+    if (formData.permitNumber && formData.applicantName && formData.dateIssued) {
+      const timer = setTimeout(() => {
+        checkDuplicateRecord(formData.permitNumber, formData.applicantName, formData.dateIssued);
+      }, 350);
+      return () => clearTimeout(timer);
+    } else {
+      setDuplicateWarning('');
+    }
+  }, [formData.permitNumber, formData.applicantName, formData.dateIssued]);
+
   const handleTextChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -311,40 +368,22 @@ const NewPermit = () => {
 
   const handleInputBlur = (e) => {
     const { name, value } = e.target;
+    let updated = { ...formData };
     
     if (name === 'permitNumber') {
       const formatted = formatPermitNumberInput(value);
+      updated.permitNumber = formatted;
       setFormData(prev => ({ ...prev, permitNumber: formatted }));
-      checkDuplicateRecord(formatted);
     } else if (name !== 'phone' && name !== 'dateIssued') {
-      setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
+      const upperVal = value.toUpperCase();
+      updated[name] = upperVal;
+      setFormData(prev => ({ ...prev, [name]: upperVal }));
+    } else {
+      updated[name] = value;
     }
-  };
 
-  // STRICT DUPLICATE CHECK BY PERMIT NUMBER ONLY
-  const checkDuplicateRecord = async (permitNum) => {
-    if (!permitNum || !permitNum.trim()) return;
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/permits`);
-      const data = await response.json();
-      
-      if (data.success && Array.isArray(data.data)) {
-        const cleanInput = permitNum.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-        const duplicate = data.data.find(p => {
-          const cleanDb = (p.permit_number || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-          return cleanDb === cleanInput;
-        });
-
-        if (duplicate) {
-          setDuplicateWarning(`⚠️ Duplicate Warning: A permit with number "${permitNum}" is already archived in the system.`);
-        } else {
-          setDuplicateWarning('');
-        }
-      }
-    } catch (err) {
-      console.error('Duplicate check error:', err);
+    if (['permitNumber', 'applicantName', 'dateIssued'].includes(name)) {
+      checkDuplicateRecord(updated.permitNumber, updated.applicantName, updated.dateIssued);
     }
   };
 
@@ -443,6 +482,12 @@ const NewPermit = () => {
       const token = sessionStorage.getItem('token') || localStorage.getItem('token');
       if (!token) {
         handleLogout();
+        return;
+      }
+
+      if (duplicateWarning) {
+        setMessage(duplicateWarning);
+        setIsSubmitting(false);
         return;
       }
 
