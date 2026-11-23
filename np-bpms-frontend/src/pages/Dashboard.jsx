@@ -478,13 +478,35 @@ const Dashboard = () => {
     }
   };
 
-  const fetchDashboardData = async () => {
+  const [isWakingServer, setIsWakingServer] = useState(false);
+
+  const fetchDashboardData = async (retryCount = 0) => {
     try {
       setIsSyncing(true);
+
+      // On first ever load with no cache, wake up the Render server first (it sleeps on free tier)
+      if (retryCount === 0 && (!cachedStats || totalPermits === 0)) {
+        setIsWakingServer(true);
+        try {
+          await fetch(`${API_BASE_URL}/health`, { method: 'GET', mode: 'cors' });
+        } catch (_) { /* ignore wake ping failures */ }
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 55000); // 55s timeout for cold Render start
+
       const [statsRes, permitsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/permits/stats?_t=${Date.now()}`, { headers: { 'Cache-Control': 'no-cache' } }),
-        fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, { headers: { 'Cache-Control': 'no-cache' } })
+        fetch(`${API_BASE_URL}/api/permits/stats?_t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache' },
+          signal: controller.signal
+        }),
+        fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache' },
+          signal: controller.signal
+        })
       ]);
+      clearTimeout(timeout);
+      setIsWakingServer(false);
 
       const statsData = await statsRes.json();
       const permitsData = await permitsRes.json();
@@ -570,8 +592,18 @@ const Dashboard = () => {
         console.warn("Could not cache dashboard data:", cacheErr);
       }
     } catch (err) {
-      // Network error — silent if cached data is already showing
-      console.warn("Dashboard data fetch error:", err.message);
+      setIsWakingServer(false);
+      // Auto-retry once after 8 seconds (Render server may still be waking up)
+      if (retryCount === 0) {
+        console.warn("First fetch failed, retrying in 8s (Render cold start):", err.message);
+        // Keep loading/waking state alive during retry — do NOT call setIsLoading(false) yet
+        setIsSyncing(false);
+        setTimeout(() => fetchDashboardData(1), 8000);
+        return; // skip the finally block below
+      } else {
+        // Network error after retry — silent if cached data is already showing
+        console.warn("Dashboard data fetch error after retry:", err.message);
+      }
     } finally {
       setIsLoading(false);
       setIsSyncing(false);
@@ -627,7 +659,7 @@ const Dashboard = () => {
             {isSyncing ? (
               <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                Syncing live...
+                {isWakingServer ? 'Waking server...' : 'Syncing live...'}
               </span>
             ) : (
               <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" title="Connected to central office database with auto-sync">
@@ -676,10 +708,19 @@ const Dashboard = () => {
         </form>
       </div>
 
-      {/* Overview Cards (Clickable) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      {/* Server Cold-Start Warning Banner */}
+      {isWakingServer && (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
+          <span className="text-lg">⏳</span>
+          <div>
+            <span className="font-semibold">Loading records...</span>
+            <span className="ml-1.5 text-amber-700 text-xs">The server is waking up — this takes about 30–60 seconds on first load. Records will appear automatically.</span>
+          </div>
+        </div>
+      )}
 
-        {/* Card 1: Total Archived */}
+      {/* Overview Cards (Clickable) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">        {/* Card 1: Total Archived */}
         <Link
           to="/permits/historical"
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-blue-400 hover:shadow-md transition-all group cursor-pointer"

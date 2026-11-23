@@ -66,17 +66,23 @@ const Analytics = () => {
   }, [location.hash]);
 
   useEffect(() => {
-    const fetchRecords = async () => {
+    const fetchRecords = async (retryCount = 0) => {
       try {
         setIsSyncing(true);
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 55000);
+
         const [permitsRes, statsRes] = await Promise.all([
           fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
-            headers: { 'Cache-Control': 'no-cache' }
+            headers: { 'Cache-Control': 'no-cache' },
+            signal: controller.signal
           }),
           fetch(`${API_BASE_URL}/api/permits/stats?_t=${Date.now()}`, {
             headers: { 'Cache-Control': 'no-cache' }
           }).catch(() => null)
         ]);
+        clearTimeout(timeout);
 
         const permitsData = await permitsRes.json();
         if (permitsData.success && Array.isArray(permitsData.data)) {
@@ -103,6 +109,12 @@ const Analytics = () => {
           }
         }
       } catch (err) {
+        if (retryCount === 0) {
+          console.warn("Analytics fetch failed, retrying in 8s (Render cold start):", err.message);
+          setIsSyncing(false);
+          setTimeout(() => fetchRecords(1), 8000);
+          return;
+        }
         if (!cachedPermits || cachedPermits.length === 0) {
           setError("Unable to connect to records registry.");
         }

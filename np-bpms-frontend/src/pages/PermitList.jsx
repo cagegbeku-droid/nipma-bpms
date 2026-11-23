@@ -209,12 +209,19 @@ const PermitList = () => {
     };
   }, []);
 
-  const fetchPermits = async () => {
+  const fetchPermits = async (retryCount = 0) => {
     try {
       setIsSyncing(true);
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 55000);
+
       const response = await fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
-        headers: { 'Cache-Control': 'no-cache' }
+        headers: { 'Cache-Control': 'no-cache' },
+        signal: controller.signal
       });
+      clearTimeout(timeout);
+
       const data = await response.json();
       if (data.success && Array.isArray(data.data)) {
         setPermits(data.data);
@@ -222,6 +229,13 @@ const PermitList = () => {
       }
       // If the fetch failed but we have cached data, stay silent — cache will show
     } catch (err) {
+      // Auto-retry once on cold start
+      if (retryCount === 0) {
+        console.warn("PermitList fetch failed, retrying in 8s (Render cold start):", err.message);
+        setIsSyncing(false);
+        setTimeout(() => fetchPermits(1), 8000);
+        return;
+      }
       // Network error — if cache is available, stay silent; don't block the UI with an error
       console.warn("Permit fetch error (cached data may be shown):", err.message);
     } finally {
