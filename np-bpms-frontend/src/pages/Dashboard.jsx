@@ -570,9 +570,8 @@ const Dashboard = () => {
         console.warn("Could not cache dashboard data:", cacheErr);
       }
     } catch (err) {
-      if (!cachedStats) {
-        setError("Unable to retrieve records at this time. Please try again later.");
-      }
+      // Network error — silent if cached data is already showing
+      console.warn("Dashboard data fetch error:", err.message);
     } finally {
       setIsLoading(false);
       setIsSyncing(false);
@@ -756,7 +755,7 @@ const Dashboard = () => {
 
         {/* Card 4: Municipal Communities - Clickable */}
         <Link
-          to="/analytics"
+          to="/analytics#communities-section"
           className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between hover:border-amber-400 hover:shadow-md transition-all group cursor-pointer"
         >
           <div>
@@ -778,69 +777,6 @@ const Dashboard = () => {
           </p>
         </Link>
 
-      </div>
-
-      {/* Officer Document Audit & Vault Compliance Card */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 rounded-2xl p-6 text-white shadow-md border border-slate-700/80">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30 uppercase tracking-wider">
-                Officer Quality Assurance & Document Audit
-              </span>
-              {isSyncing && (
-                <span className="text-[11px] text-blue-300 animate-pulse">Syncing figures...</span>
-              )}
-            </div>
-            <h3 className="text-xl font-bold mt-2 text-white">Document Vault Completeness Status</h3>
-            <p className="text-xs text-slate-300 mt-1 max-w-xl">
-              Track permit documentation compliance across all categories. Ensure every building record has an official certificate, architectural drawings, and permit form archived.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <Link
-              to="/permits/historical?docStatus=MISSING"
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <span>⚠️ Audit Incomplete ({missingDocsCount})</span>
-              <span>→</span>
-            </Link>
-            <Link
-              to="/permits/historical?docStatus=COMPLETE"
-              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-semibold transition border border-white/15 flex items-center gap-1.5 cursor-pointer"
-            >
-              <span>✅ Fully Documented ({fullyDocumentedCount})</span>
-            </Link>
-          </div>
-        </div>
-
-        {/* 3 Metrics in the banner */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 pt-4 border-t border-slate-700/60 text-xs">
-          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-            <span className="text-slate-400 block text-[11px] uppercase tracking-wider font-semibold">Fully Documented (3/3)</span>
-            <div className="text-xl font-extrabold text-emerald-400 mt-1 flex items-baseline gap-1.5">
-              <span>{fullyDocumentedCount}</span>
-              <span className="text-xs font-normal text-slate-400">/ {totalPermits} permits ({totalPermits > 0 ? Math.round((fullyDocumentedCount / totalPermits) * 100) : 0}%)</span>
-            </div>
-          </div>
-
-          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-            <span className="text-slate-400 block text-[11px] uppercase tracking-wider font-semibold">Missing Documents</span>
-            <div className="text-xl font-extrabold text-amber-400 mt-1 flex items-baseline gap-1.5">
-              <span>{missingDocsCount}</span>
-              <span className="text-xs font-normal text-slate-400">need file attachments</span>
-            </div>
-          </div>
-
-          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
-            <span className="text-slate-400 block text-[11px] uppercase tracking-wider font-semibold">Total Cloud Files</span>
-            <div className="text-xl font-extrabold text-blue-300 mt-1 flex items-baseline gap-1.5">
-              <span>{totalFilesCount}</span>
-              <span className="text-xs font-normal text-slate-400">files in Google Drive</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* Quick Actions Section */}

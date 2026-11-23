@@ -12,17 +12,46 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
+// PAGINATED FETCH HELPER (Bypasses Supabase 1,000 row PostgREST limit)
+// ==========================================
+const fetchAllFromSupabase = async (selectQuery, orderCol = null) => {
+  let allRows = [];
+  let from = 0;
+  const batchSize = 1000;
+  let hasMore = true;
+
+  while (hasMore) {
+    let query = supabase.from('permits').select(selectQuery);
+    if (orderCol) {
+      query = query.order(orderCol, { ascending: false });
+    }
+    query = query.range(from, from + batchSize - 1);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    if (data && data.length > 0) {
+      allRows.push(...data);
+      if (data.length < batchSize) {
+        hasMore = false;
+      } else {
+        from += batchSize;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+
+  return allRows;
+};
+
+// ==========================================
 // 1. GET ALL PERMITS
 // ==========================================
 const getPermits = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   try {
-    const { data, error } = await supabase
-      .from('permits')
-      .select('*')
-      .order('id', { ascending: false });
-
-    if (error) throw error;
+    const data = await fetchAllFromSupabase('*', 'id');
 
     const formattedData = (data || []).map(permit => ({
       id: permit.id,
@@ -54,13 +83,9 @@ const getPermits = async (req, res) => {
 const getPermitStats = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   try {
-    const { data, count, error } = await supabase
-      .from('permits')
-      .select('id, purpose, location, certificate_link, drawings_links, permit_form_link', { count: 'exact' });
+    const data = await fetchAllFromSupabase('id, purpose, location, certificate_link, drawings_links, permit_form_link');
 
-    if (error) throw error;
-
-    const total = count !== null ? count : (data ? data.length : 0);
+    const total = data.length;
     let residential = 0;
     let commercial = 0;
     let fullyDocumented = 0;
@@ -119,11 +144,7 @@ const getPermitStats = async (req, res) => {
 const getMonthlyStats = async (req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   try {
-    const { data, error } = await supabase
-      .from('permits')
-      .select('date_issued');
-
-    if (error) throw error;
+    const data = await fetchAllFromSupabase('date_issued');
 
     const monthlyCounts = {};
     (data || []).forEach(item => {

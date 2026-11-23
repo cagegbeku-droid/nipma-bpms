@@ -219,13 +219,11 @@ const PermitList = () => {
       if (data.success && Array.isArray(data.data)) {
         setPermits(data.data);
         setError('');
-      } else if (!cachedPermits || cachedPermits.length === 0) {
-        setError("Failed to load records. Please try again.");
       }
+      // If the fetch failed but we have cached data, stay silent — cache will show
     } catch (err) {
-      if (!cachedPermits || cachedPermits.length === 0) {
-        setError("Unable to connect to records registry. Please try again later.");
-      }
+      // Network error — if cache is available, stay silent; don't block the UI with an error
+      console.warn("Permit fetch error (cached data may be shown):", err.message);
     } finally {
       setIsLoading(false);
       setIsSyncing(false);

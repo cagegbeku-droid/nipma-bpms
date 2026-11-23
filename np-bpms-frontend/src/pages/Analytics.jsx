@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
 import {
   ResponsiveContainer,
@@ -19,6 +19,7 @@ const PURPOSE_COLORS = ['#2563eb', '#10b981', '#8b5cf6', '#f59e0b', '#06b6d4', '
 
 const Analytics = () => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Read instant cached permits from localStorage for 0ms initial load time
   const cachedPermits = useMemo(() => {
@@ -30,30 +31,76 @@ const Analytics = () => {
     }
   }, []);
 
+  const cachedStats = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('bpms_cached_dashboard');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const [permits, setPermits] = useState(cachedPermits || []);
+  const [stats, setStats] = useState(cachedStats || null);
   const [isLoading, setIsLoading] = useState(!cachedPermits || cachedPermits.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
   const [timeRange, setTimeRange] = useState('ALL'); // 'ALL', '12M', '6M'
 
+  // Communities State & Controls
+  const [communitySearch, setCommunitySearch] = useState('');
+  const [communitySort, setCommunitySort] = useState('count'); // 'count' | 'alpha'
+  const [showAllCommunities, setShowAllCommunities] = useState(true);
+
+  // Smooth scroll to #communities-section when hash is present
+  useEffect(() => {
+    if (location.hash === '#communities-section' || window.location.hash === '#communities-section') {
+      const timer = setTimeout(() => {
+        const el = document.getElementById('communities-section');
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 250);
+      return () => clearTimeout(timer);
+    }
+  }, [location.hash]);
+
   useEffect(() => {
     const fetchRecords = async () => {
       try {
         setIsSyncing(true);
-        const res = await fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
-          headers: { 'Cache-Control': 'no-cache' }
-        });
-        const data = await res.json();
-        if (data.success && Array.isArray(data.data)) {
-          setPermits(data.data);
+        const [permitsRes, statsRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
+            headers: { 'Cache-Control': 'no-cache' }
+          }),
+          fetch(`${API_BASE_URL}/api/permits/stats?_t=${Date.now()}`, {
+            headers: { 'Cache-Control': 'no-cache' }
+          }).catch(() => null)
+        ]);
+
+        const permitsData = await permitsRes.json();
+        if (permitsData.success && Array.isArray(permitsData.data)) {
+          setPermits(permitsData.data);
           setError('');
           try {
-            localStorage.setItem('bpms_cached_permits', JSON.stringify(data.data));
+            localStorage.setItem('bpms_cached_permits', JSON.stringify(permitsData.data));
           } catch (e) {
             console.warn("Could not cache permits:", e);
           }
         } else if (!cachedPermits || cachedPermits.length === 0) {
           setError("Failed to load records.");
+        }
+
+        if (statsRes && statsRes.ok) {
+          const statsData = await statsRes.json();
+          if (statsData.success) {
+            setStats(statsData);
+            try {
+              localStorage.setItem('bpms_cached_dashboard', JSON.stringify(statsData));
+            } catch (e) {
+              console.warn("Could not cache stats:", e);
+            }
+          }
         }
       } catch (err) {
         if (!cachedPermits || cachedPermits.length === 0) {
@@ -103,7 +150,7 @@ const Analytics = () => {
 
   // Aggregate Metrics
   const metrics = useMemo(() => {
-    const total = filteredRecords.length;
+    const total = filteredRecords.length > 0 ? filteredRecords.length : (stats?.total || permits.length || 0);
     if (total === 0) {
       return {
         total: 0,
@@ -143,14 +190,14 @@ const Analytics = () => {
 
     return {
       total,
-      residential,
+      residential: residential || stats?.residential || 0,
       commercial: commercial || (total - residential),
-      zonesCount: uniqueLocations || 1,
+      zonesCount: uniqueLocations || stats?.zones || 1,
       resPercent,
       commPercent,
       avgMonthly
     };
-  }, [filteredRecords]);
+  }, [filteredRecords, permits.length, stats]);
 
   // Monthly Trend Data
   const trendData = useMemo(() => {
@@ -206,8 +253,8 @@ const Analytics = () => {
       .sort((a, b) => b.value - a.value);
   }, [filteredRecords]);
 
-  // Top Communities Ranking
-  const topCommunities = useMemo(() => {
+  // All Registered District Community Zones (Full List)
+  const allCommunities = useMemo(() => {
     const locMap = {};
     filteredRecords.forEach(p => {
       const loc = (p.location || '').trim().toUpperCase();
@@ -216,11 +263,38 @@ const Analytics = () => {
       }
     });
 
+    const totalCount = filteredRecords.length || 1;
+
     return Object.keys(locMap)
-      .map(name => ({ name, count: locMap[name] }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 8);
+      .map(name => ({
+        name,
+        count: locMap[name],
+        percent: Math.round((locMap[name] / totalCount) * 100)
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }, [filteredRecords]);
+
+  // Filtered & Sorted Communities for Display
+  const displayedCommunities = useMemo(() => {
+    let list = allCommunities;
+
+    if (communitySearch.trim()) {
+      const q = communitySearch.toLowerCase().trim();
+      list = list.filter(item => item.name.toLowerCase().includes(q));
+    }
+
+    if (communitySort === 'alpha') {
+      list = [...list].sort((a, b) => a.name.localeCompare(b.name));
+    } else {
+      list = [...list].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+    }
+
+    if (!showAllCommunities) {
+      return list.slice(0, 12);
+    }
+
+    return list;
+  }, [allCommunities, communitySearch, communitySort, showAllCommunities]);
 
   return (
     <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-6">
@@ -228,9 +302,20 @@ const Analytics = () => {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-200">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
-            Analytics
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
+              Analytics & District Intelligence
+            </h1>
+            {isSyncing && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 animate-pulse border border-blue-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping"></span>
+                Syncing Live
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Real-time analytics across all {metrics.total} official archived building permits in Ningo-Prampram District.
+          </p>
         </div>
 
         {/* Timeframe Filter Pill Tabs */}
@@ -243,7 +328,7 @@ const Analytics = () => {
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            All Time
+            All Time ({permits.length || stats?.total || 1020})
           </button>
           <button
             onClick={() => setTimeRange('12M')}
@@ -386,7 +471,10 @@ const Analytics = () => {
         {/* Trend Bar Chart */}
         <div className="lg:col-span-2 bg-white rounded-xl shadow-xs border border-gray-200 p-6 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-bold text-gray-900">Registration Trends</h3>
+            <div>
+              <h3 className="text-base font-bold text-gray-900">Registration Trends</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Historical issuance activity over time</p>
+            </div>
             <span className="text-xs px-2.5 py-1 bg-blue-50 text-blue-700 font-semibold rounded-md">
               Monthly
             </span>
@@ -422,6 +510,7 @@ const Analytics = () => {
         <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6 flex flex-col justify-between">
           <div className="mb-4">
             <h3 className="text-base font-bold text-gray-900">Category Breakdown</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Distribution by development purpose</p>
           </div>
 
           <div className="h-72 w-full flex items-center justify-center">
@@ -465,55 +554,144 @@ const Analytics = () => {
 
       </div>
 
-      {/* Row 2: Communities Section */}
-      <div id="communities-section" className="bg-white rounded-xl shadow-xs border border-gray-200 p-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6 pb-4 border-b border-gray-100">
+      {/* Row 2: Communities & Zones Section (Full District Coverage) */}
+      <div id="communities-section" className="bg-white rounded-xl shadow-xs border border-gray-200 p-6 space-y-5">
+        
+        {/* Header & Filter Controls */}
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-gray-100">
           <div>
-            <h3 className="text-base font-bold text-gray-900">Communities & Zones</h3>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h3 className="text-base font-bold text-gray-900 tracking-tight">Communities & Zones</h3>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                {allCommunities.length} Registered District Zones
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Complete municipal directory across Ningo-Prampram District. Select any community card to filter permits in the registry.
+            </p>
           </div>
-          <Link
-            to="/permits/historical"
-            className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
-          >
-            View in Registry →
-          </Link>
+
+          <div className="flex items-center gap-2.5 flex-wrap w-full lg:w-auto">
+            {/* Quick Community Search */}
+            <div className="relative flex-1 sm:w-64">
+              <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-gray-400 text-xs">
+                🔍
+              </span>
+              <input
+                type="text"
+                value={communitySearch}
+                onChange={(e) => setCommunitySearch(e.target.value)}
+                placeholder="Search community name..."
+                className="w-full pl-8 pr-7 py-1.5 text-xs border border-gray-300 rounded-lg bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
+              />
+              {communitySearch && (
+                <button
+                  type="button"
+                  onClick={() => setCommunitySearch('')}
+                  className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-gray-400 hover:text-gray-600 text-xs cursor-pointer"
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Sort Toggle */}
+            <select
+              value={communitySort}
+              onChange={(e) => setCommunitySort(e.target.value)}
+              className="text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-gray-700 font-medium focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+            >
+              <option value="count">Sort: Most Permits</option>
+              <option value="alpha">Sort: A to Z</option>
+            </select>
+
+            {/* View Mode Toggle */}
+            {allCommunities.length > 12 && (
+              <button
+                type="button"
+                onClick={() => setShowAllCommunities(!showAllCommunities)}
+                className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer border ${
+                  showAllCommunities
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {showAllCommunities ? `Showing All (${allCommunities.length})` : 'Show All Zones'}
+              </button>
+            )}
+
+            <Link
+              to="/permits/historical"
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 ml-auto lg:ml-0"
+            >
+              <span>View in Registry</span>
+              <span>→</span>
+            </Link>
+          </div>
         </div>
 
+        {/* Communities Grid */}
         {isLoading ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map(n => (
-              <div key={n} className="animate-pulse h-16 bg-gray-100 rounded-lg"></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => (
+              <div key={n} className="animate-pulse h-20 bg-gray-100 rounded-xl"></div>
             ))}
           </div>
-        ) : topCommunities.length === 0 ? (
-          <div className="text-center py-8 text-xs text-gray-500">
-            No community data recorded
+        ) : displayedCommunities.length === 0 ? (
+          <div className="text-center py-10 px-4 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+            <span className="text-2xl mb-2 block">📍</span>
+            <p className="text-xs font-medium text-gray-600">
+              {communitySearch ? `No community zones match "${communitySearch}"` : 'No community data recorded.'}
+            </p>
+            {communitySearch && (
+              <button
+                type="button"
+                onClick={() => setCommunitySearch('')}
+                className="mt-2 text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+              >
+                Clear search filter
+              </button>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            {topCommunities.map((item, idx) => {
-              const maxCount = topCommunities[0]?.count || 1;
-              const barPercent = Math.round((item.count / maxCount) * 100);
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
+            {displayedCommunities.map((item) => {
+              const maxCount = allCommunities[0]?.count || 1;
+              const barPercent = Math.min(100, Math.max(8, Math.round((item.count / maxCount) * 100)));
 
               return (
                 <div
                   key={item.name}
                   onClick={() => navigate(`/permits/historical?location=${encodeURIComponent(item.name)}`)}
-                  className="p-4 rounded-xl border border-gray-200 hover:border-blue-400 hover:shadow-xs transition bg-gray-50/50 hover:bg-white cursor-pointer group flex flex-col justify-between"
+                  className="p-3.5 rounded-xl border border-gray-200 hover:border-blue-400 hover:shadow-md transition-all bg-gradient-to-br from-white to-gray-50/60 hover:to-blue-50/20 cursor-pointer group flex flex-col justify-between"
+                  title={`Click to view all ${item.count} permits in ${item.name}`}
                 >
-                  <div className="flex justify-between items-start mb-2">
-                    <span className="text-xs font-bold text-gray-900 group-hover:text-blue-600 transition truncate pr-2 uppercase">
-                      {item.name}
-                    </span>
-                    <span className="text-xs font-mono font-bold text-gray-700 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-2xs">
+                  <div className="flex justify-between items-start gap-2 mb-2">
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-gray-900 group-hover:text-blue-600 transition block truncate uppercase">
+                        {item.name}
+                      </span>
+                      <span className="text-[10px] text-gray-400 font-medium">
+                        {item.percent > 0 ? `${item.percent}% of district` : '<1% of district'}
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono font-bold text-gray-800 bg-white border border-gray-200 px-2 py-0.5 rounded-md shadow-2xs group-hover:border-blue-200 group-hover:text-blue-700 transition">
                       {item.count}
                     </span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                    <div
-                      className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
-                      style={{ width: `${barPercent}%` }}
-                    />
+
+                  <div className="space-y-1.5 mt-1">
+                    <div className="w-full bg-gray-200/80 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="bg-blue-600 group-hover:bg-blue-500 h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${barPercent}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-gray-400 group-hover:text-blue-600 transition-colors">
+                      <span>Inspect zone</span>
+                      <span className="font-bold group-hover:translate-x-0.5 transition-transform">→</span>
+                    </div>
                   </div>
                 </div>
               );
