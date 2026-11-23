@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Login from '../Login';
 import CircularProgress from '../components/CircularProgress';
+import DocumentViewerModal from '../components/DocumentViewerModal';
 import { API_BASE_URL } from '../config/api';
 
 // Segmented Date Input Sub-Component with pre-rendered slashes and auto-focusing segments
@@ -283,11 +284,50 @@ const NewPermit = () => {
   const [files, setFiles] = useState({ certificate: [], drawings: [], permitForm: [] });
   const [message, setMessage] = useState('');
   const [duplicateWarning, setDuplicateWarning] = useState('');
+  const [duplicateRecord, setDuplicateRecord] = useState(null);
+  const [selectedDuplicateModal, setSelectedDuplicateModal] = useState(false);
+  const [viewerDoc, setViewerDoc] = useState({ isOpen: false, url: '', title: '' });
+  const [attachingToExisting, setAttachingToExisting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [createdPermitNumber, setCreatedPermitNumber] = useState('');
 
   const [qrCodeData, setQrCodeData] = useState({ isOpen: false, code: '', permitNum: '' });
+
+  // Sync cache helper so dashboard & registry numbers update automatically
+  const syncDashboardCache = async () => {
+    try {
+      localStorage.removeItem('bpms_cached_dashboard');
+      localStorage.removeItem('bpms_cached_permits');
+      const res = await fetch(`${API_BASE_URL}/api/permits/stats`);
+      const s = await res.json();
+      if (s.success) {
+        localStorage.setItem('bpms_cached_dashboard', JSON.stringify({
+          total: s.total,
+          recent: [],
+          residential: s.residential,
+          commercial: s.commercial,
+          zones: s.zones,
+          fullyDocumented: s.fullyDocumented,
+          missingDocs: s.missingDocs,
+          totalAttachedFiles: s.totalAttachedFiles,
+          timestamp: Date.now()
+        }));
+      }
+    } catch (e) {
+      console.warn("Failed to sync cache:", e);
+    }
+  };
+
+  const parseDocLinks = (val) => {
+    if (!val || val === 'null' || val === 'undefined') return [];
+    return val.split(',').map(l => l.trim()).filter(l => l && l !== 'null' && l !== 'undefined');
+  };
+
+  const handleOpenDocViewer = (url, title) => {
+    if (!url) return;
+    setViewerDoc({ isOpen: true, url, title });
+  };
 
   const formatPermitNumberInput = (value) => {
     const cleanVal = (value || '').trim().toUpperCase();
@@ -314,6 +354,7 @@ const NewPermit = () => {
     // Only classify as duplicate when all three fields have been provided
     if (!pNumber || !applicant || !dateStr) {
       setDuplicateWarning('');
+      setDuplicateRecord(null);
       return;
     }
 
@@ -339,8 +380,10 @@ const NewPermit = () => {
         });
 
         if (duplicate) {
+          setDuplicateRecord(duplicate);
           setDuplicateWarning(`⚠️ Duplicate Warning: A permit with Number "${pNumber}", Applicant "${applicant}", and Date Issued "${dateStr}" is already archived in the registry.`);
         } else {
+          setDuplicateRecord(null);
           setDuplicateWarning('');
         }
       }
@@ -358,6 +401,7 @@ const NewPermit = () => {
       return () => clearTimeout(timer);
     } else {
       setDuplicateWarning('');
+      setDuplicateRecord(null);
     }
   }, [formData.permitNumber, formData.applicantName, formData.dateIssued]);
 
@@ -456,6 +500,7 @@ const NewPermit = () => {
         const result = await response.json();
         if (response.ok && result.success) {
           setMessage(`🎉 Import complete! Successfully added ${result.insertedCount || 0} record(s). Skipped ${result.skippedCount || 0} existing record(s).`);
+          syncDashboardCache();
         } else {
           setMessage("Bulk Import Error: Failed to import records. Please check the file and try again.");
         }
@@ -541,6 +586,10 @@ const NewPermit = () => {
           } else {
             try {
               const errData = JSON.parse(xhr.responseText);
+              if (xhr.status === 409 && errData.existingPermit) {
+                setDuplicateRecord(errData.existingPermit);
+                setDuplicateWarning(errData.message || 'Duplicate permit found.');
+              }
               reject(new Error(errData.message || `Failed to archive permit record (Status ${xhr.status}).`));
             } catch {
               reject(new Error(`Failed to archive permit record (Status ${xhr.status}).`));
@@ -555,6 +604,9 @@ const NewPermit = () => {
       if (!archiveData || !archiveData.success) {
         throw new Error(archiveData?.message || "Failed to archive permit record.");
       }
+
+      // Automatically sync dashboard & registry cache
+      syncDashboardCache();
 
       // STEP 3: GENERATE QR BADGE
       try {
@@ -577,6 +629,7 @@ const NewPermit = () => {
       setFormData({ permitNumber: '', dateIssued: '', purpose: 'RESIDENTIAL', customPurpose: '', applicantName: '', phone: '', address: '', location: '' });
       setFiles({ certificate: [], drawings: [], permitForm: [] });
       setDuplicateWarning('');
+      setDuplicateRecord(null);
 
     } catch (err) {
       console.error("Submit Error:", err);
@@ -586,6 +639,61 @@ const NewPermit = () => {
         setIsSubmitting(false);
         setUploadProgress(0);
       }, 600);
+    }
+  };
+
+  const handleDirectUploadToExisting = async (category, fileList) => {
+    if (!duplicateRecord || !fileList || fileList.length === 0) return;
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
+    if (!token) {
+      alert("Officer login session required.");
+      return;
+    }
+
+    const filesArray = Array.from(fileList);
+    setAttachingToExisting(true);
+
+    try {
+      const formDataToSend = new FormData();
+      if (category === 'certificate') {
+        formDataToSend.append('certificate', filesArray[0]);
+      } else if (category === 'drawings') {
+        filesArray.forEach(f => formDataToSend.append('drawings', f));
+      } else if (category === 'permitForm') {
+        filesArray.forEach(f => formDataToSend.append('permitForm', f));
+      }
+
+      const res = await fetch(`${API_BASE_URL}/api/permits/${duplicateRecord.id}/upload-document`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formDataToSend
+      });
+
+      const resData = await res.json();
+      if (!res.ok || !resData.success) {
+        throw new Error(resData.message || "Failed to attach document to existing permit.");
+      }
+
+      const updatedCert = resData.permit?.certificate_link || resData.certificate_link || (category === 'certificate' ? resData.new_links : undefined);
+      const updatedDrawings = resData.permit?.drawings_links || resData.drawings_links || (category === 'drawings' ? resData.new_links : undefined);
+      const updatedForm = resData.permit?.permit_form_link || resData.permit_form_link || (category === 'permitForm' ? resData.new_links : undefined);
+
+      setDuplicateRecord(prev => ({
+        ...prev,
+        ...(updatedCert !== undefined ? { certificate_link: updatedCert } : {}),
+        ...(updatedDrawings !== undefined ? { drawings_links: updatedDrawings } : {}),
+        ...(updatedForm !== undefined ? { permit_form_link: updatedForm } : {})
+      }));
+
+      syncDashboardCache();
+      alert(`✅ Successfully attached document(s) to existing permit ${duplicateRecord.permit_number}!`);
+    } catch (err) {
+      console.error("Direct upload to existing error:", err);
+      alert("Attachment error: " + err.message);
+    } finally {
+      setAttachingToExisting(false);
     }
   };
 
@@ -852,9 +960,111 @@ const NewPermit = () => {
           </div>
         </div>
 
+        {/* OFFICER QUALITY ASSURANCE & DUPLICATE RECORD CARD */}
+        {duplicateRecord && (
+          <div className="bg-amber-50/90 border-2 border-amber-300 rounded-xl p-5 shadow-sm space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl mt-0.5">⚠️</span>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-bold text-amber-900 text-base">Duplicate Record Found in Official Registry</h3>
+                    <span className="text-[11px] font-bold uppercase tracking-wider bg-amber-200 text-amber-900 px-2 py-0.5 rounded">
+                      Existing Permit
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-800 mt-1">
+                    Permit <span className="font-mono font-bold text-gray-900">{duplicateRecord.permit_number}</span> issued to <span className="font-bold text-gray-900">{duplicateRecord.applicant_name}</span> on <span className="font-mono font-bold text-gray-900">{duplicateRecord.date_issued}</span> is already archived.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Existing Documents Checklist */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-amber-200/80 text-xs">
+              <div className="bg-white/90 p-2.5 rounded-lg border border-amber-200 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-gray-700 block">📜 Certificate:</span>
+                  <span className={duplicateRecord.certificate_link && duplicateRecord.certificate_link !== 'null' ? "text-emerald-700 font-semibold" : "text-gray-400 italic"}>
+                    {duplicateRecord.certificate_link && duplicateRecord.certificate_link !== 'null' ? "✅ Uploaded" : "❌ Missing"}
+                  </span>
+                </div>
+                {duplicateRecord.certificate_link && duplicateRecord.certificate_link !== 'null' && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenDocViewer(parseDocLinks(duplicateRecord.certificate_link)[0], `Certificate - ${duplicateRecord.permit_number}`)}
+                    className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-bold cursor-pointer"
+                  >
+                    Preview
+                  </button>
+                )}
+              </div>
+
+              <div className="bg-white/90 p-2.5 rounded-lg border border-amber-200 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-gray-700 block">📐 Drawings:</span>
+                  <span className={duplicateRecord.drawings_links && duplicateRecord.drawings_links !== 'null' ? "text-emerald-700 font-semibold" : "text-gray-400 italic"}>
+                    {duplicateRecord.drawings_links && duplicateRecord.drawings_links !== 'null' 
+                      ? `✅ ${parseDocLinks(duplicateRecord.drawings_links).length} file(s)` 
+                      : "❌ Missing"}
+                  </span>
+                </div>
+                {duplicateRecord.drawings_links && duplicateRecord.drawings_links !== 'null' && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenDocViewer(parseDocLinks(duplicateRecord.drawings_links)[0], `Drawings - ${duplicateRecord.permit_number}`)}
+                    className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-bold cursor-pointer"
+                  >
+                    Preview
+                  </button>
+                )}
+              </div>
+
+              <div className="bg-white/90 p-2.5 rounded-lg border border-amber-200 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-gray-700 block">📝 Permit Form:</span>
+                  <span className={duplicateRecord.permit_form_link && duplicateRecord.permit_form_link !== 'null' ? "text-emerald-700 font-semibold" : "text-gray-400 italic"}>
+                    {duplicateRecord.permit_form_link && duplicateRecord.permit_form_link !== 'null' 
+                      ? `✅ ${parseDocLinks(duplicateRecord.permit_form_link).length} file(s)` 
+                      : "❌ Missing"}
+                  </span>
+                </div>
+                {duplicateRecord.permit_form_link && duplicateRecord.permit_form_link !== 'null' && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenDocViewer(parseDocLinks(duplicateRecord.permit_form_link)[0], `Permit Form - ${duplicateRecord.permit_number}`)}
+                    className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[11px] font-bold cursor-pointer"
+                  >
+                    Preview
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Actions for Officer */}
+            <div className="pt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedDuplicateModal(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
+              >
+                <span>👁️ View Existing Permit & All Documents</span>
+              </button>
+              <Link
+                to={`/permits/historical?search=${encodeURIComponent(duplicateRecord.permit_number)}&view=${encodeURIComponent(duplicateRecord.permit_number)}`}
+                target="_blank"
+                className="inline-flex items-center gap-1 px-3 py-2 bg-white hover:bg-gray-100 text-gray-700 border border-amber-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+              >
+                <span>🔗 Open in Registry</span>
+                <span className="text-[10px]">↗</span>
+              </Link>
+            </div>
+          </div>
+        )}
+
         <button 
           type="submit" 
-          disabled={isSubmitting}
+          disabled={isSubmitting || Boolean(duplicateRecord)}
           className="w-full bg-blue-600 text-white font-semibold py-4 rounded-md hover:bg-blue-700 transition shadow-md flex items-center justify-center space-x-2 disabled:opacity-70 cursor-pointer"
         >
           {isSubmitting ? (
@@ -908,6 +1118,219 @@ const NewPermit = () => {
           </div>
         </div>
       )}
+
+      {/* EXISTING DUPLICATE PERMIT & DOCUMENTS MODAL */}
+      {selectedDuplicateModal && duplicateRecord && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden border border-gray-200 animate-fadeIn">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xl font-bold text-gray-900">Existing Archived Permit</h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+                    Existing Record
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 mt-1">Permit Number: <span className="font-semibold text-blue-900 font-mono">{duplicateRecord.permit_number}</span></p>
+              </div>
+              <button 
+                onClick={() => setSelectedDuplicateModal(false)} 
+                className="text-gray-400 hover:text-red-500 p-2 rounded-full hover:bg-red-50 transition cursor-pointer text-lg font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-6">
+              {/* Metadata Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-200 text-xs">
+                <div>
+                  <span className="text-gray-500 uppercase font-semibold block">Applicant</span>
+                  <span className="font-bold text-gray-900">{duplicateRecord.applicant_name}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 uppercase font-semibold block">Date Issued</span>
+                  <span className="font-bold text-gray-900">{duplicateRecord.date_issued}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 uppercase font-semibold block">Purpose</span>
+                  <span className="font-bold text-gray-900">{duplicateRecord.purpose || 'RESIDENTIAL'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 uppercase font-semibold block">Location</span>
+                  <span className="font-bold text-gray-900">{duplicateRecord.location || 'N/A'}</span>
+                </div>
+              </div>
+
+              {/* Attached Documents Sections */}
+              <div className="space-y-4">
+                <h4 className="text-sm font-bold text-gray-800 uppercase tracking-wider border-b pb-2">
+                  Archived Documents on Google Drive
+                </h4>
+
+                {/* 1. Certificate */}
+                <div className="p-4 rounded-xl border border-gray-200 bg-white space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-gray-700 uppercase">1. Permit Certificate</span>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${duplicateRecord.certificate_link && duplicateRecord.certificate_link !== 'null' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>
+                      {duplicateRecord.certificate_link && duplicateRecord.certificate_link !== 'null' ? 'Attached' : 'Missing'}
+                    </span>
+                  </div>
+                  {duplicateRecord.certificate_link && duplicateRecord.certificate_link !== 'null' ? (
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={parseDocLinks(duplicateRecord.certificate_link)[0]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs"
+                      >
+                        📄 Open in Drive ↗
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenDocViewer(parseDocLinks(duplicateRecord.certificate_link)[0], `Certificate - ${duplicateRecord.permit_number}`)}
+                        className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-medium cursor-pointer"
+                      >
+                        👁️ Preview
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 pt-1">
+                      <label className="cursor-pointer px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold border border-blue-200">
+                        <span>+ Attach Certificate</span>
+                        <input
+                          type="file"
+                          accept=".pdf,image/*"
+                          className="hidden"
+                          disabled={attachingToExisting}
+                          onChange={(e) => handleDirectUploadToExisting('certificate', e.target.files)}
+                        />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Architectural Drawings */}
+                <div className="p-4 rounded-xl border border-gray-200 bg-white space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-gray-700 uppercase">2. Architectural Drawings</span>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${duplicateRecord.drawings_links && duplicateRecord.drawings_links !== 'null' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>
+                      {duplicateRecord.drawings_links && duplicateRecord.drawings_links !== 'null' ? `${parseDocLinks(duplicateRecord.drawings_links).length} File(s)` : 'Missing'}
+                    </span>
+                  </div>
+                  {duplicateRecord.drawings_links && duplicateRecord.drawings_links !== 'null' ? (
+                    <div className="flex flex-wrap gap-2">
+                      {parseDocLinks(duplicateRecord.drawings_links).map((link, idx) => (
+                        <div key={idx} className="inline-flex items-center rounded-lg border border-blue-200 overflow-hidden text-xs">
+                          <a
+                            href={link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold px-2.5 py-1"
+                          >
+                            Part {idx + 1} ↗
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDocViewer(link, `Drawing Part ${idx + 1} - ${duplicateRecord.permit_number}`)}
+                            className="bg-white hover:bg-gray-50 text-gray-600 px-2 py-1 border-l border-blue-200 cursor-pointer"
+                          >
+                            👁️
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="pt-1">
+                    <label className="cursor-pointer inline-flex items-center px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold border border-blue-200">
+                      <span>+ {duplicateRecord.drawings_links ? 'Add More Drawings' : 'Attach Architectural Drawings'}</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,image/*"
+                        className="hidden"
+                        disabled={attachingToExisting}
+                        onChange={(e) => handleDirectUploadToExisting('drawings', e.target.files)}
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* 3. Permit Form */}
+                <div className="p-4 rounded-xl border border-gray-200 bg-white space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-gray-700 uppercase">3. Permit Form</span>
+                    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${duplicateRecord.permit_form_link && duplicateRecord.permit_form_link !== 'null' ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-500'}`}>
+                      {duplicateRecord.permit_form_link && duplicateRecord.permit_form_link !== 'null' ? `${parseDocLinks(duplicateRecord.permit_form_link).length} File(s)` : 'Missing'}
+                    </span>
+                  </div>
+                  {duplicateRecord.permit_form_link && duplicateRecord.permit_form_link !== 'null' ? (
+                    <div className="flex flex-wrap gap-2">
+                      {parseDocLinks(duplicateRecord.permit_form_link).map((link, idx) => (
+                        <div key={idx} className="inline-flex items-center rounded-lg border border-blue-200 overflow-hidden text-xs">
+                          <a
+                            href={link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold px-2.5 py-1"
+                          >
+                            Part {idx + 1} ↗
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDocViewer(link, `Permit Form Part ${idx + 1} - ${duplicateRecord.permit_number}`)}
+                            className="bg-white hover:bg-gray-50 text-gray-600 px-2 py-1 border-l border-blue-200 cursor-pointer"
+                          >
+                            👁️
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="pt-1">
+                    <label className="cursor-pointer inline-flex items-center px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-semibold border border-blue-200">
+                      <span>+ {duplicateRecord.permit_form_link ? 'Add More Forms' : 'Attach Permit Form'}</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,image/*"
+                        className="hidden"
+                        disabled={attachingToExisting}
+                        onChange={(e) => handleDirectUploadToExisting('permitForm', e.target.files)}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+              <Link
+                to={`/permits/historical?search=${encodeURIComponent(duplicateRecord.permit_number)}&view=${encodeURIComponent(duplicateRecord.permit_number)}`}
+                target="_blank"
+                className="text-xs font-semibold text-blue-600 hover:underline flex items-center gap-1"
+              >
+                <span>Open in Historical Registry ↗</span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => setSelectedDuplicateModal(false)}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DOCUMENT PREVIEW MODAL */}
+      <DocumentViewerModal
+        isOpen={viewerDoc.isOpen}
+        onClose={() => setViewerDoc({ isOpen: false, url: '', title: '' })}
+        documentUrl={viewerDoc.url}
+        title={viewerDoc.title}
+      />
 
     </div>
   );

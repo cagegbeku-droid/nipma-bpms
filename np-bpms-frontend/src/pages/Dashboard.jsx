@@ -37,6 +37,9 @@ const Dashboard = () => {
   const [residentialCount, setResidentialCount] = useState(cachedStats?.residential || 0);
   const [commercialCount, setCommercialCount] = useState(cachedStats?.commercial || 0);
   const [zonesCount, setZonesCount] = useState(cachedStats?.zones || 0);
+  const [fullyDocumentedCount, setFullyDocumentedCount] = useState(cachedStats?.fullyDocumented || 0);
+  const [missingDocsCount, setMissingDocsCount] = useState(cachedStats?.missingDocs || 0);
+  const [totalFilesCount, setTotalFilesCount] = useState(cachedStats?.totalAttachedFiles || 0);
   const [quickSearch, setQuickSearch] = useState('');
   const [recentFilter, setRecentFilter] = useState('ALL'); // 'ALL' | 'RESIDENTIAL' | 'COMMERCIAL' | 'OTHER'
   const [isLoading, setIsLoading] = useState(!cachedStats);
@@ -479,8 +482,8 @@ const Dashboard = () => {
     try {
       setIsSyncing(true);
       const [statsRes, permitsRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/permits/stats`),
-        fetch(`${API_BASE_URL}/api/permits`)
+        fetch(`${API_BASE_URL}/api/permits/stats?_t=${Date.now()}`, { headers: { 'Cache-Control': 'no-cache' } }),
+        fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, { headers: { 'Cache-Control': 'no-cache' } })
       ]);
 
       const statsData = await statsRes.json();
@@ -505,9 +508,35 @@ const Dashboard = () => {
         const uniqueLocSet = new Set(records.map(p => (p.location || '').trim().toUpperCase()).filter(Boolean));
         uniqueLocations = statsData.zones ?? (uniqueLocSet.size || 1);
 
+        let fullyDoc = 0;
+        let missingDoc = 0;
+        let totalFiles = 0;
+
+        records.forEach(p => {
+          const hasCert = Boolean(p.certificate_link && p.certificate_link !== 'null' && p.certificate_link !== 'undefined' && p.certificate_link.trim());
+          const hasDrawings = Boolean(p.drawings_links && p.drawings_links !== 'null' && p.drawings_links !== 'undefined' && p.drawings_links.trim());
+          const hasForm = Boolean(p.permit_form_link && p.permit_form_link !== 'null' && p.permit_form_link !== 'undefined' && p.permit_form_link.trim());
+
+          let docCount = 0;
+          if (hasCert) docCount++;
+          if (hasDrawings) docCount += p.drawings_links.split(',').filter(l => l.trim() && l.trim() !== 'null' && l.trim() !== 'undefined').length || 1;
+          if (hasForm) docCount += p.permit_form_link.split(',').filter(l => l.trim() && l.trim() !== 'null' && l.trim() !== 'undefined').length || 1;
+          totalFiles += docCount;
+
+          if (hasCert && hasDrawings && hasForm) fullyDoc++;
+          else missingDoc++;
+        });
+
+        const finalFullyDoc = statsData.fullyDocumented ?? fullyDoc;
+        const finalMissingDoc = statsData.missingDocs ?? missingDoc;
+        const finalTotalFiles = statsData.totalAttachedFiles ?? totalFiles;
+
         setResidentialCount(resCount);
         setCommercialCount(commCount || (records.length - resCount));
         setZonesCount(uniqueLocations || 1);
+        setFullyDocumentedCount(finalFullyDoc);
+        setMissingDocsCount(finalMissingDoc);
+        setTotalFilesCount(finalTotalFiles);
 
         // Pre-cache the full permits list for instant loading on the historical registry and analytics pages
         try {
@@ -532,6 +561,9 @@ const Dashboard = () => {
           residential: resCount,
           commercial: commCount || (permitsData?.data?.length ? permitsData.data.length - resCount : 0),
           zones: uniqueLocations || 1,
+          fullyDocumented: statsData.fullyDocumented ?? fullyDocumentedCount,
+          missingDocs: statsData.missingDocs ?? missingDocsCount,
+          totalAttachedFiles: statsData.totalAttachedFiles ?? totalFilesCount,
           timestamp: Date.now()
         }));
       } catch (cacheErr) {
@@ -549,6 +581,26 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
+
+    // Auto-refresh immediately when user switches back to this tab
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        fetchDashboardData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    // Silent background live sync every 25 seconds for multi-device office updates
+    const syncInterval = setInterval(() => {
+      fetchDashboardData();
+    }, 25000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      clearInterval(syncInterval);
+    };
   }, []);
 
   const handleQuickSearch = (e) => {
@@ -573,10 +625,15 @@ const Dashboard = () => {
             <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
               Building Permit Records Management System
             </h1>
-            {isSyncing && (
+            {isSyncing ? (
               <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                Syncing...
+                Syncing live...
+              </span>
+            ) : (
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" title="Connected to central office database with auto-sync">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                Live Office Sync
               </span>
             )}
           </div>
@@ -721,6 +778,69 @@ const Dashboard = () => {
           </p>
         </Link>
 
+      </div>
+
+      {/* Officer Document Audit & Vault Compliance Card */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 rounded-2xl p-6 text-white shadow-md border border-slate-700/80">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30 uppercase tracking-wider">
+                Officer Quality Assurance & Document Audit
+              </span>
+              {isSyncing && (
+                <span className="text-[11px] text-blue-300 animate-pulse">Syncing figures...</span>
+              )}
+            </div>
+            <h3 className="text-xl font-bold mt-2 text-white">Document Vault Completeness Status</h3>
+            <p className="text-xs text-slate-300 mt-1 max-w-xl">
+              Track permit documentation compliance across all categories. Ensure every building record has an official certificate, architectural drawings, and permit form archived.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <Link
+              to="/permits/historical?docStatus=MISSING"
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <span>⚠️ Audit Incomplete ({missingDocsCount})</span>
+              <span>→</span>
+            </Link>
+            <Link
+              to="/permits/historical?docStatus=COMPLETE"
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-semibold transition border border-white/15 flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>✅ Fully Documented ({fullyDocumentedCount})</span>
+            </Link>
+          </div>
+        </div>
+
+        {/* 3 Metrics in the banner */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5 pt-4 border-t border-slate-700/60 text-xs">
+          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+            <span className="text-slate-400 block text-[11px] uppercase tracking-wider font-semibold">Fully Documented (3/3)</span>
+            <div className="text-xl font-extrabold text-emerald-400 mt-1 flex items-baseline gap-1.5">
+              <span>{fullyDocumentedCount}</span>
+              <span className="text-xs font-normal text-slate-400">/ {totalPermits} permits ({totalPermits > 0 ? Math.round((fullyDocumentedCount / totalPermits) * 100) : 0}%)</span>
+            </div>
+          </div>
+
+          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+            <span className="text-slate-400 block text-[11px] uppercase tracking-wider font-semibold">Missing Documents</span>
+            <div className="text-xl font-extrabold text-amber-400 mt-1 flex items-baseline gap-1.5">
+              <span>{missingDocsCount}</span>
+              <span className="text-xs font-normal text-slate-400">need file attachments</span>
+            </div>
+          </div>
+
+          <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+            <span className="text-slate-400 block text-[11px] uppercase tracking-wider font-semibold">Total Cloud Files</span>
+            <div className="text-xl font-extrabold text-blue-300 mt-1 flex items-baseline gap-1.5">
+              <span>{totalFilesCount}</span>
+              <span className="text-xs font-normal text-slate-400">files in Google Drive</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Quick Actions Section */}

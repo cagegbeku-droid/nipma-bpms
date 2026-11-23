@@ -40,7 +40,9 @@ const Analytics = () => {
     const fetchRecords = async () => {
       try {
         setIsSyncing(true);
-        const res = await fetch(`${API_BASE_URL}/api/permits`);
+        const res = await fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
+          headers: { 'Cache-Control': 'no-cache' }
+        });
         const data = await res.json();
         if (data.success && Array.isArray(data.data)) {
           setPermits(data.data);
@@ -64,6 +66,24 @@ const Analytics = () => {
     };
 
     fetchRecords();
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        fetchRecords();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    const syncInterval = setInterval(() => {
+      fetchRecords();
+    }, 25000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      clearInterval(syncInterval);
+    };
   }, []);
 
   // Filter records based on selected time range

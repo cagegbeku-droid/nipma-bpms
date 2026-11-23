@@ -15,6 +15,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // 1. GET ALL PERMITS
 // ==========================================
 const getPermits = async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   try {
     const { data, error } = await supabase
       .from('permits')
@@ -51,16 +52,20 @@ const getPermits = async (req, res) => {
 // 2. STATS ENDPOINTS
 // ==========================================
 const getPermitStats = async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   try {
     const { data, count, error } = await supabase
       .from('permits')
-      .select('id, purpose, location', { count: 'exact' });
+      .select('id, purpose, location, certificate_link, drawings_links, permit_form_link', { count: 'exact' });
 
     if (error) throw error;
 
     const total = count !== null ? count : (data ? data.length : 0);
     let residential = 0;
     let commercial = 0;
+    let fullyDocumented = 0;
+    let missingDocs = 0;
+    let totalAttachedFiles = 0;
     const locations = new Set();
 
     (data || []).forEach(p => {
@@ -73,6 +78,26 @@ const getPermitStats = async (req, res) => {
       if (p.location && p.location.trim() && p.location.trim().toUpperCase() !== 'N/A') {
         locations.add(p.location.trim().toUpperCase());
       }
+
+      const hasCert = Boolean(p.certificate_link && p.certificate_link !== 'null' && p.certificate_link !== 'undefined' && p.certificate_link.trim());
+      const hasDrawings = Boolean(p.drawings_links && p.drawings_links !== 'null' && p.drawings_links !== 'undefined' && p.drawings_links.trim());
+      const hasForm = Boolean(p.permit_form_link && p.permit_form_link !== 'null' && p.permit_form_link !== 'undefined' && p.permit_form_link.trim());
+
+      let docCount = 0;
+      if (hasCert) docCount++;
+      if (hasDrawings) {
+        docCount += p.drawings_links.split(',').filter(l => l.trim() && l.trim() !== 'null' && l.trim() !== 'undefined').length || 1;
+      }
+      if (hasForm) {
+        docCount += p.permit_form_link.split(',').filter(l => l.trim() && l.trim() !== 'null' && l.trim() !== 'undefined').length || 1;
+      }
+      totalAttachedFiles += docCount;
+
+      if (hasCert && hasDrawings && hasForm) {
+        fullyDocumented++;
+      } else {
+        missingDocs++;
+      }
     });
 
     res.status(200).json({ 
@@ -80,7 +105,10 @@ const getPermitStats = async (req, res) => {
       total,
       residential,
       commercial: commercial || (total - residential),
-      zones: locations.size || 1
+      zones: locations.size || 1,
+      fullyDocumented,
+      missingDocs,
+      totalAttachedFiles
     });
   } catch (error) {
     console.error("Get Stats Error:", error);
@@ -89,6 +117,7 @@ const getPermitStats = async (req, res) => {
 };
 
 const getMonthlyStats = async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   try {
     const { data, error } = await supabase
       .from('permits')
@@ -134,7 +163,7 @@ const archivePermit = async (req, res) => {
     if (cleanNum && cleanApplicant && cleanDate) {
       const { data: existingDup } = await supabase
         .from('permits')
-        .select('id, permit_number, applicant_name, date_issued')
+        .select('*')
         .ilike('permit_number', cleanNum)
         .ilike('applicant_name', cleanApplicant)
         .eq('date_issued', cleanDate)
@@ -143,7 +172,8 @@ const archivePermit = async (req, res) => {
       if (existingDup && existingDup.length > 0) {
         return res.status(409).json({ 
           success: false, 
-          message: `Duplicate Error: A permit with number "${cleanNum}", applicant "${cleanApplicant}", and date issued "${cleanDate}" is already archived in the registry.` 
+          message: `Duplicate Error: A permit with number "${cleanNum}", applicant "${cleanApplicant}", and date issued "${cleanDate}" is already archived in the registry.`,
+          existingPermit: existingDup[0]
         });
       }
     }

@@ -31,12 +31,15 @@ const PermitList = () => {
     }
   }, []);
 
+  const initialDocStatus = searchParams.get('docStatus') || 'ALL';
+
   const [permits, setPermits] = useState(cachedPermits || []);
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
   const [selectedPurpose, setSelectedPurpose] = useState('ALL');
   const [selectedLocation, setSelectedLocation] = useState('ALL');
+  const [selectedDocStatus, setSelectedDocStatus] = useState(initialDocStatus);
   const [sortBy, setSortBy] = useState('date-desc');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -110,6 +113,10 @@ const PermitList = () => {
     if (loc !== null) {
       setSelectedLocation(loc.toUpperCase());
     }
+    const ds = searchParams.get('docStatus');
+    if (ds !== null) {
+      setSelectedDocStatus(ds.toUpperCase());
+    }
   }, [searchParams]);
 
   // Auto-open modal if ?view=PERMIT_NUMBER or ID is passed
@@ -126,13 +133,52 @@ const PermitList = () => {
   // Reset to page 1 whenever any filter or sorting changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedMonth, selectedYear, selectedPurpose, selectedLocation, sortBy, pageSize]);
+  }, [searchTerm, selectedMonth, selectedYear, selectedPurpose, selectedLocation, selectedDocStatus, sortBy, pageSize]);
 
-  // Auto-sync permits changes to localStorage cache
+  // Auto-sync permits changes to localStorage cache and update dashboard numbers in real-time
   useEffect(() => {
     if (permits && permits.length > 0) {
       try {
         localStorage.setItem('bpms_cached_permits', JSON.stringify(permits));
+
+        let residential = 0;
+        let commercial = 0;
+        let fullyDocumented = 0;
+        let missingDocs = 0;
+        let totalAttachedFiles = 0;
+        const locations = new Set();
+
+        permits.forEach(p => {
+          const purp = (p.purpose || '').toUpperCase();
+          if (purp.includes('RESIDENTIAL')) residential++;
+          else if (purp.includes('COMMERCIAL') || purp.includes('INDUSTRIAL') || purp.includes('CIVIC') || purp.includes('INSTITUT')) commercial++;
+          if (p.location && p.location.trim() && p.location.trim().toUpperCase() !== 'N/A') locations.add(p.location.trim().toUpperCase());
+
+          const hasCert = Boolean(p.certificate_link && p.certificate_link !== 'null' && p.certificate_link !== 'undefined' && p.certificate_link.trim());
+          const hasDrawings = Boolean(p.drawings_links && p.drawings_links !== 'null' && p.drawings_links !== 'undefined' && p.drawings_links.trim());
+          const hasForm = Boolean(p.permit_form_link && p.permit_form_link !== 'null' && p.permit_form_link !== 'undefined' && p.permit_form_link.trim());
+
+          let docCount = 0;
+          if (hasCert) docCount++;
+          if (hasDrawings) docCount += p.drawings_links.split(',').filter(l => l.trim() && l.trim() !== 'null' && l.trim() !== 'undefined').length || 1;
+          if (hasForm) docCount += p.permit_form_link.split(',').filter(l => l.trim() && l.trim() !== 'null' && l.trim() !== 'undefined').length || 1;
+          totalAttachedFiles += docCount;
+
+          if (hasCert && hasDrawings && hasForm) fullyDocumented++;
+          else missingDocs++;
+        });
+
+        localStorage.setItem('bpms_cached_dashboard', JSON.stringify({
+          total: permits.length,
+          recent: permits.slice(0, 6),
+          residential,
+          commercial: commercial || (permits.length - residential),
+          zones: locations.size || 1,
+          fullyDocumented,
+          missingDocs,
+          totalAttachedFiles,
+          timestamp: Date.now()
+        }));
       } catch (e) {
         console.warn("Failed to update permits cache:", e);
       }
@@ -141,12 +187,34 @@ const PermitList = () => {
 
   useEffect(() => {
     fetchPermits();
+
+    // Auto-refresh immediately when user switches back to this tab
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        fetchPermits();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+
+    // Silent background live sync every 25 seconds for multi-device office updates
+    const syncInterval = setInterval(() => {
+      fetchPermits();
+    }, 25000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      clearInterval(syncInterval);
+    };
   }, []);
 
   const fetchPermits = async () => {
     try {
       setIsSyncing(true);
-      const response = await fetch(`${API_BASE_URL}/api/permits`);
+      const response = await fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
+        headers: { 'Cache-Control': 'no-cache' }
+      });
       const data = await response.json();
       if (data.success && Array.isArray(data.data)) {
         setPermits(data.data);
@@ -306,6 +374,15 @@ const PermitList = () => {
     return dupSet;
   }, [permits]);
 
+  const missingDocsCount = useMemo(() => {
+    return permits.filter(p => {
+      const hasCert = Boolean(p.certificate_link && p.certificate_link !== 'null' && p.certificate_link !== 'undefined' && p.certificate_link.trim());
+      const hasDrawings = Boolean(p.drawings_links && p.drawings_links !== 'null' && p.drawings_links !== 'undefined' && p.drawings_links.trim());
+      const hasForm = Boolean(p.permit_form_link && p.permit_form_link !== 'null' && p.permit_form_link !== 'undefined' && p.permit_form_link.trim());
+      return !(hasCert && hasDrawings && hasForm);
+    }).length;
+  }, [permits]);
+
   const filteredPermits = useMemo(() => {
     return permits.filter(permit => {
       const search = searchTerm.toLowerCase().trim();
@@ -348,9 +425,22 @@ const PermitList = () => {
         permit.phone?.includes(search)
       );
 
-      return matchesMonth && matchesYear && matchesPurpose && matchesLocation && matchesSearch;
+      const hasCert = Boolean(permit.certificate_link && permit.certificate_link !== 'null' && permit.certificate_link !== 'undefined' && permit.certificate_link.trim());
+      const hasDrawings = Boolean(permit.drawings_links && permit.drawings_links !== 'null' && permit.drawings_links !== 'undefined' && permit.drawings_links.trim());
+      const hasForm = Boolean(permit.permit_form_link && permit.permit_form_link !== 'null' && permit.permit_form_link !== 'undefined' && permit.permit_form_link.trim());
+      const isComplete = hasCert && hasDrawings && hasForm;
+      const hasAnyDoc = hasCert || hasDrawings || hasForm;
+      const isDup = duplicatePermitIds.has(permit.id);
+
+      let matchesDocStatus = true;
+      if (selectedDocStatus === 'COMPLETE') matchesDocStatus = isComplete;
+      else if (selectedDocStatus === 'MISSING') matchesDocStatus = !isComplete;
+      else if (selectedDocStatus === 'NO_DOCS') matchesDocStatus = !hasAnyDoc;
+      else if (selectedDocStatus === 'DUPLICATES') matchesDocStatus = isDup;
+
+      return matchesMonth && matchesYear && matchesPurpose && matchesLocation && matchesSearch && matchesDocStatus;
     });
-  }, [permits, searchTerm, selectedMonth, selectedYear, selectedPurpose, selectedLocation]);
+  }, [permits, searchTerm, selectedMonth, selectedYear, selectedPurpose, selectedLocation, selectedDocStatus, duplicatePermitIds]);
 
   const sortedPermits = useMemo(() => {
     const list = [...filteredPermits];
@@ -937,10 +1027,15 @@ const PermitList = () => {
             <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
               Building Permit Records Registry
             </h1>
-            {isSyncing && (
+            {isSyncing ? (
               <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                Syncing...
+                Syncing live...
+              </span>
+            ) : (
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" title="Connected to central office database with auto-sync">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                Live Office Sync
               </span>
             )}
           </div>
@@ -1041,8 +1136,8 @@ const PermitList = () => {
           </div>
         </div>
 
-        {/* Row 2: Month + Year + Sort By + Reset */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 pt-3 border-t border-gray-100">
+        {/* Row 2: Month + Year + Sort By + Documents Audit + Per Page + Reset */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-3 border-t border-gray-100">
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Month</label>
             <select 
@@ -1096,6 +1191,24 @@ const PermitList = () => {
           </div>
 
           <div>
+            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Documents Audit</label>
+            <select 
+              value={selectedDocStatus} 
+              onChange={(e) => {
+                setSelectedDocStatus(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full p-2 border border-gray-200 rounded-lg bg-white text-xs focus:ring-2 focus:ring-blue-500 outline-none font-semibold text-gray-800"
+            >
+              <option value="ALL">All Documents Status</option>
+              <option value="MISSING">⚠️ Missing Documents (Incomplete)</option>
+              <option value="COMPLETE">✅ Fully Documented (3/3)</option>
+              <option value="NO_DOCS">❌ No Documents Attached</option>
+              <option value="DUPLICATES">⚠️ Duplicates Only</option>
+            </select>
+          </div>
+
+          <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Per Page</label>
             <select 
               value={pageSize} 
@@ -1118,6 +1231,7 @@ const PermitList = () => {
                 setSelectedYear('ALL');
                 setSelectedPurpose('ALL');
                 setSelectedLocation('ALL');
+                setSelectedDocStatus('ALL');
                 setSortBy('date-desc');
               }}
               className="w-full p-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg text-xs font-semibold transition cursor-pointer text-center"
@@ -1132,12 +1246,27 @@ const PermitList = () => {
           <div className="text-gray-500 font-medium flex items-center gap-2 flex-wrap">
             <span>
               Found <span className="font-bold text-gray-900">{sortedPermits.length}</span> matching records 
-              {(searchTerm || selectedPurpose !== 'ALL' || selectedLocation !== 'ALL' || selectedMonth !== 'ALL' || selectedYear !== 'ALL') && ' (filters active)'}
+              {(searchTerm || selectedPurpose !== 'ALL' || selectedLocation !== 'ALL' || selectedMonth !== 'ALL' || selectedYear !== 'ALL' || selectedDocStatus !== 'ALL') && ' (filters active)'}
             </span>
+            {missingDocsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setSelectedDocStatus(selectedDocStatus === 'MISSING' ? 'ALL' : 'MISSING')}
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold cursor-pointer transition ${selectedDocStatus === 'MISSING' ? 'bg-amber-600 text-white shadow-2xs' : 'bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300'}`}
+                title="Click to toggle filter for records missing documents"
+              >
+                <span>⚠️ {missingDocsCount} Missing Documents</span>
+              </button>
+            )}
             {duplicatePermitIds.size > 0 && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200" title="Records sharing the same Permit #, Applicant Name, and Date Issued">
-                ⚠️ {duplicatePermitIds.size} Duplicate Permits Found
-              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedDocStatus(selectedDocStatus === 'DUPLICATES' ? 'ALL' : 'DUPLICATES')}
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold cursor-pointer transition ${selectedDocStatus === 'DUPLICATES' ? 'bg-purple-600 text-white shadow-2xs' : 'bg-purple-100 text-purple-800 hover:bg-purple-200 border border-purple-300'}`}
+                title="Click to toggle filter for duplicate permits"
+              >
+                <span>⚠️ {duplicatePermitIds.size} Duplicate Permits Found</span>
+              </button>
             )}
           </div>
 
@@ -1167,16 +1296,17 @@ const PermitList = () => {
               <tr className="bg-gray-50/80 text-gray-700 text-xs font-bold uppercase tracking-wider border-b border-gray-200">
                 <th className="p-4">Permit Info</th>
                 <th className="p-4">Applicant / Entity</th>
-                <th className="p-4">Property Details & GPS Map</th>
+                <th className="p-4">Property & Site Map</th>
+                <th className="p-4">Document Status</th>
                 <th className="p-4 text-center action-buttons">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
               {isLoading ? (
-                <tr><td colSpan="4" className="p-12 text-center text-gray-400 animate-pulse">Loading secure records...</td></tr>
+                <tr><td colSpan="5" className="p-12 text-center text-gray-400 animate-pulse">Loading secure records...</td></tr>
               ) : paginatedPermits.length === 0 ? (
                 <tr>
-                  <td colSpan="4" className="p-12 text-center">
+                  <td colSpan="5" className="p-12 text-center">
                     <span className="text-3xl inline-block mb-2">📂</span>
                     <p className="text-sm font-medium text-gray-600">No records found matching your filters.</p>
                     <p className="text-xs text-gray-400 mt-1">Try adjusting keywords or clearing category and zone filters.</p>
@@ -1188,6 +1318,22 @@ const PermitList = () => {
                   const displayPurpose = permit.purpose || 'RESIDENTIAL';
                   const isResidential = displayPurpose.toUpperCase().includes('RESIDENTIAL');
                   const isDuplicate = duplicatePermitIds.has(permit.id);
+
+                  const certLinks = permit.certificate_link && permit.certificate_link !== 'null' && permit.certificate_link !== 'undefined'
+                    ? permit.certificate_link.split(',').map(l => l.trim()).filter(Boolean)
+                    : [];
+                  const drawingsLinks = permit.drawings_links && permit.drawings_links !== 'null' && permit.drawings_links !== 'undefined'
+                    ? permit.drawings_links.split(',').map(l => l.trim()).filter(Boolean)
+                    : [];
+                  const formLinks = permit.permit_form_link && permit.permit_form_link !== 'null' && permit.permit_form_link !== 'undefined'
+                    ? permit.permit_form_link.split(',').map(l => l.trim()).filter(Boolean)
+                    : [];
+
+                  const hasCert = certLinks.length > 0;
+                  const hasDrawings = drawingsLinks.length > 0;
+                  const hasForm = formLinks.length > 0;
+                  const docCategoriesCount = (hasCert ? 1 : 0) + (hasDrawings ? 1 : 0) + (hasForm ? 1 : 0);
+                  const isComplete = docCategoriesCount === 3;
 
                   return (
                     <tr key={permit.id} className="hover:bg-blue-50/25 transition group">
@@ -1239,6 +1385,75 @@ const PermitList = () => {
                           ) : (
                             <span className="text-gray-400 italic">N/A</span>
                           )}
+                        </div>
+                      </td>
+                      <td className="p-4 align-middle">
+                        <div className="space-y-1.5">
+                          <div>
+                            {isComplete ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                <span>✅ Complete (3/3)</span>
+                              </span>
+                            ) : docCategoriesCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                                <span>⚠️ Incomplete ({docCategoriesCount}/3)</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-500 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded-full">
+                                <span>❌ No Documents</span>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                            {/* Certificate chip */}
+                            {hasCert ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDocViewer(certLinks[0], `Certificate - ${permit.permit_number}`)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded font-semibold transition cursor-pointer"
+                                title="Click to preview Certificate"
+                              >
+                                <span>✓ Cert</span>
+                              </button>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-gray-50 text-gray-400 border border-gray-200 rounded italic">
+                                ✕ Cert
+                              </span>
+                            )}
+
+                            {/* Drawings chip */}
+                            {hasDrawings ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDocViewer(drawingsLinks[0], `Drawings - ${permit.permit_number}`)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded font-semibold transition cursor-pointer"
+                                title={`Click to preview Architectural Drawings (${drawingsLinks.length} files)`}
+                              >
+                                <span>✓ Drawings ({drawingsLinks.length})</span>
+                              </button>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-gray-50 text-gray-400 border border-gray-200 rounded italic">
+                                ✕ Drawings
+                              </span>
+                            )}
+
+                            {/* Permit Form chip */}
+                            {hasForm ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDocViewer(formLinks[0], `Permit Form - ${permit.permit_number}`)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded font-semibold transition cursor-pointer"
+                                title={`Click to preview Permit Form (${formLinks.length} files)`}
+                              >
+                                <span>✓ Form</span>
+                              </button>
+                            ) : (
+                              <span className="px-2 py-0.5 bg-gray-50 text-gray-400 border border-gray-200 rounded italic">
+                                ✕ Form
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="p-4 align-middle text-center action-buttons">
