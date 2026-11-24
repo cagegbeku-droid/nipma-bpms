@@ -217,12 +217,11 @@ const PermitList = () => {
       const timeout = setTimeout(() => controller.abort(), 55000);
 
       const response = await fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
-        headers: { 'Cache-Control': 'no-cache' },
         signal: controller.signal
       });
       clearTimeout(timeout);
 
-      const data = await response.json();
+      const data = response && response.ok ? await response.json() : { success: false };
       if (data.success && Array.isArray(data.data)) {
         setPermits(data.data);
         setError('');

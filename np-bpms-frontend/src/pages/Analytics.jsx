@@ -75,16 +75,17 @@ const Analytics = () => {
 
         const [permitsRes, statsRes] = await Promise.all([
           fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
-            headers: { 'Cache-Control': 'no-cache' },
             signal: controller.signal
+          }).catch(err => {
+            console.warn("Permits fetch failed in analytics:", err.message);
+            return null;
           }),
-          fetch(`${API_BASE_URL}/api/permits/stats?_t=${Date.now()}`, {
-            headers: { 'Cache-Control': 'no-cache' }
-          }).catch(() => null)
+          fetch(`${API_BASE_URL}/api/permits/stats?_t=${Date.now()}`).catch(() => null)
         ]);
         clearTimeout(timeout);
 
-        const permitsData = await permitsRes.json();
+        const permitsData = permitsRes && permitsRes.ok ? await permitsRes.json() : { success: false };
+        const statsData = statsRes && statsRes.ok ? await statsRes.json() : { success: false };
         if (permitsData.success && Array.isArray(permitsData.data)) {
           setPermits(permitsData.data);
           setError('');

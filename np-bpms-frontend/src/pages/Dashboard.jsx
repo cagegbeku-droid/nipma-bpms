@@ -497,19 +497,23 @@ const Dashboard = () => {
 
       const [statsRes, permitsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/permits/stats?_t=${Date.now()}`, {
-          headers: { 'Cache-Control': 'no-cache' },
           signal: controller.signal
+        }).catch(err => {
+          console.warn("Stats fetch failed:", err.message);
+          return null;
         }),
         fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
-          headers: { 'Cache-Control': 'no-cache' },
           signal: controller.signal
+        }).catch(err => {
+          console.warn("Permits fetch failed:", err.message);
+          return null;
         })
       ]);
       clearTimeout(timeout);
       setIsWakingServer(false);
 
-      const statsData = await statsRes.json();
-      const permitsData = await permitsRes.json();
+      const statsData = statsRes && statsRes.ok ? await statsRes.json() : { success: false };
+      const permitsData = permitsRes && permitsRes.ok ? await permitsRes.json() : { success: false };
 
       let calculatedTotal = 0;
       let calculatedRecent = [];
