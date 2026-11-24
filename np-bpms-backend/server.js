@@ -12,7 +12,6 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'cache-control', 'Pragma', 'pragma', 'X-Requested-With', 'Accept', 'Origin']
 }));
-app.options('*', cors());
 
 // --- INCREASED BODY LIMITS FOR HEAVY PAYLOADS ---
 app.use(express.json({ limit: '50mb' }));
