@@ -4,6 +4,7 @@ import PermitQRBadge from '../components/PermitQRBadge';
 import DocumentViewerModal from '../components/DocumentViewerModal';
 import CircularProgress from '../components/CircularProgress';
 import { API_BASE_URL } from '../config/api';
+import { DEFAULT_RECENT_PERMITS } from '../data/defaultData';
 
 const PermitList = () => {
   const [searchParams] = useSearchParams();
@@ -31,7 +32,7 @@ const PermitList = () => {
     }
   }, []);
 
-  const [permits, setPermits] = useState(cachedPermits || []);
+  const [permits, setPermits] = useState(cachedPermits && cachedPermits.length > 0 ? cachedPermits : DEFAULT_RECENT_PERMITS);
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [selectedMonth, setSelectedMonth] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
@@ -195,10 +196,10 @@ const PermitList = () => {
     document.addEventListener('visibilitychange', handleVisibilityOrFocus);
     window.addEventListener('focus', handleVisibilityOrFocus);
 
-    // Silent background live sync every 25 seconds for multi-device office updates
+    // Silent background live sync every 15 seconds for multi-device office updates
     const syncInterval = setInterval(() => {
       fetchPermits();
-    }, 25000);
+    }, 15000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);

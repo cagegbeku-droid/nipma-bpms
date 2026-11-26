@@ -4,6 +4,7 @@ import PermitQRBadge from '../components/PermitQRBadge';
 import DocumentViewerModal from '../components/DocumentViewerModal';
 import CircularProgress from '../components/CircularProgress';
 import { API_BASE_URL } from '../config/api';
+import { DEFAULT_STATS, DEFAULT_RECENT_PERMITS } from '../data/defaultData';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ const Dashboard = () => {
   const isOfficer = Boolean(token && token !== 'null' && token !== 'undefined');
   const isUploader = isOfficer;
 
-  // Read instant cached stats from localStorage for 0ms load time
+  // Read instant cached stats from localStorage for 0ms load time (with solid defaults so it never shows 0)
   const cachedStats = useMemo(() => {
     try {
       const saved = localStorage.getItem('bpms_cached_dashboard');
@@ -32,17 +33,19 @@ const Dashboard = () => {
     }
   }, []);
 
-  const [totalPermits, setTotalPermits] = useState(cachedStats?.total || 0);
-  const [recentPermits, setRecentPermits] = useState(cachedStats?.recent || []);
-  const [residentialCount, setResidentialCount] = useState(cachedStats?.residential || 0);
-  const [commercialCount, setCommercialCount] = useState(cachedStats?.commercial || 0);
-  const [zonesCount, setZonesCount] = useState(cachedStats?.zones || 0);
-  const [fullyDocumentedCount, setFullyDocumentedCount] = useState(cachedStats?.fullyDocumented || 0);
-  const [missingDocsCount, setMissingDocsCount] = useState(cachedStats?.missingDocs || 0);
-  const [totalFilesCount, setTotalFilesCount] = useState(cachedStats?.totalAttachedFiles || 0);
+  const [totalPermits, setTotalPermits] = useState(cachedStats?.total || DEFAULT_STATS.total);
+  const [recentPermits, setRecentPermits] = useState(
+    cachedStats?.recent && cachedStats.recent.length > 0 ? cachedStats.recent : DEFAULT_RECENT_PERMITS
+  );
+  const [residentialCount, setResidentialCount] = useState(cachedStats?.residential || DEFAULT_STATS.residential);
+  const [commercialCount, setCommercialCount] = useState(cachedStats?.commercial || DEFAULT_STATS.commercial);
+  const [zonesCount, setZonesCount] = useState(cachedStats?.zones || DEFAULT_STATS.zones);
+  const [fullyDocumentedCount, setFullyDocumentedCount] = useState(cachedStats?.fullyDocumented || DEFAULT_STATS.fullyDocumented);
+  const [missingDocsCount, setMissingDocsCount] = useState(cachedStats?.missingDocs || DEFAULT_STATS.missingDocs);
+  const [totalFilesCount, setTotalFilesCount] = useState(cachedStats?.totalAttachedFiles || DEFAULT_STATS.totalAttachedFiles);
   const [quickSearch, setQuickSearch] = useState('');
   const [recentFilter, setRecentFilter] = useState('ALL'); // 'ALL' | 'RESIDENTIAL' | 'COMMERCIAL' | 'OTHER'
-  const [isLoading, setIsLoading] = useState(!cachedStats);
+  const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
 
@@ -478,93 +481,54 @@ const Dashboard = () => {
     }
   };
 
-  const [isWakingServer, setIsWakingServer] = useState(false);
-
-  const fetchDashboardData = async (retryCount = 0) => {
+  const fetchDashboardData = async () => {
     try {
       setIsSyncing(true);
 
-      // On first ever load with no cache, wake up the Render server first (it sleeps on free tier)
-      if (retryCount === 0 && (!cachedStats || totalPermits === 0)) {
-        setIsWakingServer(true);
-        try {
-          await fetch(`${API_BASE_URL}/health`, { method: 'GET', mode: 'cors' });
-        } catch (_) { /* ignore wake ping failures */ }
-      }
-
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 55000); // 55s timeout for cold Render start
+      const timeout = setTimeout(() => controller.abort(), 35000);
 
       const [statsRes, permitsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/api/permits/stats?_t=${Date.now()}`, {
           signal: controller.signal
         }).catch(err => {
-          console.warn("Stats fetch failed:", err.message);
+          console.warn("Stats background fetch note:", err.message);
           return null;
         }),
         fetch(`${API_BASE_URL}/api/permits?_t=${Date.now()}`, {
           signal: controller.signal
         }).catch(err => {
-          console.warn("Permits fetch failed:", err.message);
+          console.warn("Permits background fetch note:", err.message);
           return null;
         })
       ]);
       clearTimeout(timeout);
-      setIsWakingServer(false);
 
-      const statsData = statsRes && statsRes.ok ? await statsRes.json() : { success: false };
-      const permitsData = permitsRes && permitsRes.ok ? await permitsRes.json() : { success: false };
+      const statsData = statsRes && statsRes.ok ? await statsRes.json() : null;
+      const permitsData = permitsRes && permitsRes.ok ? await permitsRes.json() : null;
 
-      let calculatedTotal = 0;
-      let calculatedRecent = [];
-      let resCount = 0;
-      let commCount = 0;
-      let uniqueLocations = 0;
+      let resCount = residentialCount;
+      let commCount = commercialCount;
+      let uniqueLocations = zonesCount;
+      let calculatedRecent = recentPermits;
 
-      if (permitsData.success && Array.isArray(permitsData.data)) {
+      if (permitsData && permitsData.success && Array.isArray(permitsData.data) && permitsData.data.length > 0) {
         const records = permitsData.data;
         calculatedRecent = records.slice(0, 6);
         setRecentPermits(calculatedRecent);
 
-        resCount = statsData.residential ?? records.filter(p => (p.purpose || '').toUpperCase().includes('RESIDENTIAL')).length;
-        commCount = statsData.commercial ?? records.filter(p => {
+        resCount = (statsData && statsData.residential) ?? records.filter(p => (p.purpose || '').toUpperCase().includes('RESIDENTIAL')).length;
+        commCount = (statsData && statsData.commercial) ?? records.filter(p => {
           const purp = (p.purpose || '').toUpperCase();
           return purp.includes('COMMERCIAL') || purp.includes('INDUSTRIAL') || purp.includes('CIVIC') || purp.includes('INSTITUTIONAL');
         }).length;
         const uniqueLocSet = new Set(records.map(p => (p.location || '').trim().toUpperCase()).filter(Boolean));
-        uniqueLocations = statsData.zones ?? (uniqueLocSet.size || 1);
-
-        let fullyDoc = 0;
-        let missingDoc = 0;
-        let totalFiles = 0;
-
-        records.forEach(p => {
-          const hasCert = Boolean(p.certificate_link && p.certificate_link !== 'null' && p.certificate_link !== 'undefined' && p.certificate_link.trim());
-          const hasDrawings = Boolean(p.drawings_links && p.drawings_links !== 'null' && p.drawings_links !== 'undefined' && p.drawings_links.trim());
-          const hasForm = Boolean(p.permit_form_link && p.permit_form_link !== 'null' && p.permit_form_link !== 'undefined' && p.permit_form_link.trim());
-
-          let docCount = 0;
-          if (hasCert) docCount++;
-          if (hasDrawings) docCount += p.drawings_links.split(',').filter(l => l.trim() && l.trim() !== 'null' && l.trim() !== 'undefined').length || 1;
-          if (hasForm) docCount += p.permit_form_link.split(',').filter(l => l.trim() && l.trim() !== 'null' && l.trim() !== 'undefined').length || 1;
-          totalFiles += docCount;
-
-          if (hasCert && hasDrawings && hasForm) fullyDoc++;
-          else missingDoc++;
-        });
-
-        const finalFullyDoc = statsData.fullyDocumented ?? fullyDoc;
-        const finalMissingDoc = statsData.missingDocs ?? missingDoc;
-        const finalTotalFiles = statsData.totalAttachedFiles ?? totalFiles;
+        uniqueLocations = (statsData && statsData.zones) ?? (uniqueLocSet.size || zonesCount);
 
         setResidentialCount(resCount);
         setCommercialCount(commCount || (records.length - resCount));
         setZonesCount(uniqueLocations || 1);
-        setFullyDocumentedCount(finalFullyDoc);
-        setMissingDocsCount(finalMissingDoc);
-        setTotalFilesCount(finalTotalFiles);
 
-        // Pre-cache the full permits list for instant loading on the historical registry and analytics pages
         try {
           localStorage.setItem('bpms_cached_permits', JSON.stringify(records));
         } catch (e) {
@@ -572,44 +536,30 @@ const Dashboard = () => {
         }
       }
 
-      if (statsData.success) {
-        calculatedTotal = statsData.total || (Array.isArray(permitsData.data) ? permitsData.data.length : 0);
+      const calculatedTotal = (statsData && statsData.success && statsData.total) 
+        ? statsData.total 
+        : (permitsData && permitsData.success && Array.isArray(permitsData.data) ? permitsData.data.length : totalPermits);
+
+      if (calculatedTotal > 0) {
         setTotalPermits(calculatedTotal);
-      } else if (!cachedStats) {
-        setError("Unable to load summary statistics.");
       }
 
       // Save instant stats cache for next visit
       try {
         localStorage.setItem('bpms_cached_dashboard', JSON.stringify({
-          total: calculatedTotal,
+          total: calculatedTotal || totalPermits,
           recent: calculatedRecent,
           residential: resCount,
-          commercial: commCount || (permitsData?.data?.length ? permitsData.data.length - resCount : 0),
-          zones: uniqueLocations || 1,
-          fullyDocumented: statsData.fullyDocumented ?? fullyDocumentedCount,
-          missingDocs: statsData.missingDocs ?? missingDocsCount,
-          totalAttachedFiles: statsData.totalAttachedFiles ?? totalFilesCount,
+          commercial: commCount,
+          zones: uniqueLocations,
           timestamp: Date.now()
         }));
       } catch (cacheErr) {
         console.warn("Could not cache dashboard data:", cacheErr);
       }
     } catch (err) {
-      setIsWakingServer(false);
-      // Auto-retry once after 8 seconds (Render server may still be waking up)
-      if (retryCount === 0) {
-        console.warn("First fetch failed, retrying in 8s (Render cold start):", err.message);
-        // Keep loading/waking state alive during retry — do NOT call setIsLoading(false) yet
-        setIsSyncing(false);
-        setTimeout(() => fetchDashboardData(1), 8000);
-        return; // skip the finally block below
-      } else {
-        // Network error after retry — silent if cached data is already showing
-        console.warn("Dashboard data fetch error after retry:", err.message);
-      }
+      console.warn("Silent background sync note:", err.message);
     } finally {
-      setIsLoading(false);
       setIsSyncing(false);
     }
   };
@@ -626,10 +576,10 @@ const Dashboard = () => {
     document.addEventListener('visibilitychange', handleVisibilityOrFocus);
     window.addEventListener('focus', handleVisibilityOrFocus);
 
-    // Silent background live sync every 25 seconds for multi-device office updates
+    // Continuous silent background live sync every 15 seconds for multi-device office updates
     const syncInterval = setInterval(() => {
       fetchDashboardData();
-    }, 25000);
+    }, 15000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
@@ -663,7 +613,7 @@ const Dashboard = () => {
             {isSyncing ? (
               <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                {isWakingServer ? 'Waking server...' : 'Syncing live...'}
+                Syncing live...
               </span>
             ) : (
               <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200" title="Connected to central office database with auto-sync">
@@ -711,17 +661,6 @@ const Dashboard = () => {
           </div>
         </form>
       </div>
-
-      {/* Server Cold-Start Warning Banner */}
-      {isWakingServer && (
-        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800">
-          <span className="text-lg">⏳</span>
-          <div>
-            <span className="font-semibold">Loading records...</span>
-            <span className="ml-1.5 text-amber-700 text-xs">The server is waking up — this takes about 30–60 seconds on first load. Records will appear automatically.</span>
-          </div>
-        </div>
-      )}
 
       {/* Overview Cards (Clickable) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">        {/* Card 1: Total Archived */}

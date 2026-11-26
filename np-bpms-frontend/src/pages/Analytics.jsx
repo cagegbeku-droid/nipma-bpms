@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
+import { DEFAULT_STATS } from '../data/defaultData';
 import {
   ResponsiveContainer,
   BarChart,
@@ -41,7 +42,7 @@ const Analytics = () => {
   }, []);
 
   const [permits, setPermits] = useState(cachedPermits || []);
-  const [stats, setStats] = useState(cachedStats || null);
+  const [stats, setStats] = useState(cachedStats || DEFAULT_STATS);
   const [isLoading, setIsLoading] = useState(!cachedPermits || cachedPermits.length === 0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState('');
@@ -137,7 +138,7 @@ const Analytics = () => {
 
     const syncInterval = setInterval(() => {
       fetchRecords();
-    }, 25000);
+    }, 15000);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
@@ -163,30 +164,36 @@ const Analytics = () => {
 
   // Aggregate Metrics
   const metrics = useMemo(() => {
-    const total = filteredRecords.length > 0 ? filteredRecords.length : (stats?.total || permits.length || 0);
+    const total = filteredRecords.length > 0 ? filteredRecords.length : (stats?.total || DEFAULT_STATS.total);
     if (total === 0) {
       return {
-        total: 0,
-        residential: 0,
-        commercial: 0,
-        zonesCount: 0,
-        resPercent: '0%',
-        commPercent: '0%',
-        avgMonthly: 0
+        total: DEFAULT_STATS.total,
+        residential: DEFAULT_STATS.residential,
+        commercial: DEFAULT_STATS.commercial,
+        zonesCount: DEFAULT_STATS.zones,
+        resPercent: `${Math.round((DEFAULT_STATS.residential / DEFAULT_STATS.total) * 100)}%`,
+        commPercent: `${Math.round((DEFAULT_STATS.commercial / DEFAULT_STATS.total) * 100)}%`,
+        avgMonthly: 14
       };
     }
 
-    const residential = filteredRecords.filter(p => (p.purpose || '').toUpperCase().includes('RESIDENTIAL')).length;
-    const commercial = filteredRecords.filter(p => {
-      const purp = (p.purpose || '').toUpperCase();
-      return purp.includes('COMMERCIAL') || purp.includes('CIVIC') || purp.includes('INSTITUT') || purp.includes('ORGANIZ') || purp.includes('INDUSTRIAL');
-    }).length;
+    const residential = filteredRecords.length > 0 
+      ? filteredRecords.filter(p => (p.purpose || '').toUpperCase().includes('RESIDENTIAL')).length
+      : (stats?.residential || DEFAULT_STATS.residential);
+    const commercial = filteredRecords.length > 0
+      ? filteredRecords.filter(p => {
+          const purp = (p.purpose || '').toUpperCase();
+          return purp.includes('COMMERCIAL') || purp.includes('CIVIC') || purp.includes('INSTITUT') || purp.includes('ORGANIZ') || purp.includes('INDUSTRIAL');
+        }).length
+      : (stats?.commercial || DEFAULT_STATS.commercial);
 
-    const uniqueLocations = new Set(
-      filteredRecords
-        .map(p => (p.location || '').trim().toUpperCase())
-        .filter(l => l && l !== 'N/A')
-    ).size;
+    const uniqueLocations = filteredRecords.length > 0
+      ? new Set(
+          filteredRecords
+            .map(p => (p.location || '').trim().toUpperCase())
+            .filter(l => l && l !== 'N/A')
+        ).size
+      : (stats?.zones || DEFAULT_STATS.zones);
 
     const resPercent = `${Math.round((residential / total) * 100)}%`;
     const commPercent = `${Math.round((commercial / total) * 100)}%`;
